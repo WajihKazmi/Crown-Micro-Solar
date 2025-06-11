@@ -5,6 +5,8 @@ import '../../../core/utils/app_text_fields.dart';
 import '../../../core/utils/app_buttons.dart';
 import 'package:flutter/gestures.dart';
 
+import 'forgot_password_screen.dart';
+
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({Key? key}) : super(key: key);
 
@@ -15,16 +17,15 @@ class RegistrationScreen extends StatefulWidget {
 }
 
 class _RegistrationScreenState extends State<RegistrationScreen> {
-  final TextEditingController _userIdController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController =
       TextEditingController();
   final _formKey = GlobalKey<FormState>();
-  bool _agreeToTerms = false;
 
   @override
   void dispose() {
-    _userIdController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
@@ -32,18 +33,11 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
   void _register() {
     if (_formKey.currentState?.validate() ?? false) {
-      if (!_agreeToTerms) {
-        // Show error if terms are not agreed
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Please agree to the Terms & Conditions')),
-        );
-        return;
-      }
       // TODO: Implement registration logic
       print('Registration logic here');
       // For now, navigate to login after successful registration (simulated)
-      Navigator.of(context).pushReplacementNamed(AppRoutes.login);
+      Navigator.of(context).pushReplacementNamed(AppRoutes.verification,
+          arguments: RecoveryMode.registration);
     }
   }
 
@@ -74,13 +68,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Welcome, Crown\nCreate new account!',
+                  'Welcome, Crown',
                   style: theme.textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
                 ),
 
-                const SizedBox(height: 15.0),
+                const SizedBox(height: 5.0),
                 Text(
                   'Create new account',
                   style: theme.textTheme.titleMedium?.copyWith(
@@ -93,14 +87,20 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text('User ID', style: theme.textTheme.titleMedium),
+                      Text('Email', style: theme.textTheme.titleMedium),
                       const SizedBox(height: 5.0),
                       AppTextField(
-                        controller: _userIdController,
-                        hintText: 'Enter your user ID',
+                        controller: _emailController,
+                        hintText: 'Enter your email',
+                        keyboardType: TextInputType.emailAddress,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
-                            return 'Please enter your User ID';
+                            return 'Please enter your email';
+                          }
+                          // Basic email format validation
+                          if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
+                              .hasMatch(value)) {
+                            return 'Please enter a valid email address';
                           }
                           return null;
                         },
@@ -143,7 +143,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 20.0),
+                const SizedBox(height: 40.0),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -156,6 +156,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           'assets/icons/agree.png', // Checked icon
                           scale: 1.5,
                         ),
+                        //Icon(Icons.check_circle_rounded) GREEN BUTTON
+                        //Icon(Icons.check_circle_outlined) Grey BUTTON (Inactive)
                       ),
                     ),
                     Expanded(

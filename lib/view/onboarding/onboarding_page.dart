@@ -21,7 +21,8 @@ class OnboardingPage extends StatelessWidget {
         children: [
           Image.asset(
             imagePath,
-            fit: BoxFit.contain,
+            fit: BoxFit.fill,
+            scale: .5,
           ),
           Column(
             mainAxisAlignment: MainAxisAlignment.end,
@@ -43,6 +44,7 @@ class OnboardingPage extends StatelessWidget {
                   color: Colors.grey[600],
                 ),
               ),
+              const SizedBox(height: 50.0),
             ],
           ),
         ],

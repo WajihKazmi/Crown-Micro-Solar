@@ -28,8 +28,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   void _skipOnboarding() {
     // Navigate to the next screen, e.g., login screen or home screen
-    Navigator.of(context).pushReplacementNamed(
-        AppRoutes.createAccount); // Replace with your actual login route
+    Navigator.of(context)
+        .pushReplacementNamed(AppRoutes.login); // Navigate to the login route
   }
 
   @override
@@ -64,7 +64,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ],
           ),
           Positioned(
-            bottom: 100.0,
+            bottom: 110.0,
             left: 0,
             right: 0,
             child: Row(
@@ -74,7 +74,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
           ),
           Positioned(
-            bottom: 20.0,
+            bottom: 30.0,
             left: 0,
             right: 0,
             child: _currentPage == 2

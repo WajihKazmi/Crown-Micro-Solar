@@ -54,7 +54,7 @@ class _LoginScreenState extends State<LoginScreen> {
         },
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
+            padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 20),
             child: Column(
               mainAxisSize: MainAxisSize.max,
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -63,6 +63,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Title
+
+                    const SizedBox(height: 40.0),
                     Text(
                       'Welcome Back,\nCrown Member!',
                       style: theme.textTheme.headlineMedium?.copyWith(
@@ -167,7 +169,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 5.0),
+                    const SizedBox(height: 15.0),
                     // Login Button (Filled)
                     AppButtons.primaryButton(
                       context: context,
@@ -206,7 +208,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       horizontalPadding:
                           0, // Padding handled by parent SingleChildScrollView
                     ),
-                    const SizedBox(height: 10.0),
                     // Contact Options
                     TextButton.icon(
                       onPressed: () {
@@ -240,11 +241,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 10.0),
                   ],
                 ),
                 Padding(
-                  padding: const EdgeInsetsGeometry.symmetric(vertical: 20),
+                  padding: const EdgeInsetsGeometry.symmetric(vertical: 8),
                   child: Image.asset(
                     'assets/images/logo_main.png',
                     height: 80,

@@ -7,6 +7,7 @@ import '../../core/utils/app_text_fields.dart';
 enum RecoveryMode {
   password,
   userId,
+  registration, // Added for new user registration flow
 }
 
 class ForgotPasswordScreen extends StatefulWidget {
@@ -88,8 +89,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       // Title (moved from AppBar)
                       Text(
                         _mode == RecoveryMode.password
-                            ? 'Forgot Password!'
-                            : 'Forgot User ID!',
+                            ? 'Forgot Password'
+                            : 'Forgot User ID',
                         style: theme.textTheme.headlineMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
@@ -102,7 +103,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                           color: Colors.grey[600],
                         ),
                       ),
-                      const SizedBox(height: 24.0),
+                      const SizedBox(height: 40.0),
                       // Email Address Text Field
                       Text(
                         'Email Address',
@@ -124,12 +125,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                           }
                           return null;
                         },
-                        onFieldSubmitted: (_) { // Accept String parameter
+                        onFieldSubmitted: (_) {
+                          // Accept String parameter
                           // TODO: Handle field submission if needed
                           _continue(); // Optionally trigger continue on submitting this field
                         },
                       ),
-                      const SizedBox(height: 24.0),
+                      const SizedBox(height: 15.0),
                       // Continue Button
                       AppButtons.primaryButton(
                         context: context,
@@ -137,12 +139,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                             _continue, // Call the validation and navigation function
                         text: 'Continue',
                         isFilled: true,
-                        horizontalPadding: 0, // Padding handled by parent Padding
+                        horizontalPadding:
+                            0, // Padding handled by parent Padding
                       ),
                       // Forgot User ID / Forgot Password links
                       Padding(
                         padding: const EdgeInsets.only(
-                            top: 24.0), // Add some space above links
+                            top: 15.0), // Add some space above links
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -157,9 +160,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                   color: _mode == RecoveryMode.userId
                                       ? Colors.grey
                                       : theme.colorScheme.primary,
-                                  decoration: _mode == RecoveryMode.userId
-                                      ? TextDecoration.none
-                                      : TextDecoration.underline,
+                                  // decoration: _mode == RecoveryMode.userId
+                                  //     ? TextDecoration.none
+                                  //     : TextDecoration.underline,
                                 ),
                               ),
                             ),
@@ -174,9 +177,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                   color: _mode == RecoveryMode.password
                                       ? Colors.grey
                                       : theme.colorScheme.primary,
-                                  decoration: _mode == RecoveryMode.password
-                                      ? TextDecoration.none
-                                      : TextDecoration.underline,
+                                  // decoration: _mode == RecoveryMode.password
+                                  //     ? TextDecoration.none
+                                  //     : TextDecoration.underline,
                                 ),
                               ),
                             ),

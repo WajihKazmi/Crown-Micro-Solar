@@ -108,8 +108,15 @@ class _VerificationScreenState extends State<VerificationScreen> {
         // Navigate based on recovery mode
         if (_recoveryMode == RecoveryMode.password) {
           Navigator.of(context).pushReplacementNamed(AppRoutes.resetPassword);
-        } else {
+        } else if (_recoveryMode == RecoveryMode.userId) {
           Navigator.of(context).pushReplacementNamed(AppRoutes.changeUserId);
+        } else if (_recoveryMode == RecoveryMode.registration) {
+           Navigator.of(context).pushReplacementNamed(AppRoutes.createAccount);
+        } else {
+           // Fallback or error handling if mode is unexpected
+           print('Unexpected recovery mode: $_recoveryMode');
+           // Optionally navigate to an error screen or back to login
+            Navigator.of(context).pushReplacementNamed(AppRoutes.login);
         }
       });
     } else {

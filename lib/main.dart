@@ -12,9 +12,17 @@ import 'package:crown_micro_solar/view/auth/forgot_password_screen.dart';
 import 'package:crown_micro_solar/view/auth/verification_screen.dart';
 import 'package:crown_micro_solar/view/auth/reset_password_screen.dart';
 import 'package:crown_micro_solar/view/auth/change_user_id_screen.dart';
+import 'package:provider/provider.dart';
+import 'package:crown_micro_solar/core/di/service_locator.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/auth_view_model.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/energy_view_model.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/alarm_view_model.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  setupServiceLocator();
 
   // Set preferred orientations
   SystemChrome.setPreferredOrientations([
@@ -40,28 +48,26 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Crown Micro Solar',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.system,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
-      locale: AppLocalizations.defaultLocale,
-      initialRoute: AppRoutes.splash,
-      routes: {
-        AppRoutes.splash: (context) => const SplashScreen(),
-        AppRoutes.onboarding: (context) => const OnboardingScreen(),
-        AppRoutes.createAccount: (context) => const CreateAccountScreen(),
-        AppRoutes.login: (context) => const LoginScreen(),
-        AppRoutes.forgotPassword: (context) => const ForgotPasswordScreen(),
-        AppRoutes.verification: (context) => const VerificationScreen(),
-        AppRoutes.resetPassword: (context) => const ResetPasswordScreen(),
-        AppRoutes.changeUserId: (context) => const ChangeUserIdScreen(),
-        AppRoutes.register: (context) => const RegistrationScreen(),
-        // Add other routes here as they are implemented
-      },
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => serviceLocator<AuthViewModel>()),
+        ChangeNotifierProvider(create: (_) => serviceLocator<PlantViewModel>()),
+        ChangeNotifierProvider(create: (_) => serviceLocator<DeviceViewModel>()),
+        ChangeNotifierProvider(create: (_) => serviceLocator<EnergyViewModel>()),
+        ChangeNotifierProvider(create: (_) => serviceLocator<AlarmViewModel>()),
+      ],
+      child: MaterialApp(
+        title: 'Crown Micro Solar',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: ThemeMode.system,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: AppLocalizations.defaultLocale,
+        initialRoute: AppRoutes.splash,
+        routes: AppRoutes.routes,
+      ),
     );
   }
 }
