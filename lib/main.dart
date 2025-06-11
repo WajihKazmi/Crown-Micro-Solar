@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:crown_micro_solar/view/auth/registration_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:crown_micro_solar/view/splash/splash_screen.dart';
@@ -19,28 +21,54 @@ import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart'
 import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/energy_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/alarm_view_model.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  setupServiceLocator();
+void main() async {
+  late ThemeData themeData = RedTheme;
+  String _theme;
 
-  // Set preferred orientations
-  SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+  await runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+      await dotenv.load(fileName: ".env");
+      
+      SystemChrome.setPreferredOrientations(
+          [DeviceOrientation.portraitUp, DeviceOrientation.portraitDown]);
+      await Firebase.initializeApp(
+          options: FirebaseOptions(
+        apiKey: dotenv.env['FIREBASE_API_KEY'] ?? '',
+        appId: dotenv.env['FIREBASE_APP_ID'] ?? '',
+        messagingSenderId: dotenv.env['FIREBASE_MESSAGING_SENDER_ID'] ?? '',
+        projectId: dotenv.env['FIREBASE_PROJECT_ID'] ?? '',
+        storageBucket: dotenv.env['FIREBASE_STORAGE_BUCKET'] ?? '',
+      ));
 
-  // Set system UI overlay style
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      systemNavigationBarColor: Colors.white,
-      systemNavigationBarIconBrightness: Brightness.dark,
-    ),
+      final prefs = await SharedPreferences.getInstance();
+      _theme = prefs.getString("theme").toString();
+      if (_theme == 'RedTheme') {
+        themeData = RedTheme;
+      } else if (_theme == 'yellowtheme') {
+        themeData = yellowTheme;
+      } else if (_theme == 'greentheme') {
+        themeData = greentheme;
+      } else if (_theme == 'bluetheme') {
+        themeData = blueTheme;
+      } else {
+        print('object');
+        themeData = RedTheme;
+      }
+      runApp(
+        ChangeNotifierProvider(
+          create: (_) => ThemeNotifier(themeData),
+          child: MyApp(),
+        ),
+      );
+    },
+    (error, st) => print(error),
   );
-
-  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
