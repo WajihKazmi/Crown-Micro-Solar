@@ -69,6 +69,10 @@ build/
 *.g.dart
 *.freezed.dart
 
+# Project specific
+/newtemp/
+/newtemp/**/*
+
 # Android specific
 **/android/**/gradle-wrapper.jar
 **/android/.gradle
