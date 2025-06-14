@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:crown_micro_solar/core/network/api_client.dart';
 import 'package:crown_micro_solar/core/network/api_endpoints.dart';
-import 'package:crown_micro_solar/data/models/energy/energy_data_model.dart';
+import 'package:crown_micro_solar/presentation/models/energy/energy_data_model.dart';
 
 class EnergyRepository {
   final ApiClient _apiClient;

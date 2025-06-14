@@ -9,27 +9,55 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  bool _isInitialized = false;
+  String? _error;
+
   @override
   void initState() {
     super.initState();
-    // Navigate to onboarding after 2.5 seconds
-    Future.delayed(const Duration(milliseconds: 3000), () {
+    _initialize();
+  }
+
+  Future<void> _initialize() async {
+    try {
+      // Add a small delay for splash screen visibility
+      await Future.delayed(const Duration(seconds: 2));
+      
+      if (!mounted) return;
+      
+      setState(() {
+        _isInitialized = true;
+      });
+
+      // Navigate to onboarding
       Navigator.of(context).pushReplacementNamed(AppRoutes.onboarding);
-    });
+    } catch (e) {
+      print('Error during initialization: $e');
+      if (!mounted) return;
+      setState(() {
+        _error = 'Failed to initialize app. Please try again.';
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(
-          image: DecorationImage(
-            image: AssetImage('assets/images/Splash.jpg'),
-            fit: BoxFit.cover,
-          ),
-        ),
+      body: Center(
+        child: _error != null
+            ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                  const SizedBox(height: 16),
+                  Text(
+                    _error!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                ],
+              )
+            : const CircularProgressIndicator(),
       ),
     );
   }

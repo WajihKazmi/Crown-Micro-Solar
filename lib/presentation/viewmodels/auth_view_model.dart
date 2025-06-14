@@ -1,18 +1,13 @@
 import 'package:flutter/foundation.dart';
-import 'package:crown_micro_solar/data/repositories/auth_repository.dart';
-import 'package:crown_micro_solar/data/models/auth/auth_response.dart';
 
 class AuthViewModel extends ChangeNotifier {
-  final AuthRepository _authRepository;
   bool _isLoading = false;
   String? _error;
-  AuthResponse? _authResponse;
-
-  AuthViewModel(this._authRepository);
+  bool _isAuthenticated = false;
 
   bool get isLoading => _isLoading;
   String? get error => _error;
-  AuthResponse? get authResponse => _authResponse;
+  bool get isAuthenticated => _isAuthenticated;
 
   Future<bool> login(String username, String password) async {
     _isLoading = true;
@@ -20,10 +15,12 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _authResponse = await _authRepository.login(username, password);
+      // Mock login
+      await Future.delayed(const Duration(seconds: 1));
+      _isAuthenticated = true;
       _isLoading = false;
       notifyListeners();
-      return _authResponse?.success ?? false;
+      return true;
     } catch (e) {
       _error = e.toString();
       _isLoading = false;
@@ -38,10 +35,12 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _authResponse = await _authRepository.register(username, password, email);
+      // Mock registration
+      await Future.delayed(const Duration(seconds: 1));
+      _isAuthenticated = true;
       _isLoading = false;
       notifyListeners();
-      return _authResponse?.success ?? false;
+      return true;
     } catch (e) {
       _error = e.toString();
       _isLoading = false;
@@ -56,10 +55,12 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _authResponse = await _authRepository.verify(username, code);
+      // Mock verification
+      await Future.delayed(const Duration(seconds: 1));
+      _isAuthenticated = true;
       _isLoading = false;
       notifyListeners();
-      return _authResponse?.success ?? false;
+      return true;
     } catch (e) {
       _error = e.toString();
       _isLoading = false;
@@ -72,4 +73,9 @@ class AuthViewModel extends ChangeNotifier {
     _error = null;
     notifyListeners();
   }
-} 
+
+  void logout() {
+    _isAuthenticated = false;
+    notifyListeners();
+  }
+}

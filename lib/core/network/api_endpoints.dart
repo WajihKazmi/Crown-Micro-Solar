@@ -1,35 +1,10 @@
 class ApiEndpoints {
-  // Authentication API endpoints
-  static const String authBaseUrl = 'https://apis.crown-micro.net/api/MonitoringApp';
-  static const String login = '/Login';
-  static const String register = '/Register';
-  static const String verifyShortCode = '/VerifyShortCode';
-  static const String pushShortCode = '/PushShortCode';
-  static const String updatePassword = '/UpdatePassword';
-  static const String getUserID = '/GetUserID';
-  static const String updateAgentCode = '/UpdateAgentCode';
-  static const String deactivateAccount = '/DeactivateAccount';
-
-  // Monitor API endpoints
-  static const String monitorBaseUrl = 'http://api.dessmonitor.com/public';
+  static const String baseUrl = "http://api.dessmonitor.com/public/?sign=";
   
-  // Monitor API actions (tested and correct)
-  static const String webQueryPlants = '&action=webQueryPlants';
-  static const String webQueryDeviceEs = '&action=webQueryDeviceEs';
-  static const String webQueryPlantsWarning = '&action=webQueryPlantsWarning';
-  static const String queryPlantActiveOuputPowerOneDay = '&action=queryPlantActiveOuputPowerOneDay';
-  static const String queryPlantsProfitStatisticOneDay = '&action=queryPlantsProfitStatisticOneDay';
-  static const String queryDeviceParsEs = '&action=queryDeviceParsEs';
-  static const String queryDeviceCtrlField = '&action=queryDeviceCtrlField';
-  static const String queryDeviceDataOneDayPaging = '&action=queryDeviceDataOneDayPaging';
-  static const String addCollectorEs = '&action=addCollectorEs';
-  static const String delCollectorFromPlant = '&action=delCollectorFromPlant';
-  static const String editCollector = '&action=editCollector';
-  static const String delDeviceFromPlant = '&action=delDeviceFromPlant';
-  static const String ignorePlantWarning = '&action=ignorePlantWarning';
-  
-  // API Key
-  static const String apiKey = 'C5BFF7F0-B4DF-475E-A331-F737424F013C';
+  // Auth endpoints
+  static const String login = "&action=login";
+  static const String register = "&action=reg";
+  static const String verify = "&action=verify";
   
   // Plant endpoints
   static const String createPowerStation = "&action=reg";
@@ -49,4 +24,19 @@ class ApiEndpoints {
   // Alarm endpoints
   static const String getAlarms = "&action=queryAlarms";
   static const String getWarnings = "&action=queryPlantWarning";
+  
+  // New endpoints
+  static const String webQueryPlants = "&action=webQueryPlants";
+  static const String webQueryDeviceEs = "&action=webQueryDeviceEs";
+  static const String webQueryPlantsWarning = "&action=webQueryPlantsWarning";
+  static const String queryPlantActiveOuputPowerOneDay = "&action=queryPlantActiveOuputPowerOneDay";
+  static const String queryPlantsProfitStatisticOneDay = "&action=queryPlantsProfitStatisticOneDay";
+  static const String queryDeviceParsEs = "&action=queryDeviceParsEs";
+  static const String queryDeviceCtrlField = "&action=queryDeviceCtrlField";
+  static const String queryDeviceDataOneDayPaging = "&action=queryDeviceDataOneDayPaging";
+  static const String addCollectorEs = "&action=addCollectorEs";
+  static const String delCollectorFromPlant = "&action=delCollectorFromPlant";
+  static const String editCollector = "&action=editCollector";
+  static const String delDeviceFromPlant = "&action=delDeviceFromPlant";
+  static const String ignorePlantWarning = "&action=ignorePlantWarning";
 } 

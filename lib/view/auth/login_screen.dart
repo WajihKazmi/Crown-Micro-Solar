@@ -64,14 +64,14 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     // Title
 
-                    const SizedBox(height: 40.0),
+                    const SizedBox(height: 60.0),
                     Text(
-                      'Welcome Back,\nCrown Member!',
+                      'Welcome Back',
                       style: theme.textTheme.headlineMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 5.0),
+                    const SizedBox(height: 15.0),
                     // Subtitle
                     Text(
                       'Enter the data below to get a verification code',
@@ -103,7 +103,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         _login(); // Optionally trigger login on submitting this field
                       },
                     ),
-                    const SizedBox(height: 10.0),
+                    const SizedBox(height: 15.0),
                     // Password Text Field
                     Text(
                       'Password',
@@ -150,7 +150,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             Text(
                               'Installer Mode',
-                              style: theme.textTheme.bodyMedium,
+                              style: theme.textTheme.bodyMedium!
+                                  .copyWith(fontWeight: FontWeight.w600),
                             ),
                           ],
                         ),
@@ -200,7 +201,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       onTap: () {
                         // TODO: Implement Register logic
                         // Navigate to Registration Screen
-                        Navigator.of(context).pushNamed(AppRoutes.register);
+                        Navigator.of(context).pushNamed(AppRoutes.registration);
                       },
                       text: 'Register',
                       isFilled: false,
@@ -208,6 +209,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       horizontalPadding:
                           0, // Padding handled by parent SingleChildScrollView
                     ),
+
+                    const SizedBox(height: 15.0),
                     // Contact Options
                     TextButton.icon(
                       onPressed: () {
@@ -225,26 +228,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ),
-                    TextButton.icon(
-                      onPressed: () {
-                        // TODO: Implement WhatsApp logic
-                      },
-                      icon: Image.asset(
-                        'assets/icons/whatsapp.png', // WhatsApp icon
-                        width: 20,
-                        height: 20,
-                      ),
-                      label: Text(
-                        'WhatsApp',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ),
                   ],
                 ),
                 Padding(
-                  padding: const EdgeInsetsGeometry.symmetric(vertical: 8),
+                  padding: const EdgeInsetsGeometry.symmetric(vertical: 0),
                   child: Image.asset(
                     'assets/images/logo_main.png',
                     height: 80,

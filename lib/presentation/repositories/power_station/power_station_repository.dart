@@ -7,9 +7,11 @@ class PowerStationRepository {
 
   PowerStationRepository(this._apiClient);
 
-  Future<PowerStationQueryResponse> getPowerStationInfo(String stationId) async {
+  Future<PowerStationQueryResponse> getPowerStationInfo(
+      String stationId) async {
     try {
-      final response = await _apiClient.get('/power-station/$stationId');
+      final response =
+          await _apiClient.get('/power-station/$stationId') as Response;
       return PowerStationQueryResponse.fromJson(response.data);
     } on DioException catch (e) {
       throw Exception('Failed to get power station info: ${e.message}');
@@ -18,7 +20,7 @@ class PowerStationRepository {
 
   Future<List<PowerStationQueryResponse>> getAllPowerStations() async {
     try {
-      final response = await _apiClient.get('/power-stations');
+      final response = await _apiClient.get('/power-stations') as Response;
       return (response.data as List)
           .map((station) => PowerStationQueryResponse.fromJson(station))
           .toList();
@@ -29,16 +31,19 @@ class PowerStationRepository {
 
   Future<PowerStationStatus> getPowerStationStatus(String stationId) async {
     try {
-      final response = await _apiClient.get('/power-station/$stationId/status');
+      final response =
+          await _apiClient.get('/power-station/$stationId/status') as Response;
       return PowerStationStatus.fromJson(response.data);
     } on DioException catch (e) {
       throw Exception('Failed to get power station status: ${e.message}');
     }
   }
 
-  Future<List<PowerStationDevice>> getPowerStationDevices(String stationId) async {
+  Future<List<PowerStationDevice>> getPowerStationDevices(
+      String stationId) async {
     try {
-      final response = await _apiClient.get('/power-station/$stationId/devices');
+      final response =
+          await _apiClient.get('/power-station/$stationId/devices') as Response;
       return (response.data as List)
           .map((device) => PowerStationDevice.fromJson(device))
           .toList();
@@ -49,10 +54,11 @@ class PowerStationRepository {
 
   Future<Map<String, dynamic>> getPowerStationMetrics(String stationId) async {
     try {
-      final response = await _apiClient.get('/power-station/$stationId/metrics');
+      final response =
+          await _apiClient.get('/power-station/$stationId/metrics') as Response;
       return response.data;
     } on DioException catch (e) {
       throw Exception('Failed to get power station metrics: ${e.message}');
     }
   }
-} 
+}

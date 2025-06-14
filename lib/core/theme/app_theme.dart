@@ -29,7 +29,8 @@ class AppTheme {
         primary: customPrimaryColor,
         // Use this color for elevated buttons, focused states, etc.
         primaryContainer: primaryRed[100], // A lighter shade for containers
-        secondary: Colors.grey[300], // Assuming a light grey from the screenshot
+        secondary:
+            Colors.grey[300], // Assuming a light grey from the screenshot
         onSecondary: Colors.black87, // Text on secondary
         background: Colors.white, // White background from screenshot
         surface: Colors.white, // White surface for cards, etc.
@@ -68,7 +69,7 @@ class AppTheme {
         seedColor: customPrimaryColor,
         brightness: Brightness.dark,
         primary: customPrimaryColor, // Use the custom color in dark mode too
-         primaryContainer: primaryRed[900], // A darker shade for containers
+        primaryContainer: primaryRed[900], // A darker shade for containers
         secondary: Colors.grey[700], // Assuming a dark grey
         onSecondary: Colors.white70, // Text on secondary
         background: Colors.black, // Black background for dark mode
@@ -86,11 +87,11 @@ class AppTheme {
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
       ),
-       buttonTheme: const ButtonThemeData(
+      buttonTheme: const ButtonThemeData(
         buttonColor: customPrimaryColor,
         textTheme: ButtonTextTheme.primary,
       ),
-       elevatedButtonTheme: ElevatedButtonThemeData(
+      elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: customPrimaryColor, // Button background color
           foregroundColor: Colors.white, // Button text color
@@ -99,4 +100,4 @@ class AppTheme {
       // Add other dark theme customizations here based on your design
     );
   }
-} 
+}

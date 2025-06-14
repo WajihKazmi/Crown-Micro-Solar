@@ -10,7 +10,7 @@ import 'forgot_password_screen.dart';
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({Key? key}) : super(key: key);
 
-  static const String routeName = AppRoutes.register;
+  static const String routeName = AppRoutes.registration;
 
   @override
   _RegistrationScreenState createState() => _RegistrationScreenState();
@@ -22,6 +22,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final TextEditingController _confirmPasswordController =
       TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  bool _isAgreed = false;
 
   @override
   void dispose() {
@@ -68,20 +69,20 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Welcome, Crown',
+                  'Sign Up',
                   style: theme.textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
                 ),
 
-                const SizedBox(height: 5.0),
+                const SizedBox(height: 15.0),
                 Text(
-                  'Create new account',
+                  'Enter the data below to create a new account',
                   style: theme.textTheme.titleMedium?.copyWith(
                     color: Colors.grey[600],
                   ),
                 ),
-                const SizedBox(height: 40.0),
+                const SizedBox(height: 30.0),
                 Form(
                   key: _formKey,
                   child: Column(
@@ -105,7 +106,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           return null;
                         },
                       ),
-                      const SizedBox(height: 10.0),
+                      const SizedBox(height: 15.0),
                       Text('Password', style: theme.textTheme.titleMedium),
                       const SizedBox(height: 5.0),
                       AppTextField(
@@ -122,7 +123,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           return null;
                         },
                       ),
-                      const SizedBox(height: 10.0),
+                      const SizedBox(height: 15.0),
                       Text('Confirm Password',
                           style: theme.textTheme.titleMedium),
                       const SizedBox(height: 5.0),
@@ -148,18 +149,30 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     GestureDetector(
-                      onTap: () {},
-                      child: Padding(
-                        padding: const EdgeInsets.only(
-                            right: 8.0, top: 2.0), // Adjust padding as needed
-                        child: Image.asset(
-                          'assets/icons/agree.png', // Checked icon
-                          scale: 1.5,
+                      onTap: () {
+                        setState(() {
+                          _isAgreed = !_isAgreed;
+                        });
+                      },
+                      child: Container(
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _isAgreed
+                              ? theme.colorScheme.primary
+                              : Colors.grey[300],
                         ),
-                        //Icon(Icons.check_circle_rounded) GREEN BUTTON
-                        //Icon(Icons.check_circle_outlined) Grey BUTTON (Inactive)
+                        child: _isAgreed
+                            ? Icon(
+                                Icons.check,
+                                size: 16,
+                                color: Colors.white,
+                              )
+                            : null,
                       ),
                     ),
+                    const SizedBox(width: 10.0),
                     Expanded(
                       child: RichText(
                         text: TextSpan(

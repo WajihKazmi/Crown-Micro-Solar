@@ -158,8 +158,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                 'Forgot User ID?',
                                 style: theme.textTheme.bodyMedium?.copyWith(
                                   color: _mode == RecoveryMode.userId
-                                      ? Colors.grey
-                                      : theme.colorScheme.primary,
+                                      ? Colors.lightGreen.shade500
+                                      : Colors.grey,
                                   // decoration: _mode == RecoveryMode.userId
                                   //     ? TextDecoration.none
                                   //     : TextDecoration.underline,
@@ -175,8 +175,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                                 'Forgot Password?',
                                 style: theme.textTheme.bodyMedium?.copyWith(
                                   color: _mode == RecoveryMode.password
-                                      ? Colors.grey
-                                      : theme.colorScheme.primary,
+                                      ? Colors.lightGreen.shade500
+                                      : Colors.grey,
                                   // decoration: _mode == RecoveryMode.password
                                   //     ? TextDecoration.none
                                   //     : TextDecoration.underline,

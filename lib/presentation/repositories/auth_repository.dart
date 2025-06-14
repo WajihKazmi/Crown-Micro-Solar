@@ -1,8 +1,8 @@
 import 'dart:convert';
+import 'package:crown_micro_solar/presentation/models/auth/auth_response_model.dart';
 import 'package:crypto/crypto.dart';
 import 'package:crown_micro_solar/core/network/api_client.dart';
 import 'package:crown_micro_solar/core/network/api_endpoints.dart';
-import 'package:crown_micro_solar/data/models/auth/auth_response.dart';
 
 class AuthRepository {
   final ApiClient _apiClient;
@@ -18,14 +18,17 @@ class AuthRepository {
   Future<AuthResponse> login(String username, String password) async {
     final action = ApiEndpoints.login;
     final sign = _getSign(action, password, username);
-    final response = await _apiClient.get('$sign$action&usr=$username&pwd=$password');
+    final response =
+        await _apiClient.get('$sign$action&usr=$username&pwd=$password');
     return AuthResponse.fromJson(json.decode(response.body));
   }
 
-  Future<AuthResponse> register(String username, String password, String email) async {
+  Future<AuthResponse> register(
+      String username, String password, String email) async {
     final action = ApiEndpoints.register;
     final sign = _getSign(action, password, username);
-    final response = await _apiClient.get('$sign$action&usr=$username&pwd=$password&email=$email');
+    final response = await _apiClient
+        .get('$sign$action&usr=$username&pwd=$password&email=$email');
     return AuthResponse.fromJson(json.decode(response.body));
   }
 
@@ -34,4 +37,4 @@ class AuthRepository {
     final response = await _apiClient.get('$action&usr=$username&code=$code');
     return AuthResponse.fromJson(json.decode(response.body));
   }
-} 
+}

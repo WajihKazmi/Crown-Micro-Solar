@@ -1,44 +1,38 @@
 import 'package:flutter/foundation.dart';
-import 'package:crown_micro_solar/data/repositories/alarm_repository.dart';
-import 'package:crown_micro_solar/data/models/alarm/alarm_model.dart';
 
 class AlarmViewModel extends ChangeNotifier {
-  final AlarmRepository _alarmRepository;
   bool _isLoading = false;
   String? _error;
-  List<Alarm> _alarms = [];
-  List<Warning> _warnings = [];
-
-  AlarmViewModel(this._alarmRepository);
+  List<dynamic> _alarms = [];
 
   bool get isLoading => _isLoading;
   String? get error => _error;
-  List<Alarm> get alarms => _alarms;
-  List<Warning> get warnings => _warnings;
+  List<dynamic> get alarms => _alarms;
 
-  Future<void> loadAlarms(String plantId) async {
+  Future<void> loadAlarms() async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      _alarms = await _alarmRepository.getAlarms(plantId);
-      _isLoading = false;
-      notifyListeners();
-    } catch (e) {
-      _error = e.toString();
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
-
-  Future<void> loadWarnings(String plantId) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
-
-    try {
-      _warnings = await _alarmRepository.getWarnings(plantId);
+      // Mock loading alarms
+      await Future.delayed(const Duration(seconds: 1));
+      _alarms = [
+        {
+          'id': '1',
+          'type': 'warning',
+          'message': 'Low battery level',
+          'timestamp': DateTime.now().subtract(const Duration(hours: 2)),
+          'status': 'active'
+        },
+        {
+          'id': '2',
+          'type': 'error',
+          'message': 'Connection lost',
+          'timestamp': DateTime.now().subtract(const Duration(hours: 5)),
+          'status': 'resolved'
+        },
+      ];
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -54,34 +48,17 @@ class AlarmViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final success = await _alarmRepository.acknowledgeAlarm(alarmId);
-      if (success) {
-        _alarms = _alarms.where((alarm) => alarm.id != alarmId).toList();
-      }
+      // Mock acknowledging alarm
+      await Future.delayed(const Duration(seconds: 1));
+      _alarms = _alarms.map((alarm) {
+        if (alarm['id'] == alarmId) {
+          return {...alarm, 'status': 'acknowledged'};
+        }
+        return alarm;
+      }).toList();
       _isLoading = false;
       notifyListeners();
-      return success;
-    } catch (e) {
-      _error = e.toString();
-      _isLoading = false;
-      notifyListeners();
-      return false;
-    }
-  }
-
-  Future<bool> acknowledgeWarning(String warningId) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
-
-    try {
-      final success = await _alarmRepository.acknowledgeWarning(warningId);
-      if (success) {
-        _warnings = _warnings.where((warning) => warning.id != warningId).toList();
-      }
-      _isLoading = false;
-      notifyListeners();
-      return success;
+      return true;
     } catch (e) {
       _error = e.toString();
       _isLoading = false;

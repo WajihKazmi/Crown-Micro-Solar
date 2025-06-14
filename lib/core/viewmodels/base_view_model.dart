@@ -20,21 +20,22 @@ abstract class BaseViewModel extends ChangeNotifier {
   }
 
   @protected
-  Future<T> handleApiCall<T>(Future<T> Function() apiCall) async {
-    setLoading(true);
-    setError(null);
+  Future<T> handleError<T>(Future<T> Function() action) async {
     try {
-      final result = await apiCall();
-      setLoading(false);
-      return result;
+      setLoading(true);
+      setError(null);
+      return await action();
     } catch (e) {
       setError(e.toString());
-      setLoading(false);
       rethrow;
+    } finally {
+      setLoading(false);
     }
   }
 
-  void clearError() {
+  @override
+  void dispose() {
     setError(null);
+    super.dispose();
   }
 } 

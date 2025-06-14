@@ -7,7 +7,8 @@ import '../../../core/utils/app_buttons.dart';
 class CreateAccountScreen extends StatefulWidget {
   const CreateAccountScreen({Key? key}) : super(key: key);
 
-  static const String routeName = AppRoutes.createAccount; // Assuming you have a route defined for this screen
+  static const String routeName = AppRoutes
+      .createAccount; // Assuming you have a route defined for this screen
 
   @override
   _CreateAccountScreenState createState() => _CreateAccountScreenState();
@@ -16,7 +17,7 @@ class CreateAccountScreen extends StatefulWidget {
 class _CreateAccountScreenState extends State<CreateAccountScreen> {
   final TextEditingController _userIdController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _mobileNumberController = TextEditingController();
+  final TextEditingController _wifiModulePNController = TextEditingController();
   final TextEditingController _phoneNumberController = TextEditingController();
   // Add a variable for the selected role
   String? _selectedRole;
@@ -25,7 +26,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   void dispose() {
     _userIdController.dispose();
     _emailController.dispose();
-    _mobileNumberController.dispose();
+    _wifiModulePNController.dispose();
     _phoneNumberController.dispose();
     super.dispose();
   }
@@ -48,7 +49,6 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
             Navigator.of(context).pop();
           },
         ),
-        title: Text('Create Profile'),
         centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -60,48 +60,18 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         },
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 0),
             child: SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Profile Image Section
-                  Center(
-                    child: Stack(
-                      children: [
-                        CircleAvatar(
-                          radius: 60,
-                          // TODO: Add logic to display user's selected image or a placeholder
-                          backgroundImage: AssetImage('assets/images/default_avatar.png'), // Placeholder image
-                        ),
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: GestureDetector(
-                            onTap: () {
-                              // TODO: Implement logic to pick a profile image
-                              print('Pick image tapped');
-                            },
-                            child: Container(
-                              padding: EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.primary, // Use theme's primary color
-                                  shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2)
-                              ),
-                              child: Icon(
-                                Icons.camera_alt,
-                                color: theme.colorScheme.onPrimary, // Use theme's onPrimary color
-                                size: 20,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                  const SizedBox(height: 10.0),
+                  Text(
+                    'Create Profile',
+                    style: theme.textTheme.displaySmall!
+                        .copyWith(fontWeight: FontWeight.w500),
                   ),
                   const SizedBox(height: 40.0),
-
                   // User ID Field
                   Text('User ID', style: theme.textTheme.titleMedium),
                   const SizedBox(height: 5.0),
@@ -110,43 +80,22 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     hintText: 'Enter your User ID',
                     // TODO: Add validator for User ID
                   ),
-                  const SizedBox(height: 10.0),
-
-                  // Email Address Field
-                  Text('Email Address', style: theme.textTheme.titleMedium),
-                  const SizedBox(height: 5.0),
-                  AppTextField(
-                    controller: _emailController,
-                    hintText: 'Enter your email address',
-                    keyboardType: TextInputType.emailAddress,
-                     // TODO: Add validator for Email Address
-                  ),
-                  const SizedBox(height: 10.0),
-
-                  // Mobile Number Field
-                   Text('Mobile Number', style: theme.textTheme.titleMedium),
-                  const SizedBox(height: 5.0),
-                  AppTextField(
-                    controller: _mobileNumberController,
-                    hintText: 'Enter your mobile number',
-                     keyboardType: TextInputType.phone,
-                     // TODO: Add validator for Mobile Number
-                  ),
-                   const SizedBox(height: 10.0),
+                  const SizedBox(height: 15.0),
 
                   // Phone Number Field with Country Code (Placeholder)
-                   Text('Phone Number', style: theme.textTheme.titleMedium),
+                  Text('Phone Number', style: theme.textTheme.titleMedium),
                   const SizedBox(height: 5.0),
-                   Row(
+                  Row(
                     children: [
                       // TODO: Implement Country Code Picker
                       Container(
-                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 15),
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 12, vertical: 15),
                         decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey),
-                          borderRadius: BorderRadius.circular(5)
-                        ),
-                        child: Text('+1', style: theme.textTheme.titleMedium), // Placeholder
+                            border: Border.all(color: Colors.grey),
+                            borderRadius: BorderRadius.circular(5)),
+                        child: Text('+1',
+                            style: theme.textTheme.titleMedium), // Placeholder
                       ),
                       const SizedBox(width: 8.0),
                       Expanded(
@@ -159,39 +108,50 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                       ),
                     ],
                   ),
-                   const SizedBox(height: 10.0),
+                  const SizedBox(height: 15.0),
+                  // Email Address Field
+                  Text('WiFi Module PN', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 5.0),
+                  AppTextField(
+                    controller: _wifiModulePNController,
+                    hintText: 'e.g W0011223344556',
+                    keyboardType: TextInputType.text,
+                    // TODO: Add validator for Email Address
+                  ),
+                  const SizedBox(height: 15.0),
 
                   // Role Selection (Placeholder)
-                   Text('Role', style: theme.textTheme.titleMedium),
+                  Text('Role', style: theme.textTheme.titleMedium),
                   const SizedBox(height: 5.0),
-                   Container(
-                     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 5), // Adjust padding to align with text fields
-                     decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey),
-                          borderRadius: BorderRadius.circular(5)
-                        ),
-                     child: DropdownButtonFormField<String>(
-                       decoration: InputDecoration(
-                         border: InputBorder.none, // Remove default underline
-                          contentPadding: EdgeInsets.zero
-                       ),
-                       hint: Text('Select your role'),
-                       value: _selectedRole,
-                       items: <String>['Admin', 'User', 'Installer', 'Other'].map((String value) {
-                         return DropdownMenuItem<String>(
-                           value: value,
-                           child: Text(value),
-                         );
-                       }).toList(),
-                       onChanged: (String? newValue) {
-                         setState(() {
-                           _selectedRole = newValue;
-                         });
-                       },
-                       // TODO: Add validator for Role
-                     ),
-                   ),
-                   const SizedBox(height: 20.0),
+                  Container(
+                    padding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical:
+                            5), // Adjust padding to align with text fields
+                    decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey),
+                        borderRadius: BorderRadius.circular(5)),
+                    child: DropdownButtonFormField<String>(
+                      decoration: InputDecoration(
+                          border: InputBorder.none, // Remove default underline
+                          contentPadding: EdgeInsets.zero),
+                      hint: Text('Select your role'),
+                      value: _selectedRole,
+                      items: <String>['User', 'Installer'].map((String value) {
+                        return DropdownMenuItem<String>(
+                          value: value,
+                          child: Text(value),
+                        );
+                      }).toList(),
+                      onChanged: (String? newValue) {
+                        setState(() {
+                          _selectedRole = newValue;
+                        });
+                      },
+                      // TODO: Add validator for Role
+                    ),
+                  ),
+                  const SizedBox(height: 20.0),
 
                   // Continue Button
                   AppButtons.primaryButton(

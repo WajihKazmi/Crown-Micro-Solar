@@ -1,20 +1,13 @@
 import 'package:flutter/foundation.dart';
-import 'package:crown_micro_solar/data/repositories/plant_repository.dart';
-import 'package:crown_micro_solar/data/models/plant/plant_model.dart';
 
 class PlantViewModel extends ChangeNotifier {
-  final PlantRepository _plantRepository;
   bool _isLoading = false;
   String? _error;
-  List<Plant> _plants = [];
-  Plant? _selectedPlant;
-
-  PlantViewModel(this._plantRepository);
+  List<dynamic> _plants = [];
 
   bool get isLoading => _isLoading;
   String? get error => _error;
-  List<Plant> get plants => _plants;
-  Plant? get selectedPlant => _selectedPlant;
+  List<dynamic> get plants => _plants;
 
   Future<void> loadPlants() async {
     _isLoading = true;
@@ -22,55 +15,18 @@ class PlantViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _plants = await _plantRepository.getPlants();
+      // Mock loading plants
+      await Future.delayed(const Duration(seconds: 1));
+      _plants = [
+        {'id': '1', 'name': 'Plant 1', 'status': 'active'},
+        {'id': '2', 'name': 'Plant 2', 'status': 'inactive'},
+      ];
       _isLoading = false;
       notifyListeners();
     } catch (e) {
       _error = e.toString();
       _isLoading = false;
       notifyListeners();
-    }
-  }
-
-  Future<void> loadPlantDetails(String plantId) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
-
-    try {
-      _selectedPlant = await _plantRepository.getPlantDetails(plantId);
-      _isLoading = false;
-      notifyListeners();
-    } catch (e) {
-      _error = e.toString();
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
-
-  Future<bool> createPlant({
-    required String name,
-    required String location,
-    required double capacity,
-  }) async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
-
-    try {
-      final success = await _plantRepository.createPlant(
-        name: name,
-        location: location,
-        capacity: capacity,
-      );
-      _isLoading = false;
-      notifyListeners();
-      return success;
-    } catch (e) {
-      _error = e.toString();
-      _isLoading = false;
-      notifyListeners();
-      return false;
     }
   }
 

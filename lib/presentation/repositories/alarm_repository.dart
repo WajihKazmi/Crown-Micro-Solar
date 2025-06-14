@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:crown_micro_solar/core/network/api_client.dart';
 import 'package:crown_micro_solar/core/network/api_endpoints.dart';
-import 'package:crown_micro_solar/data/models/alarm/alarm_model.dart';
+import 'package:crown_micro_solar/presentation/models/alarm/alarm_model.dart';
 
 class AlarmRepository {
   final ApiClient _apiClient;

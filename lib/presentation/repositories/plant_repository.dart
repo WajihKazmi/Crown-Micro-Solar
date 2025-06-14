@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:crown_micro_solar/core/network/api_client.dart';
 import 'package:crown_micro_solar/core/network/api_endpoints.dart';
-import 'package:crown_micro_solar/data/models/plant/plant_model.dart';
+import 'package:crown_micro_solar/presentation/models/plant/plant_model.dart';
 
 class PlantRepository {
   final ApiClient _apiClient;

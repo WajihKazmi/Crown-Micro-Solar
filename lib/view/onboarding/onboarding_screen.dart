@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'onboarding_page.dart';
-import '../../routes/app_routes.dart'; // Assuming you have defined routes here
+import '../../routes/app_routes.dart';
 import '../../core/utils/app_buttons.dart';
 
 class OnboardingScreen extends StatefulWidget {
