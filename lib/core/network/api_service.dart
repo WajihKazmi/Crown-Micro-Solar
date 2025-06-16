@@ -1,31 +1,29 @@
 import 'package:dio/dio.dart';
+import 'package:crown_micro_solar/core/network/api_endpoints.dart';
 
 class ApiService {
   final Dio _dio;
-  // Using a default URL for development
-  static const String _baseUrl = 'https://api.example.com';
 
-  ApiService() : _dio = Dio(BaseOptions(
-    baseUrl: _baseUrl,
-    connectTimeout: const Duration(seconds: 5),
-    receiveTimeout: const Duration(seconds: 3),
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-  )) {
-    // Add logging for development
-    _dio.interceptors.add(LogInterceptor(
-      requestBody: true,
-      responseBody: true,
-      logPrint: (object) => print(object),
-    ));
+  ApiService() : _dio = Dio() {
+    _dio.options = BaseOptions(
+      baseUrl: 'http://api.dessmonitor.com/public/',
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+    );
   }
 
   // Generic GET request
-  Future<Response> get(String path, {Map<String, dynamic>? queryParameters}) async {
+  Future<Response> get(String url, {Options? options}) async {
     try {
-      return await _dio.get(path, queryParameters: queryParameters);
+      final response = await _dio.get(
+        url,
+        options: options,
+      );
+      return response;
     } catch (e) {
       print('GET request failed: $e');
       rethrow;
@@ -33,9 +31,14 @@ class ApiService {
   }
 
   // Generic POST request
-  Future<Response> post(String path, {dynamic data}) async {
+  Future<Response> post(String url, {dynamic data, Options? options}) async {
     try {
-      return await _dio.post(path, data: data);
+      final response = await _dio.post(
+        url,
+        data: data,
+        options: options,
+      );
+      return response;
     } catch (e) {
       print('POST request failed: $e');
       rethrow;
@@ -46,8 +49,15 @@ class ApiService {
   Future<Response> put(String path, {dynamic data}) async {
     try {
       return await _dio.put(path, data: data);
+    } on DioException catch (e) {
+      print('PUT request failed: ${e.message}');
+      if (e.response != null) {
+        print('Response data: ${e.response?.data}');
+        print('Response status: ${e.response?.statusCode}');
+      }
+      rethrow;
     } catch (e) {
-      print('PUT request failed: $e');
+      print('Unexpected error during PUT request: $e');
       rethrow;
     }
   }
@@ -56,8 +66,15 @@ class ApiService {
   Future<Response> delete(String path) async {
     try {
       return await _dio.delete(path);
+    } on DioException catch (e) {
+      print('DELETE request failed: ${e.message}');
+      if (e.response != null) {
+        print('Response data: ${e.response?.data}');
+        print('Response status: ${e.response?.statusCode}');
+      }
+      rethrow;
     } catch (e) {
-      print('DELETE request failed: $e');
+      print('Unexpected error during DELETE request: $e');
       rethrow;
     }
   }

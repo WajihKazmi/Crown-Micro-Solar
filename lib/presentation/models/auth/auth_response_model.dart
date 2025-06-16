@@ -16,13 +16,14 @@ class AuthResponse {
   });
 
   factory AuthResponse.fromJson(Map<String, dynamic> json) {
+    final data = json['dat'] ?? json;
     return AuthResponse(
-      token: json['Token'],
-      secret: json['Secret'],
-      userId: json['UserID']?.toString(),
-      description: json['Description'],
-      agentsList: json['Agentslist'],
-      isSuccess: json['Description'] == 'Success',
+      token: data['Token'],
+      secret: data['Secret'],
+      userId: data['UserID']?.toString(),
+      description: data['Description'],
+      agentsList: data['Agentslist'],
+      isSuccess: data['Description'] == 'Success' || data['Description'] == 'success',
     );
   }
 

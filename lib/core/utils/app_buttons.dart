@@ -3,11 +3,12 @@ import 'package:flutter/material.dart';
 class AppButtons {
   static Widget primaryButton({
     required BuildContext context,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
     required String text,
     bool isFilled = true,
     double horizontalPadding = 24.0,
     Color? textColor,
+    bool isLoading = false,
   }) {
     final theme = Theme.of(context);
     final Color buttonTextColor = textColor ?? (isFilled ? Colors.white : theme.colorScheme.primary);
@@ -18,15 +19,21 @@ class AppButtons {
         
         return GestureDetector(
           onTapDown: (_) {
-            setState(() => scale = 0.95);
+            if (!isLoading) {
+              setState(() => scale = 0.95);
+            }
           },
           onTapUp: (_) {
-            setState(() => scale = 1.0);
+            if (!isLoading) {
+              setState(() => scale = 1.0);
+            }
           },
           onTapCancel: () {
-            setState(() => scale = 1.0);
+            if (!isLoading) {
+              setState(() => scale = 1.0);
+            }
           },
-          onTap: onTap,
+          onTap: isLoading ? null : onTap,
           child: AnimatedScale(
             scale: scale,
             duration: const Duration(milliseconds: 150),
@@ -45,15 +52,26 @@ class AppButtons {
                           width: 1.0,
                         ),
                 ),
-                child: Text(
-                  text,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: buttonTextColor,
-                  ),
-                ),
+                child: isLoading
+                    ? Center(
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(buttonTextColor),
+                          ),
+                        ),
+                      )
+                    : Text(
+                        text,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: buttonTextColor,
+                        ),
+                      ),
               ),
             ),
           ),

@@ -17,6 +17,7 @@ class AppTextField extends StatefulWidget {
     this.onTap,
     this.decoration,
     this.focusNode,
+    this.enabled = true,
   }) : super(key: key);
 
   final String? hintText;
@@ -32,6 +33,7 @@ class AppTextField extends StatefulWidget {
   final GestureTapCallback? onTap;
   final InputDecoration? decoration;
   final FocusNode? focusNode;
+  final bool enabled;
 
   @override
   _AppTextFieldState createState() => _AppTextFieldState();
@@ -86,13 +88,17 @@ class _AppTextFieldState extends State<AppTextField> {
         controller: widget.controller,
         focusNode: _focusNode,
         obscureText: _obscureText,
+        enabled: widget.enabled,
         validator: (value) {
-          final error = widget.validator?.call(value);
-          setState(() {
-            _hasError = error != null;
-            _errorMessage = error;
-          });
-          return error;
+          if (value == null || value.isEmpty) {
+            final error = widget.validator?.call(value);
+            setState(() {
+              _hasError = error != null;
+              _errorMessage = error;
+            });
+            return error;
+          }
+          return null;
         },
         keyboardType: widget.keyboardType,
         maxLength: widget.maxLength,
@@ -121,7 +127,7 @@ class _AppTextFieldState extends State<AppTextField> {
             borderSide: BorderSide.none,
           ),
           filled: true,
-          fillColor: Colors.grey[200],
+          fillColor: widget.enabled ? Colors.grey[200] : Colors.grey[100],
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
           suffixIcon: widget.isPassword
@@ -130,7 +136,7 @@ class _AppTextFieldState extends State<AppTextField> {
                     _obscureText ? Icons.visibility : Icons.visibility_off,
                     color: Colors.grey,
                   ),
-                  onPressed: _togglePasswordVisibility,
+                  onPressed: widget.enabled ? _togglePasswordVisibility : null,
                 )
               : null,
         ),

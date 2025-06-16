@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crown_micro_solar/core/di/service_locator.dart';
 import 'package:crown_micro_solar/routes/app_routes.dart';
 import 'package:crown_micro_solar/core/theme/app_theme.dart';
+import 'package:crown_micro_solar/core/network/api_service.dart';
+import 'package:crown_micro_solar/presentation/repositories/auth_repository.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/auth_viewmodel.dart';
+import 'package:crown_micro_solar/core/config/app_config.dart';
+import 'package:crown_micro_solar/view/auth/login_screen.dart';
 
 void main() async {
   try {
@@ -18,7 +24,16 @@ void main() async {
     // Initialize services
     await setupServiceLocator();
 
-    runApp(const MyApp());
+    // Initialize SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+
+    // Initialize API Service
+    final apiService = ApiService();
+
+    // Initialize AuthRepository with both dependencies
+    final authRepository = AuthRepository(apiService, prefs);
+
+    runApp(MyApp(authRepository: authRepository));
   } catch (e, stack) {
     print('Error during initialization: $e');
     print('Stack trace: $stack');
@@ -50,16 +65,25 @@ void main() async {
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final AuthRepository authRepository;
+
+  const MyApp({Key? key, required this.authRepository}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Crown Micro Solar',
-      theme: AppTheme.lightTheme,
-      themeMode: ThemeMode.light,
-      initialRoute: AppRoutes.splash,
-      routes: AppRoutes.routes,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => AuthViewModel(authRepository),
+        ),
+      ],
+      child: MaterialApp(
+        title: AppConfig.appName,
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        initialRoute: AppRoutes.login,
+        routes: AppRoutes.routes,
+      ),
     );
   }
 }
