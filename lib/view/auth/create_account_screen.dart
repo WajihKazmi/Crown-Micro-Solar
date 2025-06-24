@@ -3,6 +3,7 @@ import '../../routes/app_routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/app_text_fields.dart';
 import '../../../core/utils/app_buttons.dart';
+import '../common/bordered_icon_button.dart';
 
 class CreateAccountScreen extends StatefulWidget {
   const CreateAccountScreen({Key? key}) : super(key: key);
@@ -43,13 +44,11 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios),
-          onPressed: () {
-            Navigator.of(context).pop();
-          },
+        leading: BorderedIconButton(
+          icon: Icons.arrow_back_ios_new,
+          onTap: () => Navigator.of(context).pop(),
+          margin: const EdgeInsets.only(left: 16.0),
         ),
-        centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),

@@ -3,6 +3,7 @@ import '../../routes/app_routes.dart';
 import '../../core/utils/app_buttons.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_text_fields.dart';
+import '../common/bordered_icon_button.dart';
 
 class ResetPasswordScreen extends StatefulWidget {
   const ResetPasswordScreen({Key? key}) : super(key: key);
@@ -40,11 +41,10 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios),
-          onPressed: () {
-            Navigator.of(context).pop();
-          },
+        leading: BorderedIconButton(
+          icon: Icons.arrow_back_ios_new,
+          onTap: () => Navigator.of(context).pop(),
+          margin: const EdgeInsets.only(left: 16.0),
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -52,7 +52,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       resizeToAvoidBottomInset: false,
       body: GestureDetector(
         onTap: () {
-          // Dismiss the keyboard when tapping outside text fields
           FocusScope.of(context).unfocus();
         },
         child: SafeArea(
@@ -67,14 +66,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Title
-                      Text(
-                        'Reset Password!',
-                        style: theme.textTheme.headlineMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8.0),
+                      const SizedBox(height: 20.0),
                       // Subtitle
                       Text(
                         'Enter your new password',

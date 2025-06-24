@@ -4,6 +4,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/app_text_fields.dart';
 import '../../../core/utils/app_buttons.dart';
 import 'package:flutter/gestures.dart';
+import '../common/bordered_icon_button.dart';
 
 import 'forgot_password_screen.dart';
 
@@ -48,11 +49,10 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios),
-          onPressed: () {
-            Navigator.of(context).pop();
-          },
+        leading: BorderedIconButton(
+          icon: Icons.arrow_back_ios_new,
+          onTap: () => Navigator.of(context).pop(),
+          margin: const EdgeInsets.only(left: 16.0),
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -64,17 +64,17 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         },
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                const SizedBox(height: 20.0),
                 Text(
                   'Sign Up',
                   style: theme.textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-
                 const SizedBox(height: 15.0),
                 Text(
                   'Enter the data below to create a new account',

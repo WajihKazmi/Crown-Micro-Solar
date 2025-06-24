@@ -14,11 +14,36 @@ class AuthViewModel extends ChangeNotifier {
   String? _secret;
   String? _userId;
 
-  AuthViewModel(this._repository);
+  AuthViewModel(this._repository) {
+    // Sync local state with repository on initialization
+    _syncStateFromRepository();
+  }
 
   bool get isLoading => _isLoading;
   String? get error => _error;
-  bool get isLoggedIn => _repository.isLoggedIn();
+  bool get isLoggedIn {
+    // Check both local state and repository state
+    final repositoryLoggedIn = _repository.isLoggedIn();
+    final localLoggedIn = _token != null && _secret != null && _userId != null;
+    
+    // If there's a mismatch, sync the local state with repository
+    if (repositoryLoggedIn != localLoggedIn) {
+      if (repositoryLoggedIn) {
+        // Repository says logged in but local state doesn't match, sync from repository
+        _token = _repository.getToken();
+        _secret = _repository.getSecret();
+        _userId = _repository.getUserId();
+      } else {
+        // Repository says not logged in but local state has data, clear local state
+        _token = null;
+        _secret = null;
+        _userId = null;
+        _agentsList = null;
+      }
+    }
+    
+    return repositoryLoggedIn && localLoggedIn;
+  }
   bool get isAgent => _isAgent;
   bool get isInstaller => _isInstaller;
   List<dynamic>? get agentsList => _agentsList;
@@ -39,10 +64,11 @@ class AuthViewModel extends ChangeNotifier {
     try {
       print('Attempting login for user: $userId');
       print('Installer mode: $_isInstaller');
-      
-      final response = await _repository.login(userId, password, isAgent: _isInstaller);
+
+      final response =
+          await _repository.login(userId, password, isAgent: _isInstaller);
       _isLoading = false;
-      
+
       if (!response.isSuccess) {
         print('Login failed: ${response.description}');
         _error = response.description ?? 'Login failed';
@@ -61,17 +87,17 @@ class AuthViewModel extends ChangeNotifier {
       print('Token: ${response.token}');
       print('Secret: ${response.secret}');
       print('UserID: ${response.userId}');
-      
+
       // Store the token and secret
       _token = response.token;
       _secret = response.secret;
       _userId = response.userId;
-      
+
       // Save credentials if not in installer mode
       if (!_isInstaller) {
         await saveCredentials(userId, password);
       }
-      
+
       notifyListeners();
       return true;
     } catch (e) {
@@ -92,7 +118,7 @@ class AuthViewModel extends ChangeNotifier {
       print('Attempting agent login for user: $username');
       final response = await _repository.loginAgent(username, password);
       _isLoading = false;
-      
+
       if (!response.isSuccess) {
         print('Agent login failed: ${response.description}');
         _error = response.description ?? 'Agent login failed';
@@ -104,12 +130,12 @@ class AuthViewModel extends ChangeNotifier {
       print('Token: ${response.token}');
       print('Secret: ${response.secret}');
       print('UserID: ${response.userId}');
-      
+
       // Store the token and secret
       _token = response.token;
       _secret = response.secret;
       _userId = response.userId;
-      
+
       notifyListeners();
       return true;
     } catch (e) {
@@ -134,16 +160,65 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   Future<void> logout() async {
-    await _repository.logout();
-    _token = null;
-    _secret = null;
-    _userId = null;
-    _agentsList = null;
-    notifyListeners();
+    try {
+      print('AuthViewModel: Starting logout...');
+      
+      // Clear repository state first
+      await _repository.logout();
+      print('AuthViewModel: Repository logout completed');
+      
+      // Clear local state
+      _token = null;
+      _secret = null;
+      _userId = null;
+      _agentsList = null;
+      _error = null;
+      _isLoading = false;
+      
+      print('AuthViewModel: Local state cleared');
+      
+      // Force notify listeners to update UI
+      notifyListeners();
+      print('AuthViewModel: Notify listeners called');
+      
+      // Double-check that logout was successful
+      final stillLoggedIn = _repository.isLoggedIn();
+      print('AuthViewModel: Repository isLoggedIn check after logout: $stillLoggedIn');
+      
+      if (stillLoggedIn) {
+        print('AuthViewModel: WARNING - Repository still shows logged in after logout!');
+        // Force clear again
+        await _repository.logout();
+        notifyListeners();
+      }
+    } catch (e) {
+      print('AuthViewModel: Error during logout: $e');
+      _error = e.toString();
+      notifyListeners();
+    }
   }
 
   void clearError() {
     _error = null;
     notifyListeners();
   }
-} 
+
+  void _syncStateFromRepository() {
+    if (_repository.isLoggedIn()) {
+      _token = _repository.getToken();
+      _secret = _repository.getSecret();
+      _userId = _repository.getUserId();
+      _agentsList = _repository.getAgentsList();
+    } else {
+      _token = null;
+      _secret = null;
+      _userId = null;
+      _agentsList = null;
+    }
+  }
+
+  void refreshAuthState() {
+    _syncStateFromRepository();
+    notifyListeners();
+  }
+}

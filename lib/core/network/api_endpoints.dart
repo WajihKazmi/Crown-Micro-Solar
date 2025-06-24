@@ -1,31 +1,31 @@
 class ApiEndpoints {
-  static const String baseUrl = "http://api.dessmonitor.com/public/?sign=";
+  static const String baseUrl = "https://apis.crown-micro.net/";
   
   // Auth endpoints
-  static const String login = "&action=login";
-  static const String register = "&action=reg";
-  static const String verify = "&action=verify";
+  static const String login = "api/MonitoringApp/Login";
+  static const String register = "api/MonitoringApp/Register";
+  static const String verify = "api/MonitoringApp/Verify";
   
   // Plant endpoints
-  static const String createPowerStation = "&action=reg";
-  static const String getPlants = "&action=queryPlantList";
-  static const String getPlantDetails = "&action=queryPlantCurrentData";
+  static const String createPowerStation = "api/MonitoringApp/CreatePowerStation";
+  static const String getPlants = "api/MonitoringApp/GetPlants";
+  static const String getPlantDetails = "api/MonitoringApp/GetPlantDetails";
   
   // Device endpoints
-  static const String getDevices = "&action=queryDeviceList";
-  static const String getDeviceStatus = "&action=queryDeviceStatus";
-  static const String getDeviceData = "&action=queryDeviceData";
+  static const String getDevices = "api/MonitoringApp/GetDevices";
+  static const String getDeviceStatus = "api/MonitoringApp/GetDeviceStatus";
+  static const String getDeviceData = "api/MonitoringApp/GetDeviceData";
   
   // Energy endpoints
-  static const String getDailyGeneration = "&action=queryDeviceEnergyDay";
-  static const String getMonthlyGeneration = "&action=queryDeviceEnergyMonth";
-  static const String getYearlyGeneration = "&action=queryDeviceEnergyYear";
+  static const String getDailyGeneration = "api/MonitoringApp/GetDailyGeneration";
+  static const String getMonthlyGeneration = "api/MonitoringApp/GetMonthlyGeneration";
+  static const String getYearlyGeneration = "api/MonitoringApp/GetYearlyGeneration";
   
   // Alarm endpoints
-  static const String getAlarms = "&action=queryAlarms";
-  static const String getWarnings = "&action=queryPlantWarning";
+  static const String getAlarms = "api/MonitoringApp/GetAlarms";
+  static const String getWarnings = "api/MonitoringApp/GetWarnings";
   
-  // New endpoints
+  // Legacy DESS Monitor endpoints (for reference, not used in new implementation)
   static const String webQueryPlants = "&action=webQueryPlants";
   static const String webQueryDeviceEs = "&action=webQueryDeviceEs";
   static const String webQueryPlantsWarning = "&action=webQueryPlantsWarning";

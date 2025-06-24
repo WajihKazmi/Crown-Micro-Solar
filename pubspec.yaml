@@ -107,3 +107,6 @@ flutter:
         - asset: assets/fonts/Gilroy-Regular.otf
         - asset: assets/fonts/Gilroy-Bold.otf
           weight: 700
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/manrope.ttf

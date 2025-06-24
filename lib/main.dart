@@ -80,7 +80,7 @@ class MyApp extends StatelessWidget {
       child: MaterialApp(
         title: AppConfig.appName,
         theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
+        darkTheme: AppTheme.lightTheme,
         initialRoute: AppRoutes.login,
         routes: AppRoutes.routes,
       ),

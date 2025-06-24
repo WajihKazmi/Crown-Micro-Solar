@@ -36,147 +36,62 @@ class AuthRepository {
   Future<AuthResponse> login(String userId, String password,
       {bool isAgent = false}) async {
     try {
-      if (isAgent) {
-        // Use Crown Micro API for installer mode
-        final url = 'https://apis.crown-micro.net/api/MonitoringApp/Login';
-        final headers = {
-          'Content-Type': 'application/json',
-          'x-api-key': 'C5BFF7F0-B4DF-475E-A331-F737424F013C'
-        };
-        final body = {
-          "Username": userId,
-          "Password": password,
-          "IsAgent": true
-        };
+      // Use Crown Micro API for all logins
+      final url = 'https://apis.crown-micro.net/api/MonitoringApp/Login';
+      final headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': 'C5BFF7F0-B4DF-475E-A331-F737424F013C'
+      };
+      final body = {
+        "UserName": userId,
+        "Password": password,
+        "IsAgent": isAgent
+      };
 
-        print('Attempting Crown Micro login for user: $userId');
-        print('Headers: $headers');
-        print('Body: $body');
+      print('Attempting Crown Micro login for user: $userId');
+      print('Installer mode: $isAgent');
+      print('URL: $url');
+      print('Headers: $headers');
+      print('Body: $body');
 
-        final response = await _apiService.post(
-          url,
-          data: body,
-          options: Options(
-            headers: headers,
-            validateStatus: (status) => status! < 500,
-          ),
-        );
-        print('Crown Micro login response: ${response.data}');
+      final response = await _apiService.post(
+        url,
+        data: body,
+        options: Options(
+          headers: headers,
+          validateStatus: (status) => status! < 500,
+        ),
+      );
+      print('Crown Micro login response: ${response.data}');
 
-        if (response.statusCode == 200) {
-          final data = response.data;
-          if (data['Token'] != null) {
-            await _saveAuthData(data);
-            return AuthResponse(
-              isSuccess: true,
-              token: data['Token'],
-              secret: data['Secret'],
-              userId: data['UserID'].toString(),
-              agentsList: data['Agentslist'],
-            );
-          } else if (data['Agentslist'] != null) {
-            await _prefs.setBool(_isInstallerKey, true);
-            await _prefs.setString(_agentsListKey, jsonEncode(data));
-            return AuthResponse(
-              isSuccess: true,
-              agentsList: data['Agentslist'],
-            );
-          }
+      if (response.statusCode == 200) {
+        final data = response.data;
+        if (data['Token'] != null) {
+          await _saveAuthData(data);
           return AuthResponse(
-            isSuccess: false,
-            description: 'User not found',
+            isSuccess: true,
+            token: data['Token'],
+            secret: data['Secret'],
+            userId: data['UserID'].toString(),
+            agentsList: data['Agentslist'],
+          );
+        } else if (data['Agentslist'] != null) {
+          await _prefs.setBool(_isInstallerKey, true);
+          await _prefs.setString(_agentsListKey, jsonEncode(data));
+          return AuthResponse(
+            isSuccess: true,
+            agentsList: data['Agentslist'],
           );
         }
         return AuthResponse(
           isSuccess: false,
-          description: 'Server error: ${response.statusCode}',
+          description: 'User not found',
         );
-      } else {
-        // Use DESS Monitor API for regular users
-        // First authenticate with username/password
-        final authAction = "&action=authenticate&usr=${userId}&pwd=${password}";
-        final authSign = _generateSign(_defaultSalt, _defaultSecret, _defaultToken, authAction);
-        
-        final authUrl = 'http://api.dessmonitor.com/public/';
-        final authQueryParams = {
-          'sign': authSign,
-          'salt': _defaultSalt,
-          'token': _defaultToken,
-          'action': 'authenticate',
-          'usr': userId,
-          'pwd': password
-        };
-
-        final authUri = Uri.parse(authUrl).replace(queryParameters: authQueryParams);
-        print('Attempting DESS Monitor authentication with URL: $authUri');
-
-        final authResponse = await _apiService.get(
-          authUri.toString(),
-          options: Options(
-            validateStatus: (status) => status! < 500,
-          ),
-        );
-        print('DESS Monitor authentication response: ${authResponse.data}');
-
-        if (authResponse.statusCode == 200) {
-          final authData = authResponse.data;
-          if (authData['err'] != null && authData['err'] != 0) {
-            return AuthResponse(
-              isSuccess: false,
-              description: authData['desc'] ?? 'Authentication failed',
-            );
-          }
-
-          // If authentication successful, get collector info
-          final collectorAction = "&action=queryCollectorInfo&pn=Q0819510312095";
-          final collectorSign = _generateSign(_defaultSalt, _defaultSecret, _defaultToken, collectorAction);
-          
-          final collectorQueryParams = {
-            'sign': collectorSign,
-            'salt': _defaultSalt,
-            'token': _defaultToken,
-            'action': 'queryCollectorInfo',
-            'pn': 'Q0819510312095'
-          };
-
-          final collectorUri = Uri.parse(authUrl).replace(queryParameters: collectorQueryParams);
-          print('Querying collector info with URL: $collectorUri');
-
-          final collectorResponse = await _apiService.get(
-            collectorUri.toString(),
-            options: Options(
-              validateStatus: (status) => status! < 500,
-            ),
-          );
-          print('Collector info response: ${collectorResponse.data}');
-
-          if (collectorResponse.statusCode == 200) {
-            final data = collectorResponse.data;
-            if (data['err'] != null && data['err'] != 0) {
-              return AuthResponse(
-                isSuccess: false,
-                description: data['desc'] ?? 'Failed to get collector info',
-              );
-            }
-
-            final authResponse = AuthResponse.fromJson(data);
-            if (authResponse.isSuccess) {
-              await _saveAuthData(data);
-            }
-            return authResponse;
-          } else {
-            return AuthResponse(
-              isSuccess: false,
-              description: 'Failed to get collector info: ${collectorResponse.statusCode}',
-            );
-          }
-        } else {
-          return AuthResponse(
-            isSuccess: false,
-            description: 'Authentication failed: ${authResponse.statusCode}',
-          );
-        }
       }
+      return AuthResponse(
+        isSuccess: false,
+        description: 'Server error: ${response.statusCode}',
+      );
     } catch (e) {
       print('Login error: $e');
       return AuthResponse(
@@ -194,11 +109,12 @@ class AuthRepository {
         'x-api-key': 'C5BFF7F0-B4DF-475E-A331-F737424F013C'
       };
       final body = {
-        "Username": username,
+        "UserName": username,
         "Password": password,
       };
 
-      print('Attempting agent login for user: $username');
+      print('Attempting Crown Micro agent login for user: $username');
+      print('URL: $url');
       print('Headers: $headers');
       print('Body: $body');
 
@@ -210,7 +126,7 @@ class AuthRepository {
           validateStatus: (status) => status! < 500,
         ),
       );
-      print('Agent login response: ${response.data}');
+      print('Crown Micro agent login response: ${response.data}');
 
       if (response.statusCode == 200) {
         final data = response.data;
@@ -225,7 +141,7 @@ class AuthRepository {
         }
         return AuthResponse(
           isSuccess: false,
-          description: 'Agent login failed',
+          description: 'User not found',
         );
       }
       return AuthResponse(
@@ -242,15 +158,16 @@ class AuthRepository {
   }
 
   Future<void> _saveAuthData(Map<String, dynamic> data) async {
-    await _prefs.setString(_tokenKey, data['Token']);
-    await _prefs.setString(_secretKey, data['Secret']);
-    await _prefs.setString(_userIdKey, data['UserID'].toString());
+    if (data['Token'] != null) {
+      await _prefs.setString(_tokenKey, data['Token']);
+    }
+    if (data['UserID'] != null) {
+      await _prefs.setString(_userIdKey, data['UserID'].toString());
+    }
+    if (data['Secret'] != null) {
+      await _prefs.setString(_secretKey, data['Secret']);
+    }
     await _prefs.setBool(_loggedInKey, true);
-  }
-
-  Future<void> saveCredentials(String username, String password) async {
-    await _prefs.setString(_usernameKey, username);
-    await _prefs.setString(_passwordKey, password);
   }
 
   Future<Map<String, String?>> getSavedCredentials() async {
@@ -258,6 +175,11 @@ class AuthRepository {
       'username': _prefs.getString(_usernameKey),
       'password': _prefs.getString(_passwordKey),
     };
+  }
+
+  Future<void> saveCredentials(String username, String password) async {
+    await _prefs.setString(_usernameKey, username);
+    await _prefs.setString(_passwordKey, password);
   }
 
   Future<void> clearCredentials() async {
@@ -270,21 +192,50 @@ class AuthRepository {
   }
 
   Future<void> logout() async {
+    print('AuthRepository: Starting logout...');
     await _prefs.remove(_tokenKey);
-    await _prefs.remove(_secretKey);
+    print('AuthRepository: Token removed');
     await _prefs.remove(_userIdKey);
-    await _prefs.setBool(_loggedInKey, false);
+    print('AuthRepository: UserID removed');
+    await _prefs.remove(_secretKey);
+    print('AuthRepository: Secret removed');
+    await _prefs.remove(_loggedInKey);
+    print('AuthRepository: LoggedIn flag removed');
+    await _prefs.remove(_isInstallerKey);
+    print('AuthRepository: Installer flag removed');
+    await _prefs.remove(_agentsListKey);
+    print('AuthRepository: Agents list removed');
+    _apiService.clearAuthToken();
+    print('AuthRepository: API service auth token cleared');
+    print('AuthRepository: Logout completed');
   }
 
-  String? getToken() => _prefs.getString(_tokenKey);
-  String? getUserId() => _prefs.getString(_userIdKey);
-  String? getSecret() => _prefs.getString(_secretKey);
-  bool isInstaller() => _prefs.getBool(_isInstallerKey) ?? false;
+  String? getToken() {
+    return _prefs.getString(_tokenKey);
+  }
+
+  String? getUserId() {
+    return _prefs.getString(_userIdKey);
+  }
+
+  String? getSecret() {
+    return _prefs.getString(_secretKey);
+  }
+
+  bool getIsInstaller() {
+    return _prefs.getBool(_isInstallerKey) ?? false;
+  }
+
   List<dynamic>? getAgentsList() {
-    final agentsListStr = _prefs.getString(_agentsListKey);
-    if (agentsListStr != null) {
-      final jsonResponse = json.decode(agentsListStr);
-      return jsonResponse['Agentslist'];
+    final agentsListString = _prefs.getString(_agentsListKey);
+    if (agentsListString != null) {
+      try {
+        final data = jsonDecode(agentsListString);
+        return data['Agentslist'] as List<dynamic>?;
+      } catch (e) {
+        print('Error parsing agents list: $e');
+        return null;
+      }
     }
     return null;
   }

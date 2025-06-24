@@ -6,6 +6,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_animations.dart';
 import '../../core/utils/app_buttons.dart'; // Import AppButtons
 import 'forgot_password_screen.dart'; // Import RecoveryMode enum
+import '../common/bordered_icon_button.dart';
 
 class VerificationScreen extends StatefulWidget {
   const VerificationScreen({Key? key}) : super(key: key);
@@ -164,32 +165,22 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios),
-          onPressed: () {
-            Navigator.of(context).pop();
-          },
+        leading: BorderedIconButton(
+          icon: Icons.arrow_back_ios_new,
+          onTap: () => Navigator.of(context).pop(),
+          margin: const EdgeInsets.only(left: 16.0),
         ),
-        title: Text(
-          'Verification Code!',
-          style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        centerTitle: false,
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
-      resizeToAvoidBottomInset:
-          false, // Prevent screen resize when keyboard appears
+      resizeToAvoidBottomInset: false,
       body: GestureDetector(
         onTap: () {
-          // Dismiss the keyboard when tapping outside text fields
           FocusScope.of(context).unfocus();
         },
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 10.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [

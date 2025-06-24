@@ -51,86 +51,69 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _login() async {
     print("hit login");
-    // // Only validate if fields are empty
-    // if (_userIdController.text.isEmpty || _passwordController.text.isEmpty) {
-    //   _formKey.currentState?.validate();
-    //   return;
-    // }
+    // Only validate if fields are empty
+    if (_userIdController.text.isEmpty || _passwordController.text.isEmpty) {
+      _formKey.currentState?.validate();
+      return;
+    }
 
-    // final viewModel = context.read<AuthViewModel>();
-    // viewModel.setInstallerMode(_isInstallerMode);
+    final viewModel = context.read<AuthViewModel>();
+    viewModel.setInstallerMode(_isInstallerMode);
 
-    // try {
-    //   final success = await viewModel.login(
-    //     _userIdController.text,
-    //     _passwordController.text,
-    //   );
+    try {
+      final success = await viewModel.login(
+        _userIdController.text,
+        _passwordController.text,
+      );
 
-    //   if (mounted) {
-    //     if (success) {
-    //       if (viewModel.agentsList != null) {
-    //         _showAgentSelectionDialog();
-    //       } else {
-    //         // Navigate to home screen
-    //         Navigator.of(context).pushReplacement(
-    //           PageRouteBuilder(
-    //             pageBuilder: (context, animation, secondaryAnimation) =>
-    //                 const HomeScreen(),
-    //             transitionsBuilder:
-    //                 (context, animation, secondaryAnimation, child) {
-    //               const begin = Offset(1.0, 0.0);
-    //               const end = Offset.zero;
-    //               const curve = Curves.easeInOut;
-    //               var tween = Tween(begin: begin, end: end)
-    //                   .chain(CurveTween(curve: curve));
-    //               var offsetAnimation = animation.drive(tween);
-    //               return SlideTransition(
-    //                   position: offsetAnimation, child: child);
-    //             },
-    //             transitionDuration: const Duration(milliseconds: 500),
-    //           ),
-    //         );
-    //       }
-    //     } else {
-    //       // Show error message if login failed
-    //       ScaffoldMessenger.of(context).showSnackBar(
-    //         SnackBar(
-    //           content:
-    //               Text(viewModel.error ?? 'Login failed. Please try again.'),
-    //           backgroundColor: Colors.red,
-    //           duration: const Duration(seconds: 3),
-    //         ),
-    //       );
-    //     }
-    //   }
-    // } catch (e) {
-    //   if (mounted) {
-    //     ScaffoldMessenger.of(context).showSnackBar(
-    //       SnackBar(
-    //         content: Text('An error occurred: ${e.toString()}'),
-    //         backgroundColor: Colors.red,
-    //         duration: const Duration(seconds: 3),
-    //       ),
-    //     );
-    //   }
-    // }
-
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            const HomeScreen(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          const begin = Offset(1.0, 0.0);
-          const end = Offset.zero;
-          const curve = Curves.easeInOut;
-          var tween =
-              Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-          var offsetAnimation = animation.drive(tween);
-          return SlideTransition(position: offsetAnimation, child: child);
-        },
-        transitionDuration: const Duration(milliseconds: 500),
-      ),
-    );
+      if (mounted) {
+        if (success) {
+          if (viewModel.agentsList != null) {
+            _showAgentSelectionDialog();
+          } else {
+            // Navigate to home screen
+            Navigator.of(context).pushReplacement(
+              PageRouteBuilder(
+                pageBuilder: (context, animation, secondaryAnimation) =>
+                    const HomeScreen(),
+                transitionsBuilder:
+                    (context, animation, secondaryAnimation, child) {
+                  const begin = Offset(1.0, 0.0);
+                  const end = Offset.zero;
+                  const curve = Curves.easeInOut;
+                  var tween = Tween(begin: begin, end: end)
+                      .chain(CurveTween(curve: curve));
+                  var offsetAnimation = animation.drive(tween);
+                  return SlideTransition(
+                      position: offsetAnimation, child: child);
+                },
+                transitionDuration: const Duration(milliseconds: 500),
+              ),
+            );
+          }
+    } else {
+          // Show error message if login failed
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content:
+                  Text(viewModel.error ?? 'Login failed. Please try again.'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('An error occurred: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   void _showAgentSelectionDialog() {
@@ -302,168 +285,154 @@ class _LoginScreenState extends State<LoginScreen> {
             padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 20),
             child: Form(
               key: _formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.max,
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SizedBox(height: 60.0),
-                      Text(
-                        'Welcome Back',
-                        style: theme.textTheme.headlineMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+            child: Column(
+              mainAxisSize: MainAxisSize.max,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 60.0),
+                    Text(
+                      'Welcome Back',
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
                       ),
-                      const SizedBox(height: 15.0),
-                      Text(
-                        'Enter the data below to get a verification code',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          color: Colors.grey[600],
-                        ),
+                    ),
+                    const SizedBox(height: 15.0),
+                    Text(
+                      'Enter the data below to get a verification code',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: Colors.grey[600],
                       ),
-                      const SizedBox(height: 20.0),
-                      Text(
-                        'User ID',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                    ),
+                    const SizedBox(height: 20.0),
+                    Text(
+                      'User ID',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
                       ),
-                      const SizedBox(height: 5.0),
-                      AppTextField(
-                        controller: _userIdController,
-                        hintText: 'Azidaniro25',
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter your User ID';
-                          }
-                          return null;
-                        },
+                    ),
+                    const SizedBox(height: 5.0),
+                    AppTextField(
+                      controller: _userIdController,
+                      hintText: 'Azidaniro25',
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter your User ID';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 15.0),
+                    Text(
+                      'Password',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
                       ),
-                      const SizedBox(height: 15.0),
-                      Text(
-                        'Password',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 5.0),
-                      AppTextField(
-                        controller: _passwordController,
+                    ),
+                    const SizedBox(height: 5.0),
+                    AppTextField(
+                      controller: _passwordController,
                         hintText: 'Enter your password',
-                        isPassword: true,
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter your password';
-                          }
-                          return null;
-                        },
-                      ),
+                      isPassword: true,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter your password';
+                        }
+                        return null;
+                      },
+                    ),
                       const SizedBox(height: 15.0),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              Switch(
-                                value: _isInstallerMode,
-                                onChanged: (value) {
-                                  setState(() {
-                                    _isInstallerMode = value;
-                                  });
-                                },
-                                activeColor:
-                                    Colors.green, // Use theme color for switch
-                              ),
-                              Text(
-                                'Installer Mode',
-                                style: theme.textTheme.bodyMedium!
-                                    .copyWith(fontWeight: FontWeight.w600),
-                              ),
-                            ],
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              // Navigate to the Forgot Password screen
-                              Navigator.of(context)
-                                  .pushNamed(AppRoutes.forgotPassword);
-                            },
-                            child: Text(
-                              'Forgot Password?',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.primary,
-                              ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Switch(
+                              value: _isInstallerMode,
+                              onChanged: (value) {
+                                setState(() {
+                                  _isInstallerMode = value;
+                                });
+                              },
+                                activeColor: Colors.green,
+                            ),
+                            Text(
+                              'Installer Mode',
+                              style: theme.textTheme.bodyMedium!
+                                  .copyWith(fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            Navigator.of(context)
+                                .pushNamed(AppRoutes.forgotPassword);
+                          },
+                          child: Text(
+                            'Forgot Password?',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.primary,
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
+                    ),
                       const SizedBox(height: 20.0),
-                      AppButtons.primaryButton(
+                    AppButtons.primaryButton(
                         horizontalPadding: 0,
-                        context: context,
+                      context: context,
                         text: viewModel.isLoading ? 'Logging in...' : 'Login',
                         onTap: _login,
                         isLoading: viewModel.isLoading,
-                      ),
-                      const SizedBox(height: 10.0),
-                      // Wi-Fi Configuration Button (Outlined)
-                      AppButtons.primaryButton(
-                        context: context,
-                        onTap: () {
-                          // TODO: Implement Wi-Fi Configuration logic
-                        },
-                        text: 'Wi-Fi Configuration',
-                        isFilled: false,
-                        textColor: Colors.black,
-                        horizontalPadding:
-                            0, // Padding handled by parent SingleChildScrollView
-                      ),
-                      const SizedBox(height: 10.0),
-                      // Register Button (Outlined)
-                      AppButtons.primaryButton(
-                        context: context,
-                        onTap: () {
-                          // TODO: Implement Register logic
-                          // Navigate to Registration Screen
+                    ),
+                    const SizedBox(height: 10.0),
+                    AppButtons.primaryButton(
+                      context: context,
+                        onTap: _showWifiConfigDialog,
+                      text: 'Wi-Fi Configuration',
+                      isFilled: false,
+                      textColor: Colors.black,
+                        horizontalPadding: 0,
+                    ),
+                    const SizedBox(height: 10.0),
+                    AppButtons.primaryButton(
+                      context: context,
+                      onTap: () {
                           Navigator.of(context)
                               .pushNamed(AppRoutes.registration);
-                        },
-                        text: 'Register',
-                        isFilled: false,
-                        textColor: Colors.black,
-                        horizontalPadding:
-                            0, // Padding handled by parent SingleChildScrollView
-                      ),
-
-                      const SizedBox(height: 15.0),
-                      // Contact Options
-                      TextButton.icon(
-                        onPressed: () {
-                          // TODO: Implement Contact to Support logic
-                        },
-                        icon: Image.asset(
-                          'assets/icons/support.png', // Support icon
-                          width: 20,
-                          height: 20,
-                        ),
-                        label: Text(
-                          'Contact to Support',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  Padding(
-                    padding: const EdgeInsetsGeometry.symmetric(vertical: 0),
-                    child: Image.asset(
-                      'assets/images/logo_main.png',
-                      height: 80,
+                      },
+                      text: 'Register',
+                      isFilled: false,
+                      textColor: Colors.black,
+                        horizontalPadding: 0,
                     ),
+                    const SizedBox(height: 15.0),
+                    TextButton.icon(
+                        onPressed: _showSupportDialog,
+                      icon: Image.asset(
+                          'assets/icons/support.png',
+                        width: 20,
+                        height: 20,
+                      ),
+                      label: Text(
+                        'Contact to Support',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsetsGeometry.symmetric(vertical: 0),
+                  child: Image.asset(
+                    'assets/images/logo_main.png',
+                    height: 80,
                   ),
-                ],
+                ),
+              ],
               ),
             ),
           ),
@@ -472,190 +441,3 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
-
-
-
-// Column(
-//               mainAxisSize: MainAxisSize.max,
-//               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-//               children: [
-//                 Column(
-//                   crossAxisAlignment: CrossAxisAlignment.stretch,
-//                   children: [
-//                     // Title
-
-//                     const SizedBox(height: 60.0),
-//                     Text(
-//                       'Welcome Back',
-//                       style: theme.textTheme.headlineMedium?.copyWith(
-//                         fontWeight: FontWeight.bold,
-//                       ),
-//                     ),
-//                     const SizedBox(height: 15.0),
-//                     // Subtitle
-//                     Text(
-//                       'Enter the data below to get a verification code',
-//                       style: theme.textTheme.titleMedium?.copyWith(
-//                         color: Colors.grey[600],
-//                       ),
-//                     ),
-//                     const SizedBox(height: 20.0),
-//                     // User ID Text Field
-//                     Text(
-//                       'User ID',
-//                       style: theme.textTheme.titleMedium?.copyWith(
-//                         fontWeight: FontWeight.bold,
-//                       ),
-//                     ),
-//                     const SizedBox(height: 5.0),
-//                     AppTextField(
-//                       controller: _userIdController,
-//                       hintText: 'Azidaniro25',
-//                       validator: (value) {
-//                         if (value == null || value.isEmpty) {
-//                           return 'Please enter your User ID';
-//                         }
-//                         return null;
-//                       },
-//                       onFieldSubmitted: (_) {
-//                         // Accept String parameter
-//                         // TODO: Handle field submission if needed
-//                         _login(); // Optionally trigger login on submitting this field
-//                       },
-//                     ),
-//                     const SizedBox(height: 15.0),
-//                     // Password Text Field
-//                     Text(
-//                       'Password',
-//                       style: theme.textTheme.titleMedium?.copyWith(
-//                         fontWeight: FontWeight.bold,
-//                       ),
-//                     ),
-//                     const SizedBox(height: 5.0),
-//                     AppTextField(
-//                       controller: _passwordController,
-//                       hintText: '********',
-//                       isPassword: true,
-//                       validator: (value) {
-//                         if (value == null || value.isEmpty) {
-//                           return 'Please enter your password';
-//                         }
-//                         if (value.length < 6) {
-//                           return 'Password must be at least 6 characters';
-//                         }
-//                         return null;
-//                       },
-//                       onFieldSubmitted: (_) {
-//                         // Accept String parameter
-//                         // TODO: Handle field submission if needed
-//                         _login(); // Optionally trigger login on submitting this field
-//                       },
-//                     ),
-//                     const SizedBox(height: 10.0),
-//                     // Installer Mode and Forgot Password
-//                     Row(
-//                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-//                       children: [
-//                         Row(
-//                           children: [
-//                             Switch(
-//                               value: _isInstallerMode,
-//                               onChanged: (value) {
-//                                 setState(() {
-//                                   _isInstallerMode = value;
-//                                 });
-//                               },
-//                               activeColor:
-//                                   Colors.green, // Use theme color for switch
-//                             ),
-//                             Text(
-//                               'Installer Mode',
-//                               style: theme.textTheme.bodyMedium!
-//                                   .copyWith(fontWeight: FontWeight.w600),
-//                             ),
-//                           ],
-//                         ),
-//                         TextButton(
-//                           onPressed: () {
-//                             // Navigate to the Forgot Password screen
-//                             Navigator.of(context)
-//                                 .pushNamed(AppRoutes.forgotPassword);
-//                           },
-//                           child: Text(
-//                             'Forgot Password?',
-//                             style: theme.textTheme.bodyMedium?.copyWith(
-//                               color: theme.colorScheme.primary,
-//                             ),
-//                           ),
-//                         ),
-//                       ],
-//                     ),
-//                     const SizedBox(height: 15.0),
-//                     // Login Button (Filled)
-//                     AppButtons.primaryButton(
-//                       context: context,
-//                       onTap:
-//                           _login, // Call the _login method to trigger validation
-//                       text: 'Login',
-//                       isFilled: true,
-//                       horizontalPadding:
-//                           0, // Padding handled by parent SingleChildScrollView
-//                     ),
-//                     const SizedBox(height: 10.0),
-//                     // Wi-Fi Configuration Button (Outlined)
-//                     AppButtons.primaryButton(
-//                       context: context,
-//                       onTap: () {
-//                         // TODO: Implement Wi-Fi Configuration logic
-//                       },
-//                       text: 'Wi-Fi Configuration',
-//                       isFilled: false,
-//                       textColor: Colors.black,
-//                       horizontalPadding:
-//                           0, // Padding handled by parent SingleChildScrollView
-//                     ),
-//                     const SizedBox(height: 10.0),
-//                     // Register Button (Outlined)
-//                     AppButtons.primaryButton(
-//                       context: context,
-//                       onTap: () {
-//                         // TODO: Implement Register logic
-//                         // Navigate to Registration Screen
-//                         Navigator.of(context).pushNamed(AppRoutes.registration);
-//                       },
-//                       text: 'Register',
-//                       isFilled: false,
-//                       textColor: Colors.black,
-//                       horizontalPadding:
-//                           0, // Padding handled by parent SingleChildScrollView
-//                     ),
-
-//                     const SizedBox(height: 15.0),
-//                     // Contact Options
-//                     TextButton.icon(
-//                       onPressed: () {
-//                         // TODO: Implement Contact to Support logic
-//                       },
-//                       icon: Image.asset(
-//                         'assets/icons/support.png', // Support icon
-//                         width: 20,
-//                         height: 20,
-//                       ),
-//                       label: Text(
-//                         'Contact to Support',
-//                         style: theme.textTheme.bodyMedium?.copyWith(
-//                           color: Colors.grey[600],
-//                         ),
-//                       ),
-//                     ),
-//                   ],
-//                 ),
-//                 Padding(
-//                   padding: const EdgeInsetsGeometry.symmetric(vertical: 0),
-//                   child: Image.asset(
-//                     'assets/images/logo_main.png',
-//                     height: 80,
-//                   ),
-//                 ),
-//               ],
-//             ),

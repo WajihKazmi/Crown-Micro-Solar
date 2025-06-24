@@ -57,6 +57,7 @@ class AppTheme {
           foregroundColor: Colors.white, // Button text color
         ),
       ),
+      fontFamily: 'Manrope',
       // Add other theme customizations here based on your design
       // inputDecorationTheme: ...,
       // textTheme: ...,
@@ -97,6 +98,7 @@ class AppTheme {
           foregroundColor: Colors.white, // Button text color
         ),
       ),
+      fontFamily: 'Manrope',
       // Add other dark theme customizations here based on your design
     );
   }

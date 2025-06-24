@@ -6,14 +6,33 @@ class ApiService {
 
   ApiService() : _dio = Dio() {
     _dio.options = BaseOptions(
-      baseUrl: 'http://api.dessmonitor.com/public/',
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 10),
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        'x-api-key': 'C5BFF7F0-B4DF-475E-A331-F737424F013C'
       },
     );
+    
+    // Add logging interceptor to see what URLs are being called
+    _dio.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) {
+        print('API Request: ${options.method} ${options.uri}');
+        print('API Request Headers: ${options.headers}');
+        print('API Request Data: ${options.data}');
+        handler.next(options);
+      },
+      onResponse: (response, handler) {
+        print('API Response: ${response.statusCode} ${response.requestOptions.uri}');
+        handler.next(response);
+      },
+      onError: (error, handler) {
+        print('API Error: ${error.message}');
+        print('API Error URL: ${error.requestOptions.uri}');
+        handler.next(error);
+      },
+    ));
   }
 
   // Generic GET request

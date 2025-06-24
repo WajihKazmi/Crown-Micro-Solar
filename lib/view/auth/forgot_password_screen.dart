@@ -3,6 +3,7 @@ import '../../routes/app_routes.dart';
 import '../../core/utils/app_buttons.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_text_fields.dart';
+import '../common/bordered_icon_button.dart';
 
 enum RecoveryMode {
   password,
@@ -54,39 +55,33 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios),
-          onPressed: () {
-            Navigator.of(context).pop();
-          },
+        leading: BorderedIconButton(
+          icon: Icons.arrow_back_ios_new,
+          onTap: () => Navigator.of(context).pop(),
+          margin: const EdgeInsets.only(left: 16.0),
         ),
-        centerTitle: false,
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
-      resizeToAvoidBottomInset:
-          false, // Prevent screen resize when keyboard appears
+      resizeToAvoidBottomInset: false,
       body: GestureDetector(
         onTap: () {
-          // Dismiss the keyboard when tapping outside text fields
           FocusScope.of(context).unfocus();
         },
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 24.0, vertical: 10.0), // Adjusted padding
+            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 10.0),
             child: Form(
-              key: _formKey, // Assign the form key
+              key: _formKey,
               child: Column(
-                mainAxisAlignment: MainAxisAlignment
-                    .spaceBetween, // Use spaceBetween to push logo down
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // Main content column
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Title (moved from AppBar)
+                      const SizedBox(height: 20.0),
                       Text(
                         _mode == RecoveryMode.password
                             ? 'Forgot Password'
@@ -95,7 +90,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 8.0), // Space below title
+                      const SizedBox(height: 8.0),
                       // Subtitle
                       Text(
                         'Enter your email address',

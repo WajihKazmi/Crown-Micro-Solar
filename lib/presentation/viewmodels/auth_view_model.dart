@@ -1,9 +1,15 @@
 import 'package:flutter/foundation.dart';
+import 'package:crown_micro_solar/presentation/repositories/auth_repository.dart';
 
 class AuthViewModel extends ChangeNotifier {
+  final AuthRepository _authRepository;
   bool _isLoading = false;
   String? _error;
   bool _isAuthenticated = false;
+
+  AuthViewModel(this._authRepository) {
+    _isAuthenticated = _authRepository.isLoggedIn();
+  }
 
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -15,12 +21,18 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Mock login
-      await Future.delayed(const Duration(seconds: 1));
-      _isAuthenticated = true;
-      _isLoading = false;
-      notifyListeners();
-      return true;
+      final response = await _authRepository.login(username, password);
+      if (response.isSuccess) {
+        _isAuthenticated = true;
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } else {
+        _error = response.description;
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
     } catch (e) {
       _error = e.toString();
       _isLoading = false;
@@ -74,8 +86,15 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void logout() {
-    _isAuthenticated = false;
-    notifyListeners();
+  Future<void> logout() async {
+    try {
+      await _authRepository.logout();
+      _isAuthenticated = false;
+      _error = null;
+      notifyListeners();
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+    }
   }
 }

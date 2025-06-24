@@ -1,5 +1,4 @@
 import 'package:get_it/get_it.dart';
-import 'package:crown_micro_solar/presentation/viewmodels/auth_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/energy_view_model.dart';
@@ -12,8 +11,7 @@ Future<void> setupServiceLocator() async {
     // Reset all registrations
     await getIt.reset();
     
-    // Register ViewModels
-    getIt.registerFactory(() => AuthViewModel());
+    // Register ViewModels (AuthViewModel is handled by Provider in main.dart)
     getIt.registerFactory(() => PlantViewModel());
     getIt.registerFactory(() => DeviceViewModel());
     getIt.registerFactory(() => EnergyViewModel());
