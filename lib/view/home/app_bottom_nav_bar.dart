@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:math';
+import 'dart:ui';
 
 class AppBottomNavBar extends StatelessWidget {
   final int currentIndex;
@@ -22,10 +23,30 @@ class AppBottomNavBar extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // Curved bottom bar background
+          // Curved bottom bar background with blur and gradient
           Positioned.fill(
-            child: CustomPaint(
-              painter: _CurvedBarPainter(color: theme.colorScheme.background),
+            child: ClipPath(
+              clipper: _BottomBarClipper(),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        theme.colorScheme.background.withValues(alpha: 0.7),
+                        theme.brightness == Brightness.dark
+                          ? Colors.black.withValues(alpha: 0.85)
+                          : Colors.white.withValues(alpha: 0.85),
+                      ],
+                    ),
+                  ),
+                  child: CustomPaint(
+                    painter: _CurvedBarPainter(color: Colors.transparent),
+                  ),
+                ),
+              ),
             ),
           ),
           // Bottom bar items with clipping
@@ -167,10 +188,6 @@ class _CurvedBarPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill
-      ..isAntiAlias = true;
     final path = Path();
     // Start from bottom left
     path.moveTo(0, 0);
@@ -198,11 +215,8 @@ class _CurvedBarPainter extends CustomPainter {
     path.lineTo(0, size.height);
     path.close();
 
-    // Draw shadow
-    canvas.drawShadow(path, Colors.black.withOpacity(0.08), 8, false);
-
-    // Draw the bar background
-    canvas.drawPath(path, paint);
+    // Draw shadow for elevation
+    canvas.drawShadow(path, Colors.black.withValues(alpha: 0.18), 8, false);
 
     // Draw transparent cutout for the curve area
     final cutoutPath = Path();

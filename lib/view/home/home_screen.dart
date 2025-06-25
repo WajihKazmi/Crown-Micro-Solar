@@ -60,28 +60,29 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       print('Starting logout process...');
       final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
-      
+
       // Check initial state
       print('Initial isLoggedIn state: ${authViewModel.isLoggedIn}');
-      
+
       // Perform logout
       await authViewModel.logout();
       print('Logout completed successfully');
-      
+
       // Refresh auth state
       authViewModel.refreshAuthState();
       print('Auth state refreshed');
-      
+
       // Check final state
       print('Final isLoggedIn state: ${authViewModel.isLoggedIn}');
-      
+
       // Add a small delay to ensure all state changes are processed
       await Future.delayed(const Duration(milliseconds: 100));
-      
+
       // Navigate to login screen
       if (mounted) {
         print('Navigating to login screen...');
-        Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+        Navigator.of(context)
+            .pushNamedAndRemoveUntil('/login', (route) => false);
       }
     } catch (e) {
       print('Error during logout: $e');
@@ -457,7 +458,7 @@ class _InfoCard extends StatelessWidget {
                 children: [
                   Text(value,
                       style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                          TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                   const SizedBox(
                     width: 5,
                   ),
