@@ -2,16 +2,39 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/auth_viewmodel.dart';
+import 'package:crown_micro_solar/localization/app_localizations.dart';
+import 'package:crown_micro_solar/main.dart';
+import 'package:crown_micro_solar/core/utils/app_text_fields.dart';
+import 'package:crown_micro_solar/core/utils/app_buttons.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({Key? key}) : super(key: key);
 
+  void _showChangePasswordDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => ChangePasswordDialog(),
+    );
+  }
+
+  void _showLanguageSelector(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => LanguageSelectorDialog(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final authViewModel = Provider.of<AuthViewModel>(context);
+    final userInfo = authViewModel.userInfo;
     const lightGrey = Color(0xFFF3F4F6);
     const green = Color(0xFF22C55E);
     const red = Color(0xFFEF4444);
+    if (userInfo == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
     return SingleChildScrollView(
       child: Column(
         children: [
@@ -36,11 +59,11 @@ class ProfileScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Azidanir025',
+                      Text(userInfo.usr,
                           style: theme.textTheme.titleMedium
                               ?.copyWith(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
-                      Text('Role Power Station Owner',
+                      Text('Email: ${userInfo.email}',
                           style: theme.textTheme.bodyMedium?.copyWith(
                               color: theme.colorScheme.onSurface
                                   .withOpacity(0.6))),
@@ -48,8 +71,7 @@ class ProfileScreen extends StatelessWidget {
                   ),
                 ),
                 Icon(Icons.arrow_forward_ios,
-                    color: theme.iconTheme.color?.withOpacity(0.3),
-                    size: 18),
+                    color: theme.iconTheme.color?.withOpacity(0.3), size: 18),
               ],
             ),
           ),
@@ -86,7 +108,7 @@ class ProfileScreen extends StatelessWidget {
                 _ProfileActionTile(
                   icon: Icons.lock_outline,
                   label: 'Change Password',
-                  onTap: () {},
+                  onTap: () => _showChangePasswordDialog(context),
                   backgroundColor: lightGrey,
                   iconColor: red,
                 ),
@@ -107,7 +129,7 @@ class ProfileScreen extends StatelessWidget {
                 _ProfileActionTile(
                   icon: Icons.language,
                   label: 'Change Language',
-                  onTap: () {},
+                  onTap: () => _showLanguageSelector(context),
                   backgroundColor: lightGrey,
                   iconColor: Color(0xFF3B82F6),
                 ),
@@ -132,8 +154,7 @@ class ProfileScreen extends StatelessWidget {
                     onPressed: () {},
                     child: Text('Add Installer',
                         style: theme.textTheme.labelLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold)),
+                            color: Colors.white, fontWeight: FontWeight.bold)),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -150,8 +171,7 @@ class ProfileScreen extends StatelessWidget {
                     onPressed: () {},
                     child: Text('Delete Account',
                         style: theme.textTheme.labelLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold)),
+                            color: Colors.white, fontWeight: FontWeight.bold)),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -168,8 +188,7 @@ class ProfileScreen extends StatelessWidget {
                     onPressed: () => _showLogoutDialog(context),
                     child: Text('Logout',
                         style: theme.textTheme.labelLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold)),
+                            color: Colors.white, fontWeight: FontWeight.bold)),
                   ),
                 ),
               ],
@@ -210,28 +229,30 @@ class ProfileScreen extends StatelessWidget {
     try {
       print('Starting logout process from profile screen...');
       final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
-      
+
       // Check initial state
-      print('Initial isLoggedIn state from profile: ${authViewModel.isLoggedIn}');
-      
+      print(
+          'Initial isLoggedIn state from profile: ${authViewModel.isLoggedIn}');
+
       // Perform logout
       await authViewModel.logout();
       print('Logout completed successfully from profile screen');
-      
+
       // Refresh auth state
       authViewModel.refreshAuthState();
       print('Auth state refreshed from profile');
-      
+
       // Check final state
       print('Final isLoggedIn state from profile: ${authViewModel.isLoggedIn}');
-      
+
       // Add a small delay to ensure all state changes are processed
       await Future.delayed(const Duration(milliseconds: 100));
-      
+
       // Navigate to login screen
       if (context.mounted) {
         print('Navigating to login screen from profile screen...');
-        Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+        Navigator.of(context)
+            .pushNamedAndRemoveUntil('/login', (route) => false);
       }
     } catch (e) {
       print('Error during logout from profile screen: $e');
@@ -327,5 +348,177 @@ class _ProfileActionTile extends StatelessWidget {
         minLeadingWidth: 0,
       ),
     );
+  }
+}
+
+class ChangePasswordDialog extends StatefulWidget {
+  @override
+  _ChangePasswordDialogState createState() => _ChangePasswordDialogState();
+}
+
+class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final TextEditingController _oldPasswordController = TextEditingController();
+  final TextEditingController _newPasswordController = TextEditingController();
+  final TextEditingController _confirmPasswordController =
+      TextEditingController();
+  bool _isLoading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _oldPasswordController.dispose();
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  void _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
+    final oldPassword = _oldPasswordController.text;
+    final newPassword = _newPasswordController.text;
+    final success =
+        await authViewModel.changePassword(oldPassword, newPassword);
+    setState(() {
+      _isLoading = false;
+    });
+    if (success) {
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Password changed successfully!')),
+      );
+    } else {
+      setState(() {
+        _error =
+            'Failed to change password. Please check your old password and try again.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Change Password',
+                  style: theme.textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              AppTextField(
+                controller: _oldPasswordController,
+                labelText: 'Old Password',
+                isPassword: true,
+                validator: (val) =>
+                    val == null || val.isEmpty ? 'Enter old password' : null,
+              ),
+              const SizedBox(height: 12),
+              AppTextField(
+                controller: _newPasswordController,
+                labelText: 'New Password',
+                isPassword: true,
+                validator: (val) => val == null || val.length < 6
+                    ? 'Password must be at least 6 characters'
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              AppTextField(
+                controller: _confirmPasswordController,
+                labelText: 'Confirm New Password',
+                isPassword: true,
+                validator: (val) => val != _newPasswordController.text
+                    ? 'Passwords do not match'
+                    : null,
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                Text(_error!,
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(color: theme.colorScheme.error)),
+              ],
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: AppButtons.primaryButton(
+                      context: context,
+                      onTap:
+                          _isLoading ? null : () => Navigator.of(context).pop(),
+                      text: 'Cancel',
+                      isFilled: false,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: AppButtons.primaryButton(
+                      context: context,
+                      onTap: _isLoading ? null : _submit,
+                      text: 'Change',
+                      isLoading: _isLoading,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class LanguageSelectorDialog extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final supportedLocales = AppLocalizations.supportedLocales;
+    final localeProvider = Provider.of<LocaleProvider>(context, listen: false);
+    return AlertDialog(
+      title: const Text('Select Language'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: supportedLocales.map((locale) {
+          return ListTile(
+            title: Text(_getLanguageName(locale.languageCode)),
+            onTap: () {
+              localeProvider.setLocale(locale);
+              Navigator.of(context).pop();
+            },
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  String _getLanguageName(String code) {
+    switch (code) {
+      case 'en':
+        return 'English';
+      case 'ar':
+        return 'Arabic';
+      case 'es':
+        return 'Spanish';
+      case 'fr':
+        return 'French';
+      case 'de':
+        return 'German';
+      case 'zh':
+        return 'Chinese';
+      case 'ja':
+        return 'Japanese';
+      default:
+        return code;
+    }
   }
 }

@@ -119,19 +119,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final authViewModel = Provider.of<AuthViewModel>(context);
+    final userInfo = authViewModel.userInfo;
     return Scaffold(
       extendBody: true,
-      drawer: AppDrawer(
-        username: 'Azidanir025',
-        email: 'azidanir025@gmail.com',
-        onProfileTap: () {
-          setState(() {
-            _currentIndex = 3;
-          });
-        },
-        onLogout: _onLogout,
-        onNavigate: _onDrawerNavigate,
-      ),
+      drawer: userInfo == null
+          ? const Drawer(child: Center(child: CircularProgressIndicator()))
+          : AppDrawer(
+              username: userInfo.usr,
+              email: userInfo.email,
+              onProfileTap: () {
+                setState(() {
+                  _currentIndex = 3;
+                });
+              },
+              onLogout: _onLogout,
+              onNavigate: _onDrawerNavigate,
+            ),
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
@@ -444,7 +448,7 @@ class _InfoCard extends StatelessWidget {
         ),
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(2),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Column(
@@ -502,7 +506,7 @@ class _SummaryCard extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SvgPicture.asset(
+            SvgPicture.asset( 
               icon,
             ),
             const SizedBox(height: 8),
@@ -540,7 +544,10 @@ class AppDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     return Drawer(
       child: Container(
-        color: const Color(0xFFE53935),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE53935),
+          borderRadius: BorderRadius.horizontal(right: Radius.circular(16)),
+        ),
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10),

@@ -22,12 +22,15 @@ class AuthRepository {
 
   // Default values for DESS Monitor API
   static const String _defaultSalt = "12345678";
-  static const String _defaultSecret = "e216fe6d765ebbd05393ba598c8d0ac20b4d2122";
-  static const String _defaultToken = "4f07ebae2a2cb357608bb1c920924f7dd50536b00c09fb9d973441777ac66b4b";
+  static const String _defaultSecret =
+      "e216fe6d765ebbd05393ba598c8d0ac20b4d2122";
+  static const String _defaultToken =
+      "4f07ebae2a2cb357608bb1c920924f7dd50536b00c09fb9d973441777ac66b4b";
 
   AuthRepository(this._apiService, this._prefs);
 
-  String _generateSign(String salt, String secret, String token, String action) {
+  String _generateSign(
+      String salt, String secret, String token, String action) {
     final data = salt + secret + token + action;
     final bytes = utf8.encode(data);
     return sha1.convert(bytes).toString();
@@ -238,5 +241,38 @@ class AuthRepository {
       }
     }
     return null;
+  }
+
+  Future<bool> register({
+    required String email,
+    required String mobileNo,
+    required String username,
+    required String password,
+    required String sn,
+  }) async {
+    try {
+      final url = 'https://apis.crown-micro.net/api/MonitoringApp/Register';
+      final headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': 'C5BFF7F0-B4DF-475E-A331-F737424F013C'
+      };
+      final body = jsonEncode({
+        "Email": email,
+        "MobileNo": mobileNo,
+        "Username": username,
+        "Password": password,
+        "SN": sn,
+      });
+      final response =
+          await http.post(Uri.parse(url), headers: headers, body: body);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['Description'] == "Success";
+      }
+      return false;
+    } catch (e) {
+      print('Registration error: $e');
+      return false;
+    }
   }
 }

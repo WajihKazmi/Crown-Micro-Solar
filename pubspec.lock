@@ -194,7 +194,7 @@ packages:
     source: hosted
     version: "1.19.1"
   convert:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: convert
       sha256: b30acd5944035672bc15c6b7a8b47d773e41e2f17de064350988c5d02adb1c68
@@ -845,6 +845,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.3.0"
+  persistent_bottom_nav_bar:
+    dependency: "direct main"
+    description:
+      name: persistent_bottom_nav_bar
+      sha256: "6aa9b97ced1abd92c90cedd1997d34ea0b35c3ded762ac6063baccc299b0c4c5"
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.2.1"
   petitparser:
     dependency: transitive
     description:
@@ -989,6 +997,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.0"
+  simple_rc4:
+    dependency: "direct main"
+    description:
+      name: simple_rc4
+      sha256: "600210d1e141257dfabcb2787a5bb7b7134993c041127a10f240645949835709"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.0"
   sky_engine:
     dependency: transitive
     description: flutter
@@ -1098,6 +1114,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
+  stylish_bottom_bar:
+    dependency: "direct main"
+    description:
+      name: stylish_bottom_bar
+      sha256: "8bd394d51e3c1d93a3013fd35e7f77ca29f820df204d0f8580f4773fc660e750"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.1"
   synchronized:
     dependency: transitive
     description:

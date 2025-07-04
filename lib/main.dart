@@ -10,6 +10,7 @@ import 'package:crown_micro_solar/presentation/repositories/auth_repository.dart
 import 'package:crown_micro_solar/presentation/viewmodels/auth_viewmodel.dart';
 import 'package:crown_micro_solar/core/config/app_config.dart';
 import 'package:crown_micro_solar/view/auth/login_screen.dart';
+import 'package:crown_micro_solar/localization/app_localizations.dart';
 
 void main() async {
   try {
@@ -64,6 +65,17 @@ void main() async {
   }
 }
 
+class LocaleProvider extends ChangeNotifier {
+  Locale _locale = AppLocalizations.defaultLocale;
+  Locale get locale => _locale;
+
+  void setLocale(Locale locale) {
+    if (!AppLocalizations.supportedLocales.contains(locale)) return;
+    _locale = locale;
+    notifyListeners();
+  }
+}
+
 class MyApp extends StatelessWidget {
   final AuthRepository authRepository;
 
@@ -76,13 +88,23 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => AuthViewModel(authRepository),
         ),
+        ChangeNotifierProvider(
+          create: (_) => LocaleProvider(),
+        ),
       ],
-      child: MaterialApp(
-        title: AppConfig.appName,
-        theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.lightTheme,
-        initialRoute: AppRoutes.login,
-        routes: AppRoutes.routes,
+      child: Consumer<LocaleProvider>(
+        builder: (context, localeProvider, child) {
+          return MaterialApp(
+            title: AppConfig.appName,
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.lightTheme,
+            initialRoute: AppRoutes.login,
+            routes: AppRoutes.routes,
+            locale: localeProvider.locale,
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+          );
+        },
       ),
     );
   }

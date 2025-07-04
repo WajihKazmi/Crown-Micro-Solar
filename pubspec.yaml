@@ -37,6 +37,8 @@ dependencies:
   provider: ^6.1.1
   dio: ^5.4.0
   crypto: ^3.0.3
+  convert: any
+  simple_rc4: any
 
   # UI Components
   cupertino_icons: ^1.0.2
@@ -60,6 +62,12 @@ dependencies:
 
   # Localization
   easy_localization: ^3.0.3
+
+  # New dependency
+  persistent_bottom_nav_bar: ^6.2.1
+
+  # Added dependency
+  stylish_bottom_bar: ^1.1.1
 
 dev_dependencies:
   flutter_test:

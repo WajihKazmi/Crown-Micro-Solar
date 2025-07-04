@@ -7,6 +7,8 @@ import '../../core/utils/app_animations.dart';
 import '../../core/utils/app_buttons.dart'; // Import AppButtons
 import 'forgot_password_screen.dart'; // Import RecoveryMode enum
 import '../common/bordered_icon_button.dart';
+import 'package:provider/provider.dart';
+import '../../presentation/viewmodels/auth_viewmodel.dart';
 
 class VerificationScreen extends StatefulWidget {
   const VerificationScreen({Key? key}) : super(key: key);
@@ -25,6 +27,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       List.generate(4, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(4, (_) => FocusNode());
   RecoveryMode _recoveryMode = RecoveryMode.password; // Default value
+  String? _email;
 
   // Combined error state and message for the entire code input area
   bool _codeError = false;
@@ -44,11 +47,12 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
     // Get the recovery mode from arguments
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final mode = ModalRoute.of(context)?.settings.arguments as RecoveryMode?;
-      if (mode != null) {
-        setState(() {
-          _recoveryMode = mode;
-        });
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map) {
+        _recoveryMode = args['mode'] as RecoveryMode? ?? RecoveryMode.password;
+        _email = args['email'] as String?;
+      } else if (args is RecoveryMode) {
+        _recoveryMode = args;
       }
     });
   }
@@ -87,39 +91,39 @@ class _VerificationScreenState extends State<VerificationScreen> {
   }
 
   void _verifyCode() async {
-    // Combine code from all controllers
-    final enteredCode =
-        _codeControllers.map((controller) => controller.text).join();
-
-    // Validate the combined code
+    final enteredCode = _codeControllers.map((controller) => controller.text).join();
     if (enteredCode.length == 4 && RegExp(r'^\d{4}').hasMatch(enteredCode)) {
       setState(() {
-        _codeError = false; // Clear combined error on success
+        _codeError = false;
         _codeErrorMessage = null;
         _isLoading = true;
       });
-      // TODO: Implement actual code verification logic
-      // For now, simulate a delay
-      await Future.delayed(const Duration(seconds: 2));
-
-      setState(() {
-        _isLoading = false;
-        // TODO: Navigate or show success/error based on verification result
-
-        // Navigate based on recovery mode
+      final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
+      bool success = false;
+      if (_email != null) {
+        success = await authViewModel.verifyOtp(_email!, enteredCode);
+      } else {
+        // fallback: simulate success
+        await Future.delayed(const Duration(seconds: 2));
+        success = true;
+      }
+      setState(() { _isLoading = false; });
+      if (success) {
         if (_recoveryMode == RecoveryMode.password) {
           Navigator.of(context).pushReplacementNamed(AppRoutes.resetPassword);
         } else if (_recoveryMode == RecoveryMode.userId) {
           Navigator.of(context).pushReplacementNamed(AppRoutes.changeUserId);
         } else if (_recoveryMode == RecoveryMode.registration) {
-           Navigator.of(context).pushReplacementNamed(AppRoutes.createAccount);
+          Navigator.of(context).pushReplacementNamed(AppRoutes.createAccount);
         } else {
-           // Fallback or error handling if mode is unexpected
-           print('Unexpected recovery mode: $_recoveryMode');
-           // Optionally navigate to an error screen or back to login
-            Navigator.of(context).pushReplacementNamed(AppRoutes.login);
+          Navigator.of(context).pushReplacementNamed(AppRoutes.login);
         }
-      });
+      } else {
+        setState(() {
+          _codeError = true;
+          _codeErrorMessage = 'Invalid code. Please try again.';
+        });
+      }
     } else {
       // Validation failed, show error, shake, and clear fields
       setState(() {

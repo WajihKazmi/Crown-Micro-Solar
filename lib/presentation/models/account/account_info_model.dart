@@ -1,47 +1,51 @@
 class AccountInfo {
-  final String userId;
-  final String username;
+  final int uid;
+  final String usr;
+  final int role;
+  final String mobile;
   final String email;
-  final String phone;
-  final String role;
-  final String status;
-  final DateTime lastLogin;
-  final Map<String, dynamic> preferences;
+  final String qname;
+  final bool enable;
+  final DateTime gts;
+  final String? photo;
 
   AccountInfo({
-    required this.userId,
-    required this.username,
-    required this.email,
-    required this.phone,
+    required this.uid,
+    required this.usr,
     required this.role,
-    required this.status,
-    required this.lastLogin,
-    required this.preferences,
+    required this.mobile,
+    required this.email,
+    required this.qname,
+    required this.enable,
+    required this.gts,
+    this.photo,
   });
 
   factory AccountInfo.fromJson(Map<String, dynamic> json) {
     return AccountInfo(
-      userId: json['userId'] ?? '',
-      username: json['username'] ?? '',
+      uid: json['uid'] ?? 0,
+      usr: json['usr'] ?? '',
+      role: json['role'] ?? 0,
+      mobile: json['mobile'] ?? '',
       email: json['email'] ?? '',
-      phone: json['phone'] ?? '',
-      role: json['role'] ?? '',
-      status: json['status'] ?? '',
-      lastLogin: DateTime.parse(json['lastLogin'] ?? DateTime.now().toIso8601String()),
-      preferences: json['preferences'] ?? {},
+      qname: json['qname'] ?? '',
+      enable: json['enable'] ?? false,
+      gts: json['gts'] != null ? DateTime.parse(json['gts']) : DateTime.now(),
+      photo: json['photo'],
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'userId': userId,
-      'username': username,
-      'email': email,
-      'phone': phone,
+      'uid': uid,
+      'usr': usr,
       'role': role,
-      'status': status,
-      'lastLogin': lastLogin.toIso8601String(),
-      'preferences': preferences,
+      'mobile': mobile,
+      'email': email,
+      'qname': qname,
+      'enable': enable,
+      'gts': gts.toIso8601String(),
+      'photo': photo,
     };
   }
 } 

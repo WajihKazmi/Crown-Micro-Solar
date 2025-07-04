@@ -25,28 +25,12 @@ class AppBottomNavBar extends StatelessWidget {
         children: [
           // Curved bottom bar background with blur and gradient
           Positioned.fill(
-            child: ClipPath(
+            child: PhysicalShape(
               clipper: _BottomBarClipper(),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        theme.colorScheme.background.withValues(alpha: 0.7),
-                        theme.brightness == Brightness.dark
-                          ? Colors.black.withValues(alpha: 0.85)
-                          : Colors.white.withValues(alpha: 0.85),
-                      ],
-                    ),
-                  ),
-                  child: CustomPaint(
-                    painter: _CurvedBarPainter(color: Colors.transparent),
-                  ),
-                ),
-              ),
+              color: theme.colorScheme.background,
+              elevation: 12,
+              shadowColor: Colors.black.withOpacity(0.22),
+              child: Container(),
             ),
           ),
           // Bottom bar items with clipping
@@ -153,22 +137,25 @@ class _BottomBarClipper extends CustomClipper<Path> {
     // Start from bottom left
     path.moveTo(0, 0);
     // Left straight
-    path.lineTo(size.width * 0.25 - 28, 0);
-    // Curve up for the logo (deeper by 5px)
+    path.lineTo(size.width * 0.25 - 32, 0);
+    // Wide, shallow center curve (gentle U)
     path.cubicTo(
       size.width * 0.25, 0,
-      size.width * 0.5 - 44, 0,
-      size.width * 0.5 - 28, 23, // was 18, now 23 (5px deeper)
+      size.width * 0.5 - 60, 0,
+      size.width * 0.5 - 36, 16, // left up-curve
     );
     path.cubicTo(
-      size.width * 0.5 - 14, 41, // was 36, now 41 (5px deeper)
-      size.width * 0.5 + 14, 41, // was 36, now 41 (5px deeper)
-      size.width * 0.5 + 28, 23, // was 18, now 23 (5px deeper)
+      size.width * 0.5 - 18, 28, // left inner
+      size.width * 0.5 + 18, 28, // right inner
+      size.width * 0.5 + 36, 16, // right up-curve
     );
     path.cubicTo(
-      size.width * 0.5 + 44, 0,
-      size.width * 0.75, 0,
-      size.width * 0.75 + 28, 0,
+      size.width * 0.5 + 60,
+      0,
+      size.width * 0.75,
+      0,
+      size.width * 0.75 + 32,
+      0,
     );
     // Right straight
     path.lineTo(size.width, 0);
@@ -180,68 +167,6 @@ class _BottomBarClipper extends CustomClipper<Path> {
 
   @override
   bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
-}
-
-class _CurvedBarPainter extends CustomPainter {
-  final Color color;
-  _CurvedBarPainter({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = Path();
-    // Start from bottom left
-    path.moveTo(0, 0);
-    // Left straight
-    path.lineTo(size.width * 0.25 - 28, 0);
-    // Curve up for the logo (deeper by 5px)
-    path.cubicTo(
-      size.width * 0.25, 0,
-      size.width * 0.5 - 44, 0,
-      size.width * 0.5 - 28, 23, // was 18, now 23 (5px deeper)
-    );
-    path.cubicTo(
-      size.width * 0.5 - 14, 41, // was 36, now 41 (5px deeper)
-      size.width * 0.5 + 14, 41, // was 36, now 41 (5px deeper)
-      size.width * 0.5 + 28, 23, // was 18, now 23 (5px deeper)
-    );
-    path.cubicTo(
-      size.width * 0.5 + 44, 0,
-      size.width * 0.75, 0,
-      size.width * 0.75 + 28, 0,
-    );
-    // Right straight
-    path.lineTo(size.width, 0);
-    path.lineTo(size.width, size.height);
-    path.lineTo(0, size.height);
-    path.close();
-
-    // Draw shadow for elevation
-    canvas.drawShadow(path, Colors.black.withValues(alpha: 0.18), 8, false);
-
-    // Draw transparent cutout for the curve area
-    final cutoutPath = Path();
-    cutoutPath.moveTo(size.width * 0.5 - 32, 0);
-    cutoutPath.cubicTo(
-      size.width * 0.5 - 24, 0,
-      size.width * 0.5 - 10, 32,
-      size.width * 0.5, 46,
-    );
-    cutoutPath.cubicTo(
-      size.width * 0.5 + 10, 32,
-      size.width * 0.5 + 24, 0,
-      size.width * 0.5 + 32, 0,
-    );
-    cutoutPath.lineTo(size.width * 0.5 + 32, -10);
-    cutoutPath.lineTo(size.width * 0.5 - 32, -10);
-    cutoutPath.close();
-    canvas.saveLayer(Rect.fromLTWH(0, 0, size.width, size.height), Paint());
-    // Use BlendMode.clear to make the cutout area transparent
-    canvas.drawPath(cutoutPath, Paint()..blendMode = BlendMode.clear);
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class StaticCrownLogo extends StatelessWidget {
@@ -259,4 +184,4 @@ class StaticCrownLogo extends StatelessWidget {
       ),
     );
   }
-} 
+}

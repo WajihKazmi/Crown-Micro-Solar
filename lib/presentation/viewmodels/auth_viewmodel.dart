@@ -1,7 +1,10 @@
+import 'package:crown_micro_solar/core/network/api_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/auth/auth_response_model.dart';
 import '../repositories/auth_repository.dart';
+import '../models/account/account_info_model.dart';
+import '../repositories/account/account_repository.dart';
 
 class AuthViewModel extends ChangeNotifier {
   final AuthRepository _repository;
@@ -13,10 +16,17 @@ class AuthViewModel extends ChangeNotifier {
   String? _token;
   String? _secret;
   String? _userId;
+  AccountInfo? _userInfo;
+  late final AccountRepository _accountRepository;
+  ApiService _apiService = ApiService();
 
   AuthViewModel(this._repository) {
-    // Sync local state with repository on initialization
+    _accountRepository = AccountRepository();
     _syncStateFromRepository();
+    // Fetch user info on app start if already logged in
+    if (isLoggedIn) {
+      fetchUserInfo();
+    }
   }
 
   bool get isLoading => _isLoading;
@@ -25,7 +35,7 @@ class AuthViewModel extends ChangeNotifier {
     // Check both local state and repository state
     final repositoryLoggedIn = _repository.isLoggedIn();
     final localLoggedIn = _token != null && _secret != null && _userId != null;
-    
+
     // If there's a mismatch, sync the local state with repository
     if (repositoryLoggedIn != localLoggedIn) {
       if (repositoryLoggedIn) {
@@ -41,15 +51,17 @@ class AuthViewModel extends ChangeNotifier {
         _agentsList = null;
       }
     }
-    
+
     return repositoryLoggedIn && localLoggedIn;
   }
+
   bool get isAgent => _isAgent;
   bool get isInstaller => _isInstaller;
   List<dynamic>? get agentsList => _agentsList;
   String? get token => _token;
   String? get secret => _secret;
   String? get userId => _userId;
+  AccountInfo? get userInfo => _userInfo;
 
   void setInstallerMode(bool value) {
     _isInstaller = value;
@@ -97,6 +109,8 @@ class AuthViewModel extends ChangeNotifier {
       if (!_isInstaller) {
         await saveCredentials(userId, password);
       }
+
+      await fetchUserInfo();
 
       notifyListeners();
       return true;
@@ -162,11 +176,11 @@ class AuthViewModel extends ChangeNotifier {
   Future<void> logout() async {
     try {
       print('AuthViewModel: Starting logout...');
-      
+
       // Clear repository state first
       await _repository.logout();
       print('AuthViewModel: Repository logout completed');
-      
+
       // Clear local state
       _token = null;
       _secret = null;
@@ -174,19 +188,21 @@ class AuthViewModel extends ChangeNotifier {
       _agentsList = null;
       _error = null;
       _isLoading = false;
-      
+
       print('AuthViewModel: Local state cleared');
-      
+
       // Force notify listeners to update UI
       notifyListeners();
       print('AuthViewModel: Notify listeners called');
-      
+
       // Double-check that logout was successful
       final stillLoggedIn = _repository.isLoggedIn();
-      print('AuthViewModel: Repository isLoggedIn check after logout: $stillLoggedIn');
-      
+      print(
+          'AuthViewModel: Repository isLoggedIn check after logout: $stillLoggedIn');
+
       if (stillLoggedIn) {
-        print('AuthViewModel: WARNING - Repository still shows logged in after logout!');
+        print(
+            'AuthViewModel: WARNING - Repository still shows logged in after logout!');
         // Force clear again
         await _repository.logout();
         notifyListeners();
@@ -220,5 +236,42 @@ class AuthViewModel extends ChangeNotifier {
   void refreshAuthState() {
     _syncStateFromRepository();
     notifyListeners();
+  }
+
+  Future<void> fetchUserInfo() async {
+    _userInfo = await _accountRepository.fetchAccountInfo();
+    notifyListeners();
+  }
+
+  Future<bool> changePassword(String oldPassword, String newPassword) async {
+    return await _accountRepository.changePassword(oldPassword, newPassword);
+  }
+
+  Future<bool> forgotPassword(String email) async {
+    return await _accountRepository.forgotPassword(email);
+  }
+
+  Future<String?> forgotUserId(String email) async {
+    return await _accountRepository.forgotUserId(email);
+  }
+
+  Future<bool> register({
+    required String email,
+    required String mobileNo,
+    required String username,
+    required String password,
+    required String sn,
+  }) async {
+    return await _repository.register(
+      email: email,
+      mobileNo: mobileNo,
+      username: username,
+      password: password,
+      sn: sn,
+    );
+  }
+
+  Future<bool> verifyOtp(String email, String code) async {
+    return await _accountRepository.verifyOtp(email, code);
   }
 }

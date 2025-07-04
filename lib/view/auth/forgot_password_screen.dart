@@ -4,6 +4,8 @@ import '../../core/utils/app_buttons.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_text_fields.dart';
 import '../common/bordered_icon_button.dart';
+import 'package:provider/provider.dart';
+import '../../presentation/viewmodels/auth_viewmodel.dart';
 
 enum RecoveryMode {
   password,
@@ -36,15 +38,33 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     super.dispose();
   }
 
-  void _continue() {
+  void _continue() async {
     if (_formKey.currentState!.validate()) {
-      // If the form is valid, proceed with the action based on _mode
-      Navigator.of(context).pushNamed(
-        AppRoutes.verification,
-        arguments: _mode, // Pass the selected mode as an argument
-      );
+      final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
+      final email = _emailController.text;
+      bool success = false;
+      if (_mode == RecoveryMode.password) {
+        success = await authViewModel.forgotPassword(email);
+      } else if (_mode == RecoveryMode.userId) {
+        final userId = await authViewModel.forgotUserId(email);
+        success = userId != null;
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Your User ID: $userId')),
+          );
+        }
+      }
+      if (success) {
+        Navigator.of(context).pushNamed(
+          AppRoutes.verification,
+          arguments: _mode, // Pass the selected mode as an argument
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed. Please check your email and try again.')),
+        );
+      }
     } else {
-      // If validation fails, clear the text field
       _emailController.clear();
     }
   }
