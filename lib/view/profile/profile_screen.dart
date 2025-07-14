@@ -6,9 +6,23 @@ import 'package:crown_micro_solar/localization/app_localizations.dart';
 import 'package:crown_micro_solar/main.dart';
 import 'package:crown_micro_solar/core/utils/app_text_fields.dart';
 import 'package:crown_micro_solar/core/utils/app_buttons.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart';
+import 'package:crown_micro_solar/core/di/service_locator.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/dashboard_view_model.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({Key? key}) : super(key: key);
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // No need to call loadDashboardData here; HomeScreen handles it globally.
+  }
 
   void _showChangePasswordDialog(BuildContext context) {
     showDialog(
@@ -28,6 +42,7 @@ class ProfileScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final authViewModel = Provider.of<AuthViewModel>(context);
+    final dashboardViewModel = Provider.of<DashboardViewModel>(context); // Use the global instance
     final userInfo = authViewModel.userInfo;
     const lightGrey = Color(0xFFF3F4F6);
     const green = Color(0xFF22C55E);
@@ -80,21 +95,21 @@ class ProfileScreen extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
+              children: [
                 _ProfileSummaryCard(
                   icon: 'assets/icons/home/totalPlants.svg',
                   label: 'Total Plant',
-                  value: '200',
+                  value: dashboardViewModel.isLoading ? '-' : dashboardViewModel.totalPlants.toString(),
                 ),
                 _ProfileSummaryCard(
                   icon: 'assets/icons/home/totalDevices.svg',
                   label: 'Total Device',
-                  value: '357',
+                  value: dashboardViewModel.isLoading ? '-' : dashboardViewModel.totalDevices.toString(),
                 ),
                 _ProfileSummaryCard(
                   icon: 'assets/icons/home/totalAlarms.svg',
                   label: 'Total Alarm',
-                  value: '266',
+                  value: dashboardViewModel.isLoading ? '-' : dashboardViewModel.totalAlarms.toString(),
                 ),
               ],
             ),

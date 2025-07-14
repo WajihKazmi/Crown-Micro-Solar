@@ -26,18 +26,48 @@ class Device {
   });
 
   factory Device.fromJson(Map<String, dynamic> json) {
+    // Parse numeric values safely
+    double parseDouble(dynamic value) {
+      if (value == null) return 0.0;
+      if (value is int) return value.toDouble();
+      if (value is double) return value;
+      if (value is String) {
+        if (value.isEmpty || value == "0" || value == "-") return 0.0;
+        try {
+          return double.parse(value);
+        } catch (e) {
+          print('Error parsing double: $value, error: $e');
+          return 0.0;
+        }
+      }
+      return 0.0;
+    }
+
+    // Parse date strings safely
+    DateTime parseDate(String? dateStr) {
+      if (dateStr == null || dateStr.isEmpty || dateStr == "0" || dateStr == "0.0000") {
+        return DateTime.now();
+      }
+      try {
+        return DateTime.parse(dateStr);
+      } catch (e) {
+        print('Error parsing date: $dateStr, error: $e');
+        return DateTime.now();
+      }
+    }
+
     return Device(
-      id: json['id'] ?? '',
-      name: json['name'] ?? '',
-      type: json['type'] ?? '',
-      status: json['status'] ?? '',
-      plantId: json['plantId'] ?? '',
-      lastUpdate: DateTime.parse(json['lastUpdate'] ?? DateTime.now().toIso8601String()),
-      currentPower: (json['currentPower'] ?? 0.0).toDouble(),
-      dailyGeneration: (json['dailyGeneration'] ?? 0.0).toDouble(),
-      monthlyGeneration: (json['monthlyGeneration'] ?? 0.0).toDouble(),
-      yearlyGeneration: (json['yearlyGeneration'] ?? 0.0).toDouble(),
-      parameters: json['parameters'] ?? {},
+      id: json['sn']?.toString() ?? '', // Use SN as device ID
+      name: json['pn']?.toString() ?? '', // Use PN as device name
+      type: json['devcode']?.toString() ?? '',
+      status: json['status']?.toString() ?? '',
+      plantId: json['plantid']?.toString() ?? '',
+      lastUpdate: parseDate(json['lastupdate']),
+      currentPower: parseDouble(json['outputpower']),
+      dailyGeneration: parseDouble(json['energy']),
+      monthlyGeneration: parseDouble(json['energymonth']),
+      yearlyGeneration: parseDouble(json['energyyear']),
+      parameters: json, // Store all device parameters
     );
   }
 

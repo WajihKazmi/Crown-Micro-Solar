@@ -3,6 +3,10 @@ import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart'
 import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/energy_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/alarm_view_model.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/dashboard_view_model.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/plant_info_view_model.dart';
+import 'package:crown_micro_solar/presentation/repositories/plant_repository.dart';
+import 'package:crown_micro_solar/core/network/api_client.dart';
 
 final GetIt getIt = GetIt.instance;
 
@@ -11,11 +15,15 @@ Future<void> setupServiceLocator() async {
     // Reset all registrations
     await getIt.reset();
     
+    // Register PlantRepository
+    getIt.registerLazySingleton(() => PlantRepository(ApiClient()));
     // Register ViewModels (AuthViewModel is handled by Provider in main.dart)
-    getIt.registerFactory(() => PlantViewModel());
+    getIt.registerFactory(() => PlantViewModel(getIt<PlantRepository>()));
     getIt.registerFactory(() => DeviceViewModel());
     getIt.registerFactory(() => EnergyViewModel());
     getIt.registerFactory(() => AlarmViewModel());
+    getIt.registerFactory(() => DashboardViewModel());
+    getIt.registerFactory(() => PlantInfoViewModel());
 
   } catch (e) {
     print('Failed to setup service locator: $e');

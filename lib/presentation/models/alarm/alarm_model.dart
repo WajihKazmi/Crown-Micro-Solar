@@ -72,15 +72,28 @@ class Warning {
   });
 
   factory Warning.fromJson(Map<String, dynamic> json) {
+    // Parse date strings safely
+    DateTime parseDate(String? dateStr) {
+      if (dateStr == null || dateStr.isEmpty || dateStr == "0" || dateStr == "0.0000") {
+        return DateTime.now();
+      }
+      try {
+        return DateTime.parse(dateStr);
+      } catch (e) {
+        print('Error parsing warning date: $dateStr, error: $e');
+        return DateTime.now();
+      }
+    }
+
     return Warning(
-      id: json['id'] ?? '',
-      deviceId: json['deviceId'] ?? '',
-      plantId: json['plantId'] ?? '',
-      type: json['type'] ?? '',
-      message: json['message'] ?? '',
-      timestamp: DateTime.parse(json['timestamp'] ?? DateTime.now().toIso8601String()),
-      isActive: json['isActive'] ?? false,
-      parameters: json['parameters'] ?? {},
+      id: json['id']?.toString() ?? json['sn']?.toString() ?? '',
+      deviceId: json['sn']?.toString() ?? '',
+      plantId: json['plantid']?.toString() ?? '',
+      type: json['type']?.toString() ?? json['warningtype']?.toString() ?? '',
+      message: json['message']?.toString() ?? json['warningmsg']?.toString() ?? '',
+      timestamp: parseDate(json['timestamp'] ?? json['warningtime']),
+      isActive: json['isActive'] ?? json['active'] ?? true,
+      parameters: json, // Store all warning parameters
     );
   }
 

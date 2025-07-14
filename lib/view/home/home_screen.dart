@@ -3,12 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/auth_viewmodel.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/dashboard_view_model.dart';
 import '../common/bordered_icon_button.dart';
 import '../profile/profile_screen.dart';
 import 'app_bottom_nav_bar.dart';
 import 'contact_screen.dart';
 import 'devices_screen.dart';
 import 'alarm_notification_screen.dart';
+import 'package:crown_micro_solar/core/di/service_locator.dart';
+import 'package:crown_micro_solar/view/home/plant_info_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -19,6 +23,17 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
+  late PlantViewModel _plantViewModel;
+  late DashboardViewModel _dashboardViewModel;
+
+  @override
+  void initState() {
+    super.initState();
+    _plantViewModel = getIt<PlantViewModel>();
+    _dashboardViewModel = getIt<DashboardViewModel>();
+    _plantViewModel.loadPlants();
+    _dashboardViewModel.loadDashboardData();
+  }
 
   void _onTabTapped(int index) {
     setState(() {
@@ -105,13 +120,29 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _getBody() {
     switch (_currentIndex) {
       case 0:
-        return _OverviewBody();
+        return MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: _plantViewModel),
+            ChangeNotifierProvider.value(value: _dashboardViewModel),
+          ],
+          child: _OverviewBody(),
+        );
       case 1:
-        return const ContactScreen();
+        // Use the first plant's ID for the plant info screen by default
+        final firstPlant = _plantViewModel.plants.isNotEmpty ? _plantViewModel.plants.first : null;
+        return firstPlant != null
+            ? PlantInfoScreen(plantId: firstPlant.id)
+            : const Center(child: CircularProgressIndicator());
       case 2:
         return const DevicesScreen();
       case 3:
-        return const ProfileScreen();
+        return MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: _plantViewModel),
+            ChangeNotifierProvider.value(value: _dashboardViewModel),
+          ],
+          child: const ProfileScreen(),
+        );
       default:
         return _OverviewBody();
     }
@@ -153,7 +184,7 @@ class _HomeScreenState extends State<HomeScreen> {
               _currentIndex == 0
                   ? 'Overview'
                   : _currentIndex == 1
-                      ? 'Contact'
+                      ? 'Plant Info'
                       : _currentIndex == 2
                           ? 'Devices'
                           : _currentIndex == 3
@@ -194,230 +225,238 @@ class _HomeScreenState extends State<HomeScreen> {
 class _OverviewBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          // Light red background container for upper widgets
-          Container(
-            margin: const EdgeInsets.all(10),
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFEBEE), // Light red color
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Column(
-              children: [
-                // Top Card Section
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  child: const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Last updated : 6:51 PM',
-                            style:
-                                TextStyle(color: Colors.black54, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
+    return Consumer2<PlantViewModel, DashboardViewModel>(
+      builder: (context, plantViewModel, dashboardViewModel, child) {
+        if (plantViewModel.isLoading || dashboardViewModel.isLoading) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (plantViewModel.error != null) {
+          return Center(child: Text('Error: ${plantViewModel.error}'));
+        }
+        if (dashboardViewModel.error != null) {
+          return Center(child: Text('Error: ${dashboardViewModel.error}'));
+        }
+        final plants = plantViewModel.plants;
+        final totalOutput = plants.fold<double>(0, (sum, p) => sum + p.currentPower);
+        final totalCapacity = plants.fold<double>(0, (sum, p) => sum + p.capacity);
+        final totalPlants = plants.length;
+        // You can add more aggregations as needed
+        return SingleChildScrollView(
+          child: Column(
+            children: [
+              Container(
+                margin: const EdgeInsets.all(10),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFEBEE),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Left Column
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              _InfoCard(
-                                icon: 'assets/icons/home/thunder.svg',
-                                label: 'Total Output Power',
-                                value: '7767.2',
-                                unit: 'KWH',
-                              ),
-                              const SizedBox(height: 12),
-                              _InfoCard(
-                                icon: 'assets/icons/home/capacity.svg',
-                                label: 'Total Installed Capacity',
-                                value: '8.2',
-                                unit: 'KW',
+                              Text(
+                                plants.isNotEmpty ? 'Last updated : ${plants.first.lastUpdate.hour}:${plants.first.lastUpdate.minute.toString().padLeft(2, '0')}' : '',
+                                style: const TextStyle(color: Colors.black54, fontSize: 12),
                               ),
                             ],
                           ),
-                          const SizedBox(width: 16),
-                          // Main Circle
-                          Expanded(
-                            child: Column(
-                              children: [
-                                Stack(
-                                  alignment: Alignment.center,
+                          const SizedBox(height: 12),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _InfoCard(
+                                    icon: 'assets/icons/home/thunder.svg',
+                                    label: 'Total Output Power',
+                                    value: totalOutput.toStringAsFixed(1),
+                                    unit: 'KWH',
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _InfoCard(
+                                    icon: 'assets/icons/home/capacity.svg',
+                                    label: 'Total Installed Capacity',
+                                    value: totalCapacity.toStringAsFixed(1),
+                                    unit: 'KW',
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
                                   children: [
-                                    //SvgPicture.asset('assets/icons/home/circle_bg.svg', width: 120, height: 120),
-                                    Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
+                                    Stack(
+                                      alignment: Alignment.center,
                                       children: [
-                                        Text('3.34',
-                                            style: TextStyle(
-                                                fontSize: 32,
-                                                fontWeight: FontWeight.bold,
-                                                color: Color(0xFFE53935))),
-                                        Text('KW',
-                                            style: TextStyle(
-                                                fontSize: 16,
-                                                color: Color(0xFFE53935),
-                                                fontWeight: FontWeight.bold)),
-                                        const SizedBox(height: 4),
-                                        Text('Current Power Generation',
-                                            style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.black)),
-                                        Text('All Power Stations',
-                                            style: TextStyle(
-                                                fontSize: 10,
-                                                color: Colors.black54)),
+                                        Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Text(totalOutput.toStringAsFixed(2),
+                                                style: const TextStyle(
+                                                    fontSize: 32,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Color(0xFFE53935))),
+                                            const Text('KW',
+                                                style: TextStyle(
+                                                    fontSize: 16,
+                                                    color: Color(0xFFE53935),
+                                                    fontWeight: FontWeight.bold)),
+                                            const SizedBox(height: 4),
+                                            const Text('Current Power Generation',
+                                                style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: Colors.black)),
+                                            const Text('All Power Stations',
+                                                style: TextStyle(
+                                                    fontSize: 10,
+                                                    color: Colors.black54)),
+                                          ],
+                                        ),
                                       ],
                                     ),
+                                    const SizedBox(height: 8),
                                   ],
                                 ),
-                                const SizedBox(height: 8),
-                                //SvgPicture.asset('assets/icons/home/house.svg', width: 60),
-                              ],
-                            ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 25),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              _SummaryCard(
+                                icon: 'assets/icons/home/totalPlants.svg',
+                                label: 'Total Plant',
+                                value: totalPlants.toString(),
+                              ),
+                              _SummaryCard(
+                                icon: 'assets/icons/home/totalDevices.svg',
+                                label: 'Total Device',
+                                value: dashboardViewModel.isLoading ? '-' : dashboardViewModel.totalDevices.toString(),
+                              ),
+                              _SummaryCard(
+                                icon: 'assets/icons/home/totalAlarms.svg',
+                                label: 'Total Alarm',
+                                value: dashboardViewModel.isLoading ? '-' : dashboardViewModel.totalAlarms.toString(),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                      const SizedBox(height: 25),
-                      // Summary Cards
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          _SummaryCard(
-                            icon: 'assets/icons/home/totalPlants.svg',
-                            label: 'Total Plant',
-                            value: '200',
+                    ),
+                  ],
+                ),
+              ),
+              // Dropdown
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black12,
+                        blurRadius: 4,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      padding: EdgeInsets.symmetric(horizontal: 20),
+                      value: 'AC2 Output Voltage',
+                      items: [
+                        DropdownMenuItem(
+                          value: 'AC2 Output Voltage',
+                          child: Text('AC2 Output Voltage'),
+                        ),
+                      ],
+                      onChanged: (value) {},
+                      isExpanded: true,
+                      icon: Icon(Icons.keyboard_arrow_down),
+                    ),
+                  ),
+                ),
+              ),
+              // Date Selector
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Icon(Icons.arrow_left, color: Colors.black54),
+                    Text('June 2024',
+                        style:
+                            TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    Icon(Icons.arrow_right, color: Colors.black54),
+                  ],
+                ),
+              ),
+              // Chart Area
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Container(
+                  height: 180,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black12,
+                        blurRadius: 4,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Stack(
+                    children: [
+                      // Placeholder for chart SVG
+                      // Center(
+                      //   child: SvgPicture.asset('assets/icons/home/chart.svg',
+                      //       height: 120),
+                      // ),
+                      // Add Datalogger Button
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 16,
+                        child: Center(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Color(0xFFE53935),
+                              shape: StadiumBorder(),
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 24, vertical: 10),
+                            ),
+                            onPressed: () {},
+                            child: Text('+ Add Datalogger',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold)),
                           ),
-                          _SummaryCard(
-                            icon: 'assets/icons/home/totalDevices.svg',
-                            label: 'Total Device',
-                            value: '357',
-                          ),
-                          _SummaryCard(
-                            icon: 'assets/icons/home/totalAlarms.svg',
-                            label: 'Total Alarm',
-                            value: '266',
-                          ),
-                        ],
+                        ),
                       ),
                     ],
                   ),
                 ),
-              ],
-            ),
-          ),
-          // Dropdown
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black12,
-                    blurRadius: 4,
-                    offset: Offset(0, 2),
-                  ),
-                ],
               ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  padding: EdgeInsets.symmetric(horizontal: 20),
-                  value: 'AC2 Output Voltage',
-                  items: [
-                    DropdownMenuItem(
-                      value: 'AC2 Output Voltage',
-                      child: Text('AC2 Output Voltage'),
-                    ),
-                  ],
-                  onChanged: (value) {},
-                  isExpanded: true,
-                  icon: Icon(Icons.keyboard_arrow_down),
-                ),
-              ),
-            ),
+              const SizedBox(height: 16),
+              // Bottom padding for bottom navigation bar
+              const SizedBox(height: 72),
+            ],
           ),
-          // Date Selector
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Icon(Icons.arrow_left, color: Colors.black54),
-                Text('June 2024',
-                    style:
-                        TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                Icon(Icons.arrow_right, color: Colors.black54),
-              ],
-            ),
-          ),
-          // Chart Area
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Container(
-              height: 180,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black12,
-                    blurRadius: 4,
-                    offset: Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Stack(
-                children: [
-                  // Placeholder for chart SVG
-                  // Center(
-                  //   child: SvgPicture.asset('assets/icons/home/chart.svg',
-                  //       height: 120),
-                  // ),
-                  // Add Datalogger Button
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 16,
-                    child: Center(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Color(0xFFE53935),
-                          shape: StadiumBorder(),
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 24, vertical: 10),
-                        ),
-                        onPressed: () {},
-                        child: Text('+ Add Datalogger',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Bottom padding for bottom navigation bar
-          const SizedBox(height: 72),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -659,3 +698,4 @@ class _DrawerItem extends StatelessWidget {
     );
   }
 }
+ 

@@ -1,4 +1,5 @@
 import 'package:crown_micro_solar/core/network/api_service.dart';
+import 'package:crown_micro_solar/core/network/api_client.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/auth/auth_response_model.dart';
@@ -19,6 +20,7 @@ class AuthViewModel extends ChangeNotifier {
   AccountInfo? _userInfo;
   late final AccountRepository _accountRepository;
   ApiService _apiService = ApiService();
+  final ApiClient _apiClient = ApiClient();
 
   AuthViewModel(this._repository) {
     _accountRepository = AccountRepository();
@@ -105,6 +107,12 @@ class AuthViewModel extends ChangeNotifier {
       _secret = response.secret;
       _userId = response.userId;
 
+      // Set credentials in ApiClient
+      if (_token != null && _secret != null) {
+        _apiClient.setCredentials(_token!, _secret!);
+        print('AuthViewModel: Set credentials in ApiClient');
+      }
+
       // Save credentials if not in installer mode
       if (!_isInstaller) {
         await saveCredentials(userId, password);
@@ -150,6 +158,12 @@ class AuthViewModel extends ChangeNotifier {
       _secret = response.secret;
       _userId = response.userId;
 
+      // Set credentials in ApiClient
+      if (_token != null && _secret != null) {
+        _apiClient.setCredentials(_token!, _secret!);
+        print('AuthViewModel: Set credentials in ApiClient for agent login');
+      }
+
       notifyListeners();
       return true;
     } catch (e) {
@@ -188,6 +202,10 @@ class AuthViewModel extends ChangeNotifier {
       _agentsList = null;
       _error = null;
       _isLoading = false;
+      
+      // Clear credentials from ApiClient
+      _apiClient.setCredentials('', '');
+      print('AuthViewModel: Cleared credentials from ApiClient');
 
       print('AuthViewModel: Local state cleared');
 
@@ -225,6 +243,12 @@ class AuthViewModel extends ChangeNotifier {
       _secret = _repository.getSecret();
       _userId = _repository.getUserId();
       _agentsList = _repository.getAgentsList();
+      
+      // Set credentials in ApiClient if available
+      if (_token != null && _secret != null) {
+        _apiClient.setCredentials(_token!, _secret!);
+        print('AuthViewModel: Synced credentials to ApiClient from repository');
+      }
     } else {
       _token = null;
       _secret = null;
