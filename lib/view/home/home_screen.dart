@@ -134,7 +134,13 @@ class _HomeScreenState extends State<HomeScreen> {
             ? PlantInfoScreen(plantId: firstPlant.id)
             : const Center(child: CircularProgressIndicator());
       case 2:
-        return const DevicesScreen();
+        return MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: _plantViewModel),
+            ChangeNotifierProvider.value(value: _dashboardViewModel),
+          ],
+          child: const DevicesScreen(),
+        );
       case 3:
         return MultiProvider(
           providers: [

@@ -1,26 +1,25 @@
 import 'package:flutter/foundation.dart';
+import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
+import 'package:crown_micro_solar/presentation/repositories/device_repository.dart';
+import 'package:crown_micro_solar/core/network/api_client.dart';
 
 class DeviceViewModel extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
-  List<dynamic> _devices = [];
+  List<Device> _devices = [];
+  final DeviceRepository _deviceRepository = DeviceRepository(ApiClient());
 
   bool get isLoading => _isLoading;
   String? get error => _error;
-  List<dynamic> get devices => _devices;
+  List<Device> get devices => _devices;
 
-  Future<void> loadDevices() async {
+  Future<void> loadDevices(String plantId) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      // Mock loading devices
-      await Future.delayed(const Duration(seconds: 1));
-      _devices = [
-        {'id': '1', 'name': 'Device 1', 'status': 'online'},
-        {'id': '2', 'name': 'Device 2', 'status': 'offline'},
-      ];
+      _devices = await _deviceRepository.getDevices(plantId);
       _isLoading = false;
       notifyListeners();
     } catch (e) {

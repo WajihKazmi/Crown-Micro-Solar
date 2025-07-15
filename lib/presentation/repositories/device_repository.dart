@@ -42,10 +42,61 @@ class DeviceRepository {
       throw Exception('Malformed JSON from device list API: $e');
     }
     
+    // Check for API errors first
+    if (dataJson['err'] != null && dataJson['err'] != 0) {
+      print('DeviceRepository: API returned error: ${dataJson['err']} - ${dataJson['desc']}');
+      // If it's a "not found" error, try the warnings fallback
+      if (dataJson['err'] == 258) { // ERR_NOT_FOUND_DEVICE
+        print('DeviceRepository: No devices found in device list. Trying plant warnings/alarms...');
+        return await _getDevicesFromWarnings(plantId, salt, token, secret, postaction);
+      }
+      throw Exception('API Error: ${dataJson['err']} - ${dataJson['desc']}');
+    }
+    
+    // Check if we got devices from the main API
     if (dataJson['dat'] != null && dataJson['dat']['device'] != null) {
       final List<dynamic> devicesJson = dataJson['dat']['device'];
       return devicesJson.map((json) => Device.fromJson(json)).toList();
     }
+    
+    // If no devices found, try plant warnings/alarms as fallback (like in old app)
+    print('DeviceRepository: No devices found in device list. Trying plant warnings/alarms...');
+    return await _getDevicesFromWarnings(plantId, salt, token, secret, postaction);
+  }
+
+  Future<List<Device>> _getDevicesFromWarnings(String plantId, String salt, String token, String secret, String postaction) async {
+    final warnAction = '&action=webQueryPlantsWarning&i18n=en_US&page=0&pagesize=100&plantid=$plantId';
+    final warnData = salt + secret + token + warnAction + postaction;
+    final warnSign = sha1.convert(utf8.encode(warnData)).toString();
+    final warnUrl = 'http://api.dessmonitor.com/public/?sign=$warnSign&salt=$salt&token=$token$warnAction$postaction';
+    
+    print('DeviceRepository: Fetching warnings for plant $plantId');
+    final response = await _apiClient.signedPost(warnUrl);
+    print('Warning list raw response: \n${response.body}');
+    
+    if (response.body.isEmpty) {
+      throw Exception('Empty response from warning list API');
+    }
+    
+    Map<String, dynamic> dataJson;
+    try {
+      dataJson = json.decode(response.body);
+    } catch (e) {
+      throw Exception('Malformed JSON from warning list API: $e');
+    }
+    
+    if (dataJson['dat'] != null && dataJson['dat']['warning'] != null) {
+      final List<dynamic> warningsJson = dataJson['dat']['warning'];
+      // Convert warnings to devices (since warnings contain device info)
+      final devices = warningsJson.map((json) => Device.fromJson(json)).toList();
+      // Deduplicate by SN
+      final uniqueDevices = <String, Device>{};
+      for (final device in devices) {
+        uniqueDevices[device.id] = device;
+      }
+      return uniqueDevices.values.toList();
+    }
+    
     return [];
   }
 
