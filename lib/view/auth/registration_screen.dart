@@ -61,7 +61,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             arguments: RecoveryMode.registration);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Registration failed. Please try again.')),
+          SnackBar(
+            content: Text(
+              'Registration failed. Please try again.',
+              style: const TextStyle(color: Colors.black),
+            ),
+            backgroundColor: Colors.white,
+          ),
         );
       }
     }

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
+import 'package:flutter_rating_bar/flutter_rating_bar.dart';
 
 class DevicesScreen extends StatefulWidget {
   const DevicesScreen({Key? key}) : super(key: key);
@@ -12,138 +13,369 @@ class DevicesScreen extends StatefulWidget {
 }
 
 class _DevicesScreenState extends State<DevicesScreen> {
-  late DeviceViewModel _deviceViewModel;
-  String? _lastPlantId;
+  String _selectedDeviceType = 'All Types'; // Changed to match the design
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final plantViewModel = Provider.of<PlantViewModel>(context);
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadDevices();
+    });
+  }
+
+  void _loadDevices() {
+    final plantViewModel = context.read<PlantViewModel>();
+    final deviceViewModel = context.read<DeviceViewModel>();
+    
     if (plantViewModel.plants.isNotEmpty) {
       final plantId = plantViewModel.plants.first.id;
-      if (_lastPlantId != plantId) {
-        _deviceViewModel = DeviceViewModel();
-        _deviceViewModel.loadDevices(plantId);
-        _lastPlantId = plantId;
+      // Load all devices without filters to show everything
+      deviceViewModel.loadDevicesAndCollectors(plantId);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<DeviceViewModel>(
+      builder: (context, deviceViewModel, child) {
+        if (deviceViewModel.isLoading) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (deviceViewModel.error != null) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                const SizedBox(height: 16),
+                Text(
+                  'Error: ${deviceViewModel.error}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.red),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: _loadDevices,
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return SingleChildScrollView(
+          child: Column(
+            children: [
+              // Filter dropdown
+              _buildFilterDropdown(deviceViewModel),
+              
+              // Content
+              _buildDeviceList(deviceViewModel),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFilterDropdown(DeviceViewModel deviceViewModel) {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedDeviceType,
+          isExpanded: true,
+          icon: const Icon(Icons.keyboard_arrow_down),
+          items: [
+            DropdownMenuItem(value: 'All Types', child: Text('All Types')),
+            DropdownMenuItem(value: 'Inverter', child: Text('Inverter')),
+            DropdownMenuItem(value: 'Datalogger', child: Text('Datalogger')),
+            DropdownMenuItem(value: 'Env-monitor', child: Text('Env-monitor')),
+            DropdownMenuItem(value: 'Smart meter', child: Text('Smart meter')),
+            DropdownMenuItem(value: 'Energy storage', child: Text('Energy storage')),
+          ],
+          onChanged: (value) {
+            setState(() {
+              _selectedDeviceType = value!;
+            });
+            _loadDevicesWithFilters(deviceViewModel);
+          },
+        ),
+      ),
+    );
+  }
+
+  void _loadDevicesWithFilters(DeviceViewModel deviceViewModel) {
+    final plantViewModel = context.read<PlantViewModel>();
+    if (plantViewModel.plants.isNotEmpty) {
+      final plantId = plantViewModel.plants.first.id;
+      
+      if (_selectedDeviceType == 'All Types') {
+        // Load all devices without filters
+        deviceViewModel.loadDevicesAndCollectors(plantId);
+      } else {
+        // Convert filter text to device codes
+        String deviceType = '0101';
+        switch (_selectedDeviceType) {
+          case 'Inverter':
+            deviceType = '512';
+            break;
+          case 'Datalogger':
+            deviceType = '0110';
+            break;
+          case 'Env-monitor':
+            deviceType = '768';
+            break;
+          case 'Smart meter':
+            deviceType = '1024';
+            break;
+          case 'Energy storage':
+            deviceType = '2452';
+            break;
+        }
+        deviceViewModel.loadDevicesWithFilters(
+          plantId,
+          status: '0101',
+          deviceType: deviceType,
+        );
       }
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final plantViewModel = Provider.of<PlantViewModel>(context);
-    if (plantViewModel.isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (plantViewModel.error != null) {
-      return Center(child: Text('Error: ${plantViewModel.error}'));
-    }
-    if (plantViewModel.plants.isEmpty) {
-      return const Center(child: Text('No plants found'));
-    }
-    return ChangeNotifierProvider<DeviceViewModel>.value(
-      value: _deviceViewModel,
-      child: Consumer<DeviceViewModel>(
-        builder: (context, deviceVM, child) {
-          if (deviceVM.isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (deviceVM.error != null) {
-            return Center(child: Text('Error: ${deviceVM.error}'));
-          }
-          if (deviceVM.devices.isEmpty) {
-            return const Center(child: Text('No devices found'));
-          }
-          final devices = deviceVM.devices;
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-            child: Column(
-              children: [
-                // Main device card
-                _DeviceCard(
-                  device: devices.first,
-                  isMain: true,
-                ),
-                const SizedBox(height: 24),
-                // Sub-devices/dataloggers
-                ...devices.skip(1).map((d) => Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: _DeviceCard(device: d, isMain: false),
-                )),
-                const SizedBox(height: 72),
-              ],
+  Widget _buildDeviceList(DeviceViewModel deviceViewModel) {
+    final hasStandaloneDevices = deviceViewModel.standaloneDevices.isNotEmpty;
+    final hasCollectors = deviceViewModel.collectors.isNotEmpty;
+
+    if (!hasStandaloneDevices && !hasCollectors) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.devices_other, size: 64, color: Colors.grey),
+            SizedBox(height: 16),
+            Text(
+              'No devices found',
+              style: TextStyle(fontSize: 18, color: Colors.grey),
             ),
+          ],
+        ),
+      );
+    }
+
+    List<Widget> allDevices = [];
+
+    // Add collectors (dataloggers)
+    if (hasCollectors) {
+      for (final collector in deviceViewModel.collectors) {
+        allDevices.add(_buildCollectorCard(collector, deviceViewModel));
+        
+        // Add subordinate devices as separate cards if expanded
+        final pn = collector['pn']?.toString() ?? '';
+        final isExpanded = deviceViewModel.isCollectorExpanded(pn);
+        final subordinateDevices = deviceViewModel.getSubordinateDevices(pn);
+        
+        if (isExpanded && subordinateDevices.isNotEmpty) {
+          allDevices.addAll(
+            subordinateDevices.map((device) => _buildSubordinateDeviceCard(device))
           );
-        },
+        }
+      }
+    }
+
+    // Add standalone devices
+    if (hasStandaloneDevices) {
+      allDevices.addAll(
+        deviceViewModel.standaloneDevices.map((device) => _buildDeviceCard(device))
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        children: allDevices,
       ),
     );
   }
-}
 
-class _DeviceCard extends StatelessWidget {
-  final Device device;
-  final bool isMain;
-  const _DeviceCard({required this.device, required this.isMain, Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: isMain ? 8 : 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      color: isMain ? Colors.white : Colors.grey[50],
+  Widget _buildDeviceCard(Device device) {
+    final isOnline = device.isOnline;
+    final statusText = device.getStatusText();
+    final statusColor = _getStatusColor(device.status);
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(isMain ? 16 : 8),
-              child: Image.asset(
-                isMain ? 'assets/images/device1.png' : 'assets/images/device_sub.png',
-                width: isMain ? 80 : 56,
-                height: isMain ? 80 : 56,
-                fit: BoxFit.cover,
+            // Dropdown arrow (only if device has subordinate devices)
+            if (_hasSubordinateDevices(device))
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: Icon(
+                  Icons.keyboard_arrow_down,
+                  color: Colors.grey[600],
+                  size: 20,
+                ),
               ),
-            ),
+            
+                            // Device Icon with Stack
+                Stack(
+                  children: [
+                    Image.asset(
+                      'assets/images/device1.png',
+                      width: 60,
+                      height: 60,
+                    ),
+                    if (isOnline)
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: Colors.green,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
             const SizedBox(width: 16),
+            
+            // Device Details
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    device.name.isNotEmpty ? device.name : 'Device',
-                    style: TextStyle(
-                      fontSize: isMain ? 20 : 16,
+                    'ALIAS: ${device.alias.isNotEmpty ? device.alias : device.pn}',
+                    style: const TextStyle(
+                      fontSize: 14,
                       fontWeight: FontWeight.bold,
-                      color: Colors.black,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'PN: ${device.pn}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black54,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'LOAD: ${device.load ?? 0}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black54,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      Icon(
-                        device.status == 'online' ? Icons.check_circle : Icons.error,
-                        color: device.status == 'online' ? Colors.green : Colors.red,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 6),
                       Text(
-                        device.status.capitalize(),
+                        'STATUS: ',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      Text(
+                        statusText,
                         style: TextStyle(
-                          color: device.status == 'online' ? Colors.green : Colors.red,
+                          fontSize: 12,
                           fontWeight: FontWeight.w500,
+                          color: statusColor,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  _infoRow('Current Power', '${device.currentPower.toStringAsFixed(2)} kW'),
-                  _infoRow('Daily Gen.', '${device.dailyGeneration.toStringAsFixed(2)} kWh'),
-                  _infoRow('Monthly Gen.', '${device.monthlyGeneration.toStringAsFixed(2)} kWh'),
-                  _infoRow('Yearly Gen.', '${device.yearlyGeneration.toStringAsFixed(2)} kWh'),
-                  _infoRow('Last Update', _formatDateTime(device.lastUpdate)),
+                  if (device.signal != null && device.signal! > 0) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Text(
+                          'SIGNAL: ',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black54,
+                          ),
+                        ),
+                        RatingBarIndicator(
+                          rating: device.signal! / 20.0,
+                          itemBuilder: (context, index) => Icon(
+                            Icons.circle,
+                            color: _getSignalColor(device.signal!),
+                            size: 12,
+                          ),
+                          itemCount: 5,
+                          itemSize: 12.0,
+                          unratedColor: Colors.grey.withAlpha(50),
+                          direction: Axis.horizontal,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${device.signal!.toStringAsFixed(1)}%',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _getSignalColor(device.signal!),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
+            ),
+            
+            // Action Icons Column
+            Column(
+              children: [
+                Icon(
+                  Icons.description,
+                  color: Colors.grey[600],
+                  size: 20,
+                ),
+                const SizedBox(height: 8),
+                Icon(
+                  Icons.keyboard_arrow_down,
+                  color: Colors.grey[600],
+                  size: 20,
+                ),
+              ],
             ),
           ],
         ),
@@ -151,26 +383,341 @@ class _DeviceCard extends StatelessWidget {
     );
   }
 
-  Widget _infoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: Row(
+  Widget _buildCollectorCard(Map<String, dynamic> collector, DeviceViewModel deviceViewModel) {
+    final pn = collector['pn']?.toString() ?? '';
+    final alias = collector['alias']?.toString() ?? 'Datalogger';
+    final status = collector['status'] ?? 0;
+    final load = collector['load'] ?? 0;
+    final signal = collector['signal'] != null ? double.tryParse(collector['signal'].toString()) : null;
+    final isExpanded = deviceViewModel.isCollectorExpanded(pn);
+    final subordinateDevices = deviceViewModel.getSubordinateDevices(pn);
+    final isOnline = status == 0;
+    final statusText = deviceViewModel.getStatusText(status);
+    final statusColor = _getStatusColor(status);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
         children: [
-          Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w500, color: Colors.black87)),
-          Expanded(child: Text(value, style: const TextStyle(color: Colors.black54), overflow: TextOverflow.ellipsis)),
+          // Main collector card
+          InkWell(
+            onTap: () {
+              deviceViewModel.toggleCollectorExpansion(pn);
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+              children: [
+                // Dropdown arrow (only if has subordinate devices)
+                if (subordinateDevices.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: Icon(
+                      Icons.keyboard_arrow_down,
+                      color: Colors.grey[600],
+                      size: 20,
+                    ),
+                  ),
+                
+                // Device Icon with Stack
+                Stack(
+                  children: [
+                    Image.asset(
+                      'assets/images/device1.png',
+                      width: 60,
+                      height: 60,
+                    ),
+                    if (isOnline)
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: Colors.green,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(width: 16),
+                
+                // Device Details
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'ALIAS: $alias',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'PN: $pn',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'LOAD: $load',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Text(
+                            'STATUS: ',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black54,
+                            ),
+                          ),
+                          Text(
+                            statusText,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: statusColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (signal != null && signal > 0) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Text(
+                              'SIGNAL: ',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black54,
+                              ),
+                            ),
+                            RatingBarIndicator(
+                              rating: signal / 20.0,
+                              itemBuilder: (context, index) => Icon(
+                                Icons.circle,
+                                color: _getSignalColor(signal),
+                                size: 12,
+                              ),
+                              itemCount: 5,
+                              itemSize: 12.0,
+                              unratedColor: Colors.grey.withAlpha(50),
+                              direction: Axis.horizontal,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${signal.toStringAsFixed(1)}%',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _getSignalColor(signal),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                
+                // Action Icons Column
+                Column(
+                  children: [
+                    Icon(
+                      Icons.description,
+                      color: Colors.grey[600],
+                      size: 20,
+                    ),
+                    const SizedBox(height: 8),
+                    AnimatedRotation(
+                      turns: isExpanded ? 0.25 : 0.0,
+                      duration: const Duration(milliseconds: 300),
+                      child: Icon(
+                        Icons.keyboard_arrow_right,
+                        color: Colors.grey[600],
+                        size: 20,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  String _formatDateTime(DateTime dt) {
-    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  Widget _buildSubordinateDeviceCard(Device device) {
+    final statusText = device.getStatusText();
+    final statusColor = _getStatusColor(device.status);
+    final isOnline = device.isOnline;
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            // Small Device Icon with Status
+            Stack(
+              children: [
+                Image.asset(
+                  'assets/images/device_sub.png',
+                  width: 40,
+                  height: 40,
+                ),
+                if (!isOnline)
+                  Positioned(
+                    top: 2,
+                    right: 2,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: Colors.orange,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 1),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          const SizedBox(width: 12),
+          
+          // Device Details
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'SN: ${device.sn}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Text(
+                      'STATUS: ',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black54,
+                      ),
+                    ),
+                    Text(
+                      statusText,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: statusColor,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'PLANT: ${device.plantId.isEmpty ? "null" : device.plantId}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black54,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'DEVICE TYPE: ${device.devcode}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.green,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Arrow Icon
+          Icon(
+            Icons.arrow_forward_ios,
+            color: Colors.grey[600],
+            size: 16,
+          ),
+        ],
+      ),
+      ),
+    );
   }
-}
 
-extension _Capitalize on String {
-  String capitalize() {
-    if (isEmpty) return this;
-    return this[0].toUpperCase() + substring(1);
+  Color _getStatusColor(int status) {
+    switch (status) {
+      case 0:
+        return Colors.green;
+      case 1:
+        return Colors.red;
+      case 2:
+      case 3:
+      case 4:
+      case 5:
+        return Colors.orange;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  Color _getSignalColor(double signal) {
+    if (signal <= 20) return Colors.red;
+    if (signal <= 60) return Colors.orange;
+    return Colors.green;
+  }
+
+  bool _hasSubordinateDevices(Device device) {
+    // Check if this device is a collector and has subordinate devices
+    final deviceViewModel = context.read<DeviceViewModel>();
+    return deviceViewModel.getSubordinateDevices(device.pn).isNotEmpty;
   }
 } 

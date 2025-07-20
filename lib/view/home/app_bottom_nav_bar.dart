@@ -50,8 +50,8 @@ class AppBottomNavBar extends StatelessWidget {
                   ),
                   _buildNavItem(
                     context,
-                    icon: 'assets/icons/contact.svg',
-                    label: 'Contact',
+                    icon: Icons.eco,
+                    label: 'Plant',
                     index: 1,
                     activeColor: activeColor,
                     inactiveColor: inactiveColor,
@@ -93,7 +93,7 @@ class AppBottomNavBar extends StatelessWidget {
 
   Widget _buildNavItem(
     BuildContext context, {
-    required String icon,
+    required dynamic icon,
     required String label,
     required int index,
     required Color activeColor,
@@ -108,11 +108,17 @@ class AppBottomNavBar extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             const SizedBox(height: 16),
-            SvgPicture.asset(
-              icon,
-              height: 24,
-              color: isActive ? activeColor : inactiveColor,
-            ),
+            icon is String
+                ? SvgPicture.asset(
+                    icon,
+                    height: 24,
+                    color: isActive ? activeColor : inactiveColor,
+                  )
+                : Icon(
+                    icon as IconData,
+                    size: 24,
+                    color: isActive ? activeColor : inactiveColor,
+                  ),
             const SizedBox(height: 4),
             Text(
               label,

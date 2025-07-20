@@ -49,9 +49,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         final userId = await authViewModel.forgotUserId(email);
         success = userId != null;
         if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Your User ID: $userId')),
-          );
+                  ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Your User ID: $userId',
+              style: const TextStyle(color: Colors.black),
+            ),
+            backgroundColor: Colors.white,
+          ),
+        );
         }
       }
       if (success) {
@@ -61,7 +67,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed. Please check your email and try again.')),
+          SnackBar(
+            content: Text(
+              'Failed. Please check your email and try again.',
+              style: const TextStyle(color: Colors.black),
+            ),
+            backgroundColor: Colors.white,
+          ),
         );
       }
     } else {

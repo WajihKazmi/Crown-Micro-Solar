@@ -299,3 +299,4 @@ class AuthViewModel extends ChangeNotifier {
     return await _accountRepository.verifyOtp(email, code);
   }
 }
+ 

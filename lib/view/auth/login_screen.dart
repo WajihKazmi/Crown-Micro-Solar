@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../routes/app_routes.dart';
-import '../../core/utils/app_buttons.dart';
-import '../../core/theme/app_theme.dart';
-import '../../core/utils/app_text_fields.dart';
-import '../../presentation/viewmodels/auth_viewmodel.dart';
-import '../../view/home/home_screen.dart';
+import 'package:crown_micro_solar/core/theme/app_theme.dart';
+import 'package:crown_micro_solar/core/utils/app_buttons.dart';
+import 'package:crown_micro_solar/core/utils/app_text_fields.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/auth_viewmodel.dart';
+import 'package:crown_micro_solar/routes/app_routes.dart';
+import 'package:crown_micro_solar/view/home/home_screen.dart';
+import 'package:crown_micro_solar/core/utils/navigation_service.dart';
 import 'package:logger/logger.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -95,9 +96,11 @@ class _LoginScreenState extends State<LoginScreen> {
           // Show error message if login failed
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content:
-                  Text(viewModel.error ?? 'Login failed. Please try again.'),
-              backgroundColor: Colors.red,
+              content: Text(
+                viewModel.error ?? 'Login failed. Please try again.',
+                style: const TextStyle(color: Colors.black),
+              ),
+              backgroundColor: Colors.white,
               duration: const Duration(seconds: 3),
             ),
           );
@@ -107,8 +110,11 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('An error occurred: ${e.toString()}'),
-            backgroundColor: Colors.red,
+            content: Text(
+              'An error occurred: ${e.toString()}',
+              style: const TextStyle(color: Colors.black),
+            ),
+            backgroundColor: Colors.white,
             duration: const Duration(seconds: 3),
           ),
         );
@@ -124,13 +130,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
     showDialog(
       context: context,
-      builder: (BuildContext context) {
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
         return AlertDialog(
           actions: [
             TextButton(
               child: const Text('Cancel'),
               onPressed: () {
-                Navigator.of(context).pop();
+                Navigator.of(dialogContext).pop();
               },
             ),
           ],
@@ -141,7 +148,7 @@ class _LoginScreenState extends State<LoginScreen> {
               fontWeight: FontWeight.bold,
               fontFamily: "Roboto",
               letterSpacing: 1,
-              color: Colors.red,
+              color: Colors.black,
             ),
           ),
           content: SizedBox(
@@ -174,44 +181,53 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   onTap: () async {
-                    Navigator.of(context).pop();
+                    // Close dialog first
+                    Navigator.of(dialogContext).pop();
+                    
+                    // Perform login
                     final success = await viewModel.loginAgent(
                       agentsList[index]['Username'],
                       agentsList[index]['Password'],
                     );
 
-                    if (mounted) {
-                      if (success) {
-                        Navigator.of(context).pushReplacement(
-                          PageRouteBuilder(
-                            pageBuilder:
-                                (context, animation, secondaryAnimation) =>
-                                    const HomeScreen(),
-                            transitionsBuilder: (context, animation,
-                                secondaryAnimation, child) {
-                              const begin = Offset(1.0, 0.0);
-                              const end = Offset.zero;
-                              const curve = Curves.easeInOut;
-                              var tween = Tween(begin: begin, end: end)
-                                  .chain(CurveTween(curve: curve));
-                              var offsetAnimation = animation.drive(tween);
-                              return SlideTransition(
-                                  position: offsetAnimation, child: child);
-                            },
-                            transitionDuration:
-                                const Duration(milliseconds: 500),
-                          ),
-                        );
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content:
-                                Text(viewModel.error ?? 'Agent login failed'),
-                            backgroundColor: Colors.red,
-                            duration: const Duration(seconds: 3),
-                          ),
-                        );
-                      }
+                    // Handle result using NavigationService
+                    if (success) {
+                      // Navigate to home screen using NavigationService
+                      NavigationService.pushAndRemoveUntil(
+                        PageRouteBuilder(
+                          pageBuilder: (context, animation, secondaryAnimation) =>
+                              const HomeScreen(),
+                          transitionsBuilder: (context, animation,
+                              secondaryAnimation, child) {
+                            const begin = Offset(1.0, 0.0);
+                            const end = Offset.zero;
+                            const curve = Curves.easeInOut;
+                            var tween = Tween(begin: begin, end: end)
+                                .chain(CurveTween(curve: curve));
+                            var offsetAnimation = animation.drive(tween);
+                            return SlideTransition(
+                                position: offsetAnimation, child: child);
+                          },
+                          transitionDuration: const Duration(milliseconds: 500),
+                        ),
+                        (route) => false, // Remove all previous routes
+                      );
+                    } else {
+                      // Show error message safely using a delayed callback
+                      Future.delayed(const Duration(milliseconds: 100), () {
+                        if (NavigationService.navigatorKey.currentContext != null) {
+                          ScaffoldMessenger.of(NavigationService.navigatorKey.currentContext!).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                viewModel.error ?? 'Agent login failed',
+                                style: const TextStyle(color: Colors.black),
+                              ),
+                              backgroundColor: Colors.white,
+                              duration: const Duration(seconds: 3),
+                            ),
+                          );
+                        }
+                      });
                     }
                   },
                 );

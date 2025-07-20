@@ -47,6 +47,7 @@ dependencies:
   google_fonts: ^6.1.0
   fl_chart: ^0.66.0
   flutter_easyloading: ^3.0.5
+  flutter_rating_bar: ^4.0.1
 
   # Network & API
   http: ^1.1.0

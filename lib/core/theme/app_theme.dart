@@ -57,6 +57,14 @@ class AppTheme {
           foregroundColor: Colors.white, // Button text color
         ),
       ),
+      dialogTheme: const DialogThemeData(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        elevation: 8,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(12)),
+        ),
+      ),
       fontFamily: 'Manrope',
       // Add other theme customizations here based on your design
       // inputDecorationTheme: ...,

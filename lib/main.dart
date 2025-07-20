@@ -11,6 +11,8 @@ import 'package:crown_micro_solar/presentation/viewmodels/auth_viewmodel.dart';
 import 'package:crown_micro_solar/core/config/app_config.dart';
 import 'package:crown_micro_solar/view/auth/login_screen.dart';
 import 'package:crown_micro_solar/localization/app_localizations.dart';
+import 'package:crown_micro_solar/core/utils/navigation_service.dart';
+import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
 
 void main() async {
   try {
@@ -27,6 +29,13 @@ void main() async {
 
     // Initialize SharedPreferences
     final prefs = await SharedPreferences.getInstance();
+
+    // Start real-time data service if user is logged in
+    final token = prefs.getString('token');
+    if (token != null && token.isNotEmpty) {
+      final realtimeService = getIt<RealtimeDataService>();
+      realtimeService.start();
+    }
 
     // Initialize API Service
     final apiService = ApiService();
@@ -95,6 +104,7 @@ class MyApp extends StatelessWidget {
       child: Consumer<LocaleProvider>(
         builder: (context, localeProvider, child) {
           return MaterialApp(
+            navigatorKey: NavigationService.navigatorKey, // Use global navigator key
             title: AppConfig.appName,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.lightTheme,

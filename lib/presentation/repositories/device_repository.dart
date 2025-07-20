@@ -10,97 +10,167 @@ class DeviceRepository {
 
   DeviceRepository(this._apiClient);
 
-  Future<List<Device>> getDevices(String plantId) async {
-    // Parameters as in api_test.dart
+  // Main method to fetch devices and collectors for a plant (matching old app)
+  Future<Map<String, dynamic>> getDevicesAndCollectors(String plantId) async {
     const salt = '12345678';
-    // Fetch credentials from SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
     final secret = prefs.getString('Secret') ?? '';
-    
-    print('DeviceRepository: Using token: $token');
-    print('DeviceRepository: Using secret: $secret');
-    
-    final action = '&action=webQueryDeviceEs&status=0101&page=0&pagesize=100&plantid=$plantId';
     final postaction = '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+
+    print('DeviceRepository: Fetching devices and collectors for plant $plantId');
+
+    // 1. Fetch all devices for the plant
+    final deviceAction = '&action=webQueryDeviceEs&page=0&pagesize=100&plantid=$plantId';
+    final deviceData = salt + secret + token + deviceAction + postaction;
+    final deviceSign = sha1.convert(utf8.encode(deviceData)).toString();
+    final deviceUrl = 'http://api.dessmonitor.com/public/?sign=$deviceSign&salt=$salt&token=$token$deviceAction$postaction';
+    
+    print('DeviceRepository: Device URL: $deviceUrl');
+    final deviceResponse = await _apiClient.signedPost(deviceUrl);
+    final deviceJson = json.decode(deviceResponse.body);
+    print('DeviceRepository: Device response: $deviceJson');
+
+    List<Device> devices = [];
+    if (deviceJson['err'] == 0 && deviceJson['dat']?['device'] != null) {
+      devices = (deviceJson['dat']['device'] as List).map((d) => Device.fromJson(d)).toList();
+      print('DeviceRepository: Found ${devices.length} devices');
+    } else {
+      print('DeviceRepository: No devices found or error: ${deviceJson['err']} - ${deviceJson['desc']}');
+    }
+
+    // 2. Fetch all collectors for the plant
+    final collectorAction = '&action=webQueryCollectorsEs&page=0&pagesize=100&plantid=$plantId';
+    final collectorData = salt + secret + token + collectorAction + postaction;
+    final collectorSign = sha1.convert(utf8.encode(collectorData)).toString();
+    final collectorUrl = 'http://api.dessmonitor.com/public/?sign=$collectorSign&salt=$salt&token=$token$collectorAction$postaction';
+    
+    print('DeviceRepository: Collector URL: $collectorUrl');
+    final collectorResponse = await _apiClient.signedPost(collectorUrl);
+    final collectorJson = json.decode(collectorResponse.body);
+    print('DeviceRepository: Collector response: $collectorJson');
+
+    List<Map<String, dynamic>> collectors = [];
+    if (collectorJson['err'] == 0 && collectorJson['dat']?['collector'] != null) {
+      collectors = List<Map<String, dynamic>>.from(collectorJson['dat']['collector']);
+      print('DeviceRepository: Found ${collectors.length} collectors');
+    } else {
+      print('DeviceRepository: No collectors found or error: ${collectorJson['err']} - ${collectorJson['desc']}');
+    }
+
+    // 3. For each collector, fetch subordinate devices
+    Map<String, List<Device>> collectorDevices = {};
+    Set<String> subordinateSNs = {};
+    
+    for (final collector in collectors) {
+      final pn = collector['pn']?.toString() ?? '';
+      if (pn.isNotEmpty) {
+        final subDevices = await getDevicesForCollector(pn);
+        collectorDevices[pn] = subDevices;
+        subordinateSNs.addAll(subDevices.map((d) => d.sn));
+        print('DeviceRepository: Collector $pn has ${subDevices.length} subordinate devices');
+      }
+    }
+
+    // 4. Standalone devices = all devices not under any collector
+    final standaloneDevices = devices.where((d) => !subordinateSNs.contains(d.sn)).toList();
+    print('DeviceRepository: Found ${standaloneDevices.length} standalone devices');
+
+    return {
+      'standaloneDevices': standaloneDevices,
+      'collectors': collectors,
+      'collectorDevices': collectorDevices,
+      'allDevices': devices,
+    };
+  }
+
+  // Fetch subordinate devices for a collector (by PN) - matching old app
+  Future<List<Device>> getDevicesForCollector(String collectorPn) async {
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+    final postaction = '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+    
+    final action = '&action=webQueryDeviceEs&pn=$collectorPn&page=0&pagesize=20';
     final data = salt + secret + token + action + postaction;
     final sign = sha1.convert(utf8.encode(data)).toString();
     final url = 'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
     
-    print('DeviceRepository: Fetching devices for plant $plantId');
+    print('DeviceRepository: Fetching devices for collector $collectorPn');
     final response = await _apiClient.signedPost(url);
-    print('Device list raw response: \n${response.body}');
+    final jsonData = json.decode(response.body);
     
-    if (response.body.isEmpty) {
-      throw Exception('Empty response from device list API');
+    if (jsonData['err'] == 0 && jsonData['dat']?['device'] != null) {
+      final devices = (jsonData['dat']['device'] as List).map((d) => Device.fromJson(d)).toList();
+      print('DeviceRepository: Found ${devices.length} devices for collector $collectorPn');
+      return devices;
     }
     
-    Map<String, dynamic> dataJson;
-    try {
-      dataJson = json.decode(response.body);
-    } catch (e) {
-      throw Exception('Malformed JSON from device list API: $e');
-    }
-    
-    // Check for API errors first
-    if (dataJson['err'] != null && dataJson['err'] != 0) {
-      print('DeviceRepository: API returned error: ${dataJson['err']} - ${dataJson['desc']}');
-      // If it's a "not found" error, try the warnings fallback
-      if (dataJson['err'] == 258) { // ERR_NOT_FOUND_DEVICE
-        print('DeviceRepository: No devices found in device list. Trying plant warnings/alarms...');
-        return await _getDevicesFromWarnings(plantId, salt, token, secret, postaction);
-      }
-      throw Exception('API Error: ${dataJson['err']} - ${dataJson['desc']}');
-    }
-    
-    // Check if we got devices from the main API
-    if (dataJson['dat'] != null && dataJson['dat']['device'] != null) {
-      final List<dynamic> devicesJson = dataJson['dat']['device'];
-      return devicesJson.map((json) => Device.fromJson(json)).toList();
-    }
-    
-    // If no devices found, try plant warnings/alarms as fallback (like in old app)
-    print('DeviceRepository: No devices found in device list. Trying plant warnings/alarms...');
-    return await _getDevicesFromWarnings(plantId, salt, token, secret, postaction);
-  }
-
-  Future<List<Device>> _getDevicesFromWarnings(String plantId, String salt, String token, String secret, String postaction) async {
-    final warnAction = '&action=webQueryPlantsWarning&i18n=en_US&page=0&pagesize=100&plantid=$plantId';
-    final warnData = salt + secret + token + warnAction + postaction;
-    final warnSign = sha1.convert(utf8.encode(warnData)).toString();
-    final warnUrl = 'http://api.dessmonitor.com/public/?sign=$warnSign&salt=$salt&token=$token$warnAction$postaction';
-    
-    print('DeviceRepository: Fetching warnings for plant $plantId');
-    final response = await _apiClient.signedPost(warnUrl);
-    print('Warning list raw response: \n${response.body}');
-    
-    if (response.body.isEmpty) {
-      throw Exception('Empty response from warning list API');
-    }
-    
-    Map<String, dynamic> dataJson;
-    try {
-      dataJson = json.decode(response.body);
-    } catch (e) {
-      throw Exception('Malformed JSON from warning list API: $e');
-    }
-    
-    if (dataJson['dat'] != null && dataJson['dat']['warning'] != null) {
-      final List<dynamic> warningsJson = dataJson['dat']['warning'];
-      // Convert warnings to devices (since warnings contain device info)
-      final devices = warningsJson.map((json) => Device.fromJson(json)).toList();
-      // Deduplicate by SN
-      final uniqueDevices = <String, Device>{};
-      for (final device in devices) {
-        uniqueDevices[device.id] = device;
-      }
-      return uniqueDevices.values.toList();
-    }
-    
+    print('DeviceRepository: No devices found for collector $collectorPn');
     return [];
   }
 
-  Future<Device> getDeviceStatus(String pn, String sn, int devcode, int devaddr) async {
+  // Fetch devices with specific status and device type (matching old app)
+  Future<List<Device>> getDevicesWithFilters(String plantId, {String status = '0101', String deviceType = '0101'}) async {
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+    final postaction = '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+
+    String action;
+    if (status == '0101' && deviceType == '0101') {
+      // All devices
+      action = '&action=webQueryDeviceEs&page=0&pagesize=100&plantid=$plantId';
+    } else if (status == '0101' && deviceType != '0101' && deviceType != '0110') {
+      // Specific device type
+      action = '&action=webQueryDeviceEs&devtype=$deviceType&page=0&pagesize=100&plantid=$plantId';
+    } else if (status == '0101' && deviceType == '0110') {
+      // Collectors
+      action = '&action=webQueryCollectorsEs&page=0&pagesize=100&plantid=$plantId';
+    } else if (status != '0101' && deviceType == '0110') {
+      // Collectors with status
+      action = '&action=webQueryCollectorsEs&status=$status&page=0&pagesize=100&plantid=$plantId';
+    } else {
+      // Devices with status and device type
+      action = '&action=webQueryDeviceEs&status=$status&page=0&pagesize=100&plantid=$plantId';
+    }
+
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url = 'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+    
+    print('DeviceRepository: Fetching devices with filters - status: $status, deviceType: $deviceType');
+    final response = await _apiClient.signedPost(url);
+    final jsonData = json.decode(response.body);
+    
+    if (jsonData['err'] == 0) {
+      if (jsonData['dat']?['device'] != null) {
+        final devices = (jsonData['dat']['device'] as List).map((d) => Device.fromJson(d)).toList();
+        print('DeviceRepository: Found ${devices.length} devices with filters');
+        return devices;
+      } else if (jsonData['dat']?['collector'] != null) {
+        // Convert collectors to devices for consistency
+        final collectors = jsonData['dat']['collector'] as List;
+        final devices = collectors.map((c) => Device.fromJson(c)).toList();
+        print('DeviceRepository: Found ${devices.length} collectors with filters');
+        return devices;
+      }
+    }
+    
+    print('DeviceRepository: No devices found with filters');
+    return [];
+  }
+
+  // Legacy method for backward compatibility
+  Future<List<Device>> getDevices(String plantId) async {
+    final result = await getDevicesAndCollectors(plantId);
+    return result['allDevices'] ?? [];
+  }
+
+  // Fetch real-time device data (separate call for detailed info)
+  Future<Map<String, dynamic>> getDeviceRealTimeData(String pn, String sn, int devcode, int devaddr) async {
     const salt = '12345678';
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
@@ -109,17 +179,20 @@ class DeviceRepository {
     final action = '&action=queryDeviceCtrlField&pn=$pn&sn=$sn&devcode=$devcode&devaddr=$devaddr&i18n=en_US';
     final data = salt + secret + token + action;
     final sign = sha1.convert(utf8.encode(data)).toString();
-    final url = 'http://web.shinemonitor.com/public/?sign=$sign&salt=$salt&token=$token$action';
+    final url = 'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action';
     
     final response = await _apiClient.signedPost(url);
     final dataJson = json.decode(response.body);
-    if (dataJson['dat'] != null) {
-      return Device.fromJson(dataJson['dat']);
+    
+    if (dataJson['err'] == 0 && dataJson['dat'] != null) {
+      return dataJson['dat'];
     }
-    throw Exception('Failed to get device status');
+    
+    throw Exception('Failed to get device real-time data: ${dataJson['desc']}');
   }
 
-  Future<Map<String, dynamic>> getDeviceData(String pn, String sn, int devcode, int devaddr, String date) async {
+  // Fetch device daily data
+  Future<Map<String, dynamic>> getDeviceDailyData(String pn, String sn, int devcode, int devaddr, String date) async {
     const salt = '12345678';
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
@@ -128,23 +201,15 @@ class DeviceRepository {
     final action = '&action=queryDeviceDataOneDayPaging&pn=$pn&sn=$sn&devaddr=$devaddr&devcode=$devcode&date=$date&page=0&pagesize=200&i18n=en_US';
     final data = salt + secret + token + action;
     final sign = sha1.convert(utf8.encode(data)).toString();
-    final url = 'http://web.shinemonitor.com/public/?sign=$sign&salt=$salt&token=$token$action';
+    final url = 'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action';
     
     final response = await _apiClient.signedPost(url);
     final dataJson = json.decode(response.body);
-    if (dataJson['dat'] != null) {
+    
+    if (dataJson['err'] == 0 && dataJson['dat'] != null) {
       return dataJson['dat'];
     }
-    throw Exception('Failed to get device data');
-  }
-
-  Future<bool> updateDeviceParameters(String deviceId, Map<String, dynamic> parameters) async {
-    final response = await _apiClient.post(
-      '${ApiEndpoints.getDeviceData}&deviceId=$deviceId',
-      body: parameters,
-    );
     
-    final data = json.decode(response.body);
-    return data['success'] == true;
+    throw Exception('Failed to get device daily data: ${dataJson['desc']}');
   }
 } 

@@ -275,8 +275,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Logout failed: $e'),
-            backgroundColor: Colors.red,
+            content: Text(
+              'Logout failed: $e',
+              style: const TextStyle(color: Colors.black),
+            ),
+            backgroundColor: Colors.white,
           ),
         );
       }
@@ -404,9 +407,15 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
     });
     if (success) {
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Password changed successfully!')),
-      );
+              ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Password changed successfully!',
+              style: const TextStyle(color: Colors.black),
+            ),
+            backgroundColor: Colors.white,
+          ),
+        );
     } else {
       setState(() {
         _error =
@@ -537,3 +546,4 @@ class LanguageSelectorDialog extends StatelessWidget {
     }
   }
 }
+ 

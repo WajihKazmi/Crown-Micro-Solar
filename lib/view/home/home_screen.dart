@@ -13,6 +13,8 @@ import 'devices_screen.dart';
 import 'alarm_notification_screen.dart';
 import 'package:crown_micro_solar/core/di/service_locator.dart';
 import 'package:crown_micro_solar/view/home/plant_info_screen.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
+import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -25,12 +27,19 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   late PlantViewModel _plantViewModel;
   late DashboardViewModel _dashboardViewModel;
+  late RealtimeDataService _realtimeDataService;
 
   @override
   void initState() {
     super.initState();
     _plantViewModel = getIt<PlantViewModel>();
     _dashboardViewModel = getIt<DashboardViewModel>();
+    _realtimeDataService = getIt<RealtimeDataService>();
+    
+    // Start real-time data service
+    _realtimeDataService.start();
+    
+    // Load initial data
     _plantViewModel.loadPlants();
     _dashboardViewModel.loadDashboardData();
   }
@@ -105,8 +114,11 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Logout failed: $e'),
-            backgroundColor: Colors.red,
+            content: Text(
+              'Logout failed: $e',
+              style: const TextStyle(color: Colors.black),
+            ),
+            backgroundColor: Colors.white,
           ),
         );
       }
@@ -117,16 +129,207 @@ class _HomeScreenState extends State<HomeScreen> {
     await _performLogout();
   }
 
+  @override
+  void dispose() {
+    // Stop real-time data service when widget is disposed
+    _realtimeDataService.stop();
+    super.dispose();
+  }
+
+  void _showUserSwitcherDialog(BuildContext context) {
+    final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Switch User'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery.of(context).size.height * 0.6, // 60% of screen height
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (authViewModel.agentsList != null && authViewModel.agentsList!.isNotEmpty) ...[
+                const Text(
+                  'Available Agents:',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: authViewModel.agentsList!.length,
+                    separatorBuilder: (context, index) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final agent = authViewModel.agentsList![index];
+                      return ListTile(
+                        title: Text(
+                          agent['Username'] ?? '',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w500,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: Text(
+                          agent['SNNumber'] ?? '',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                        onTap: () {
+                          Navigator.of(context).pop();
+                          // Handle agent switching
+                          _switchToAgent(agent);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ] else ...[
+                const Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.people_outline, size: 48, color: Colors.grey),
+                        SizedBox(height: 16),
+                        Text(
+                          'No other users available',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _switchToAgent(Map<String, dynamic> agent) async {
+    try {
+      final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
+      
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('Switching to agent...'),
+            ],
+          ),
+        ),
+      );
+
+      // Perform login with the selected agent
+      final success = await authViewModel.loginAgent(
+        agent['Username'],
+        agent['Password'],
+      );
+
+      // Close loading dialog
+      Navigator.of(context).pop();
+
+      if (success) {
+        // Refresh all data for the new user
+        await _refreshDataForNewUser();
+        
+        // Show success message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Switched to ${agent['Username']} successfully',
+                style: const TextStyle(color: Colors.black),
+              ),
+              backgroundColor: Colors.white,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        // Show error message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Failed to switch to ${agent['Username']}: ${authViewModel.error ?? 'Unknown error'}',
+                style: const TextStyle(color: Colors.black),
+              ),
+              backgroundColor: Colors.white,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      // Close loading dialog if still open
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      
+      // Show error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Error switching agent: ${e.toString()}',
+              style: const TextStyle(color: Colors.black),
+            ),
+            backgroundColor: Colors.white,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _refreshDataForNewUser() async {
+    try {
+      // Refresh plant data
+      await _plantViewModel.loadPlants();
+      
+      // Refresh dashboard data
+      await _dashboardViewModel.loadDashboardData();
+      
+      // Restart real-time data service with new user context
+      _realtimeDataService.stop();
+      await Future.delayed(const Duration(milliseconds: 500));
+      _realtimeDataService.start();
+      
+      // Force UI refresh
+      setState(() {});
+      
+    } catch (e) {
+      print('Error refreshing data for new user: $e');
+    }
+  }
+
   Widget _getBody() {
     switch (_currentIndex) {
       case 0:
-        return MultiProvider(
-          providers: [
-            ChangeNotifierProvider.value(value: _plantViewModel),
-            ChangeNotifierProvider.value(value: _dashboardViewModel),
-          ],
-          child: _OverviewBody(),
-        );
+        return _OverviewBody();
       case 1:
         // Use the first plant's ID for the plant info screen by default
         final firstPlant = _plantViewModel.plants.isNotEmpty ? _plantViewModel.plants.first : null;
@@ -134,21 +337,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ? PlantInfoScreen(plantId: firstPlant.id)
             : const Center(child: CircularProgressIndicator());
       case 2:
-        return MultiProvider(
-          providers: [
-            ChangeNotifierProvider.value(value: _plantViewModel),
-            ChangeNotifierProvider.value(value: _dashboardViewModel),
-          ],
+        return ChangeNotifierProvider.value(
+          value: getIt<DeviceViewModel>(),
           child: const DevicesScreen(),
         );
       case 3:
-        return MultiProvider(
-          providers: [
-            ChangeNotifierProvider.value(value: _plantViewModel),
-            ChangeNotifierProvider.value(value: _dashboardViewModel),
-          ],
-          child: const ProfileScreen(),
-        );
+        return const ProfileScreen();
       default:
         return _OverviewBody();
     }
@@ -158,70 +352,85 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final authViewModel = Provider.of<AuthViewModel>(context);
     final userInfo = authViewModel.userInfo;
-    return Scaffold(
-      extendBody: true,
-      drawer: userInfo == null
-          ? const Drawer(child: Center(child: CircularProgressIndicator()))
-          : AppDrawer(
-              username: userInfo.usr,
-              email: userInfo.email,
-              onProfileTap: () {
-                setState(() {
-                  _currentIndex = 3;
-                });
-              },
-              onLogout: _onLogout,
-              onNavigate: _onDrawerNavigate,
-            ),
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            backgroundColor: Colors.white,
-            floating: true,
-            snap: true,
-            pinned: true,
-            leading: Builder(
-              builder: (context) => BorderedIconButton(
-                icon: Icons.menu,
-                onTap: () => Scaffold.of(context).openDrawer(),
-              ),
-            ),
-            title: Text(
-              _currentIndex == 0
-                  ? 'Overview'
-                  : _currentIndex == 1
-                      ? 'Plant Info'
-                      : _currentIndex == 2
-                          ? 'Devices'
-                          : _currentIndex == 3
-                              ? 'Profile'
-                              : 'Overview',
-              style: const TextStyle(
-                  color: Colors.black, fontWeight: FontWeight.bold),
-            ),
-            centerTitle: true,
-            actions: [
-              BorderedIconButton(
-                icon: Icons.notifications_none,
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => const AlarmNotificationScreen(),
-                    ),
-                  );
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: _plantViewModel),
+        ChangeNotifierProvider.value(value: _dashboardViewModel),
+        ChangeNotifierProvider.value(value: _realtimeDataService),
+      ],
+      child: Scaffold(
+        extendBody: true,
+        drawer: userInfo == null
+            ? const Drawer(child: Center(child: CircularProgressIndicator()))
+            : AppDrawer(
+                username: userInfo.usr,
+                email: userInfo.email,
+                onProfileTap: () {
+                  setState(() {
+                    _currentIndex = 3;
+                  });
                 },
-                margin: const EdgeInsets.only(right: 16.0),
+                onLogout: _onLogout,
+                onNavigate: _onDrawerNavigate,
               ),
-            ],
-          ),
-          SliverToBoxAdapter(
-            child: _getBody(),
-          ),
-        ],
-      ),
-      bottomNavigationBar: AppBottomNavBar(
-        currentIndex: _currentIndex,
-        onTap: _onTabTapped,
+        body: CustomScrollView(
+              slivers: [
+                SliverAppBar(
+                  backgroundColor: Colors.white,
+                  floating: true,
+                  snap: true,
+                  pinned: true,
+                  leading: Builder(
+                    builder: (context) => BorderedIconButton(
+                      icon: Icons.menu,
+                      onTap: () => Scaffold.of(context).openDrawer(),
+                    ),
+                  ),
+                  title: Text(
+                    _currentIndex == 0
+                        ? 'Overview'
+                        : _currentIndex == 1
+                            ? 'Plant Info'
+                            : _currentIndex == 2
+                                ? 'Devices'
+                                : _currentIndex == 3
+                                    ? 'Profile'
+                                    : 'Overview',
+                    style: const TextStyle(
+                        color: Colors.black, fontWeight: FontWeight.bold),
+                  ),
+                  centerTitle: true,
+                  actions: [
+                    BorderedIconButton(
+                      icon: Icons.people,
+                      onTap: () {
+                        // Show user switcher dialog
+                        _showUserSwitcherDialog(context);
+                      },
+                      margin: const EdgeInsets.only(right: 8.0),
+                    ),
+                    BorderedIconButton(
+                      icon: Icons.notifications_none,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const AlarmNotificationScreen(),
+                          ),
+                        );
+                      },
+                      margin: const EdgeInsets.only(right: 16.0),
+                    ),
+                  ],
+                ),
+                SliverToBoxAdapter(
+                  child: _getBody(),
+                ),
+              ],
+            ),
+        bottomNavigationBar: AppBottomNavBar(
+          currentIndex: _currentIndex,
+          onTap: _onTabTapped,
+        ),
       ),
     );
   }
@@ -231,8 +440,8 @@ class _HomeScreenState extends State<HomeScreen> {
 class _OverviewBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Consumer2<PlantViewModel, DashboardViewModel>(
-      builder: (context, plantViewModel, dashboardViewModel, child) {
+    return Consumer3<PlantViewModel, DashboardViewModel, RealtimeDataService>(
+      builder: (context, plantViewModel, dashboardViewModel, realtimeService, child) {
         if (plantViewModel.isLoading || dashboardViewModel.isLoading) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -242,8 +451,9 @@ class _OverviewBody extends StatelessWidget {
         if (dashboardViewModel.error != null) {
           return Center(child: Text('Error: ${dashboardViewModel.error}'));
         }
-        final plants = plantViewModel.plants;
-        final totalOutput = plants.fold<double>(0, (sum, p) => sum + p.currentPower);
+        // Use real-time data if available, otherwise fall back to plant view model data
+        final plants = realtimeService.plants.isNotEmpty ? realtimeService.plants : plantViewModel.plants;
+        final totalOutput = realtimeService.totalCurrentPower > 0 ? realtimeService.totalCurrentPower : plants.fold<double>(0, (sum, p) => sum + p.currentPower);
         final totalCapacity = plants.fold<double>(0, (sum, p) => sum + p.capacity);
         final totalPlants = plants.length;
         // You can add more aggregations as needed
@@ -268,8 +478,12 @@ class _OverviewBody extends StatelessWidget {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                plants.isNotEmpty ? 'Last updated : ${plants.first.lastUpdate.hour}:${plants.first.lastUpdate.minute.toString().padLeft(2, '0')}' : '',
-                                style: const TextStyle(color: Colors.black54, fontSize: 12),
+                                realtimeService.isRunning ? 'Live Data' : (plants.isNotEmpty ? 'Last updated : ${plants.first.lastUpdate.hour}:${plants.first.lastUpdate.minute.toString().padLeft(2, '0')}' : ''),
+                                style: TextStyle(
+                                  color: realtimeService.isRunning ? Colors.green : Colors.black54, 
+                                  fontSize: 12,
+                                  fontWeight: realtimeService.isRunning ? FontWeight.bold : FontWeight.normal,
+                                ),
                               ),
                             ],
                           ),
@@ -585,6 +799,34 @@ class AppDrawer extends StatelessWidget {
     this.onNavigate,
   }) : super(key: key);
 
+  void _showContactSupportDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Contact Support'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('For support, please contact:'),
+            const SizedBox(height: 8),
+            const Text('Email: support@crownmicrosolar.com'),
+            const SizedBox(height: 4),
+            const Text('Phone: +1 (555) 123-4567'),
+            const SizedBox(height: 4),
+            const Text('Hours: Mon-Fri, 9AM-5PM EST'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Drawer(
@@ -623,27 +865,32 @@ class AppDrawer extends StatelessWidget {
                 ),
                 const SizedBox(height: 40),
                 _DrawerItem(
-                  iconPath: 'assets/icons/home.svg',
+                  icon: 'assets/icons/home.svg',
                   label: 'Overview',
                   onTap: () => onNavigate?.call(0),
                 ),
                 _DrawerItem(
-                  iconPath: 'assets/icons/contact.svg',
-                  label: 'Contact',
+                  icon: Icons.eco,
+                  label: 'Plant Info',
                   onTap: () => onNavigate?.call(1),
                 ),
                 _DrawerItem(
-                  iconPath: 'assets/icons/deviceDetails.svg',
+                  icon: 'assets/icons/deviceDetails.svg',
                   label: 'Devices',
                   onTap: () => onNavigate?.call(2),
                 ),
                 _DrawerItem(
-                  iconPath: 'assets/icons/deviceDataDownload.svg',
+                  icon: 'assets/icons/deviceDataDownload.svg',
                   label: 'Real-time Device Data',
                   onTap: () {},
                 ),
                 _DrawerItem(
-                  iconPath: 'assets/icons/profileInfo.svg',
+                  icon: 'assets/icons/contact.svg',
+                  label: 'Contact Support',
+                  onTap: () => _showContactSupportDialog(context),
+                ),
+                _DrawerItem(
+                  icon: 'assets/icons/profileInfo.svg',
                   label: 'Profile',
                   onTap: onProfileTap ?? () {},
                 ),
@@ -673,13 +920,13 @@ class AppDrawer extends StatelessWidget {
 }
 
 class _DrawerItem extends StatelessWidget {
-  final String iconPath;
+  final dynamic icon;
   final String label;
   final VoidCallback onTap;
 
   const _DrawerItem({
     Key? key,
-    required this.iconPath,
+    required this.icon,
     required this.label,
     required this.onTap,
   }) : super(key: key);
@@ -687,12 +934,18 @@ class _DrawerItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: SvgPicture.asset(
-        iconPath,
-        color: Colors.white,
-        width: 24,
-        height: 24,
-      ),
+      leading: icon is String
+          ? SvgPicture.asset(
+              icon,
+              color: Colors.white,
+              width: 24,
+              height: 24,
+            )
+          : Icon(
+              icon as IconData,
+              color: Colors.white,
+              size: 24,
+            ),
       title: Text(
         label,
         style: const TextStyle(
