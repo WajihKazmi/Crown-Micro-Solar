@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:crown_micro_solar/presentation/repositories/device_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:crown_micro_solar/presentation/models/device/device_data_one_day_query_model.dart';
+import 'package:crown_micro_solar/presentation/models/device/device_live_signal_model.dart';
+import 'package:crown_micro_solar/presentation/models/device/device_key_parameter_model.dart';
 
 class DeviceViewModel extends ChangeNotifier {
   final DeviceRepository _deviceRepository;
@@ -230,4 +233,57 @@ class DeviceViewModel extends ChangeNotifier {
   
   // Get standalone device count
   int get standaloneDeviceCount => _standaloneDevices.length;
+
+  // Device detail: fetch device data for one day
+  Future<DeviceDataOneDayQueryModel?> fetchDeviceDataOneDay({
+    required String sn,
+    required String pn,
+    required int devcode,
+    required int devaddr,
+    required String date,
+    int page = 0,
+  }) async {
+    return await _deviceRepository.fetchDeviceDataOneDay(
+      sn: sn,
+      pn: pn,
+      devcode: devcode,
+      devaddr: devaddr,
+      date: date,
+      page: page,
+    );
+  }
+
+  // Device detail: fetch live device signal/current/voltage/flow data
+  Future<DeviceLiveSignalModel?> fetchDeviceLiveSignal({
+    required String sn,
+    required String pn,
+    required int devcode,
+    required int devaddr,
+  }) async {
+    return await _deviceRepository.fetchDeviceLiveSignal(
+      sn: sn,
+      pn: pn,
+      devcode: devcode,
+      devaddr: devaddr,
+    );
+  }
+
+  // Device detail: fetch key parameter data for one day
+  Future<DeviceKeyParameterModel?> fetchDeviceKeyParameterOneDay({
+    required String sn,
+    required String pn,
+    required int devcode,
+    required int devaddr,
+    required String parameter,
+    required String date,
+  }) async {
+    return await _deviceRepository.fetchDeviceKeyParameterOneDay(
+      sn: sn,
+      pn: pn,
+      devcode: devcode,
+      devaddr: devaddr,
+      parameter: parameter,
+      date: date,
+    );
+  }
 } 

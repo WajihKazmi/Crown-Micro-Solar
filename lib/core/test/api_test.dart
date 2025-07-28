@@ -1,222 +1,419 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-class ApiTester {
-  String? _token;
-  String? _secret;
-  int? _userId;
-  final String salt = "12345678";
+class ApiTest {
+  static const String baseUrl = 'http://api.dessmonitor.com/public/';
+  static const String salt = '12345678';
+  static const String appId = 'test.app';
+  static const String appVersion = '1.0.0';
+  static const String appClient = 'android';
+  static const String source = '1';
 
-  // App info (dummy for test)
-  final String source = "1";
-  final String app_id = "test.app";
-  final String app_version = "1.0.0";
-  final String app_client = "android";
+  static String? _token;
+  static String? _secret;
 
-  Future<void> testLogin(String username, String password) async {
-    print("\n=== Testing Login ===");
-    final url =
-        Uri.parse('https://apis.crown-micro.net/api/MonitoringApp/Login');
-    final headers = {
-      'Content-Type': 'application/json',
-      'x-api-key': 'C5BFF7F0-B4DF-475E-A331-F737424F013C'
-    };
-    final body = jsonEncode(
-        {"UserName": username, "Password": password, "IsAgent": false});
-    final response = await http.post(url, headers: headers, body: body);
-    print("Response Status: ${response.statusCode}");
-    print("Response Body: ${response.body}");
-    if (response.statusCode == 200) {
-      final jsonResp = json.decode(response.body);
-      _token = jsonResp['Token'];
-      _secret = jsonResp['Secret'];
-      _userId = jsonResp['UserID'];
-      print(
-          "Login successful!\nToken: $_token\nSecret: $_secret\nUserID: $_userId");
-    } else {
-      print("Login failed.");
-    }
-  }
+  static List<ApiTestResult> _results = [];
+  static int _totalApis = 0;
+  static int _successfulApis = 0;
+  static int _failedApis = 0;
 
-  Future<void> testDessMonitorApis() async {
-    print("\n=== Testing Dess Monitor APIs ===");
+  static Future<void> runAllTests() async {
+    print('🚀 Starting API Tests...');
+    print('=' * 50);
+    
+    _results.clear();
+    _totalApis = 0;
+    _successfulApis = 0;
+    _failedApis = 0;
+
+    // Load credentials
+    await _loadCredentials();
+    
     if (_token == null || _secret == null) {
-      print("Token or Secret missing. Please login first.");
+      print('❌ No valid credentials found. Please login first.');
       return;
     }
-    // 1. List Plants
-    final plantAction =
-        "&action=webQueryPlants&orderBy=ascPlantName&page=0&pagesize=100";
-    final plantPostaction =
-        "&source=$source&app_id=$app_id&app_version=$app_version&app_client=$app_client";
-    final plantData = salt + _secret! + _token! + plantAction + plantPostaction;
-    final plantSign = sha1.convert(utf8.encode(plantData)).toString();
-    final plantUrl =
-        'http://api.dessmonitor.com/public/?sign=$plantSign&salt=$salt&token=$_token$plantAction$plantPostaction';
-    final plantResponse = await http.post(Uri.parse(plantUrl),
-        headers: {'Content-Type': 'application/json'});
-    print("\nPlant List Response: ${plantResponse.body}");
-    int? pid;
-    try {
-      final plantJson = json.decode(plantResponse.body);
-      if (plantJson['dat'] != null &&
-          plantJson['dat']['plant'] is List &&
-          plantJson['dat']['plant'].isNotEmpty) {
-        pid = plantJson['dat']['plant'][0]['pid'];
-        print("Using Plant ID: $pid");
-      }
-    } catch (e) {
-      print('Error parsing plant info: $e');
-    }
-    if (pid == null) {
-      print("No valid Plant ID found. Cannot proceed with further API calls.");
-      return;
-    }
-    // 2. List Devices for Plant
-    final deviceAction =
-        "&action=webQueryDeviceEs&status=0101&page=0&pagesize=100&plantid=$pid";
-    final devicePostaction =
-        "&source=$source&app_id=$app_id&app_version=$app_version&app_client=$app_client";
-    final deviceData =
-        salt + _secret! + _token! + deviceAction + devicePostaction;
-    final deviceSign = sha1.convert(utf8.encode(deviceData)).toString();
-    final deviceUrl =
-        'http://api.dessmonitor.com/public/?sign=$deviceSign&salt=$salt&token=$_token$deviceAction$devicePostaction';
-    final deviceResponse = await http.post(Uri.parse(deviceUrl),
-        headers: {'Content-Type': 'application/json'});
-    print("\nDevice List Response: ${deviceResponse.body}");
-    String? pn, sn;
-    int? devcode, devaddr;
-    String deviceSource = "device list";
-    try {
-      final deviceJson = json.decode(deviceResponse.body);
-      if (deviceJson['dat'] != null &&
-          deviceJson['dat']['device'] is List &&
-          deviceJson['dat']['device'].isNotEmpty) {
-        final dev = deviceJson['dat']['device'][0];
-        pn = dev['pn'];
-        sn = dev['sn'];
-        devcode = dev['devcode'];
-        devaddr = dev['devaddr'];
-        print(
-            "Using Device PN: $pn, SN: $sn, devcode: $devcode, devaddr: $devaddr (from device list)");
-      }
-    } catch (e) {
-      print('Error parsing device info: $e');
-    }
-    // If not found, try plant warnings/alarms
-    if (pn == null || sn == null || devcode == null || devaddr == null) {
-      print(
-          "No valid device found in device list. Trying plant warnings/alarms...");
-      final warnAction =
-          "&action=webQueryPlantsWarning&i18n=en_US&page=0&pagesize=100&plantid=$pid";
-      final warnData =
-          salt + _secret! + _token! + warnAction + devicePostaction;
-      final warnSign = sha1.convert(utf8.encode(warnData)).toString();
-      final warnUrl =
-          'http://api.dessmonitor.com/public/?sign=$warnSign&salt=$salt&token=$_token$warnAction$devicePostaction';
-      final warnResponse = await http.post(Uri.parse(warnUrl),
-          headers: {'Content-Type': 'application/json'});
-      print("\nPlant Warnings/Alarms Response: ${warnResponse.body}");
-      try {
-        final warnJson = json.decode(warnResponse.body);
-        if (warnJson['dat'] != null &&
-            warnJson['dat']['warning'] is List &&
-            warnJson['dat']['warning'].isNotEmpty) {
-          final warn = warnJson['dat']['warning'][0];
-          pn = warn['pn'];
-          sn = warn['sn'];
-          devcode = warn['devcode'];
-          devaddr = warn['devaddr'];
-          deviceSource = "plant warnings/alarms";
-          print(
-              "Using Device PN: $pn, SN: $sn, devcode: $devcode, devaddr: $devaddr (from plant warnings/alarms)");
-        }
-      } catch (e) {
-        print('Error parsing plant warnings/alarms: $e');
-      }
-    }
-    // 3. Plant Output/Profit
-    final outputAction =
-        "&action=queryPlantActiveOuputPowerOneDay&plantid=$pid&date=2024-01-01";
-    final outputPostaction = plantPostaction;
-    final outputData =
-        salt + _secret! + _token! + outputAction + outputPostaction;
-    final outputSign = sha1.convert(utf8.encode(outputData)).toString();
-    final outputUrl =
-        'http://api.dessmonitor.com/public/?sign=$outputSign&salt=$salt&token=$_token$outputAction$outputPostaction';
-    final outputResponse = await http.post(Uri.parse(outputUrl),
-        headers: {'Content-Type': 'application/json'});
-    print("\nPlant Output Response: ${outputResponse.body}");
-    // 4. Profit Statistic
-    final profitAction =
-        "&action=queryPlantsProfitStatisticOneDay&lang=zh_CN&date=2024-01-01";
-    final profitData =
-        salt + _secret! + _token! + profitAction + outputPostaction;
-    final profitSign = sha1.convert(utf8.encode(profitData)).toString();
-    final profitUrl =
-        'http://api.dessmonitor.com/public/?sign=$profitSign&salt=$salt&token=$_token$profitAction$outputPostaction';
-    final profitResponse = await http.post(Uri.parse(profitUrl),
-        headers: {'Content-Type': 'application/json'});
-    print("\nProfit Statistic Response: ${profitResponse.body}");
-    // 5. Device Parameters (if device found)
-    if (pn != null && sn != null && devcode != null && devaddr != null) {
-      print(
-          "\nProceeding with device API tests using values from $deviceSource");
-      final paramAction =
-          "&action=queryDeviceParsEs&source=1&devcode=$devcode&pn=$pn&devaddr=$devaddr&sn=$sn&i18n=en_US";
-      final paramData = salt + _secret! + _token! + paramAction;
-      final paramSign = sha1.convert(utf8.encode(paramData)).toString();
-      final paramUrl =
-          'http://web.shinemonitor.com/public/?sign=$paramSign&salt=$salt&token=$_token$paramAction';
-      final paramResponse = await http.post(Uri.parse(paramUrl),
-          headers: {'Content-Type': 'application/json'});
-      print("\nDevice Parameters Response: ${paramResponse.body}");
-      // 6. Device Control Fields
-      final ctrlFieldAction =
-          "&action=queryDeviceCtrlField&pn=$pn&sn=$sn&devcode=$devcode&devaddr=$devaddr&i18n=en_US";
-      final ctrlFieldData = salt + _secret! + _token! + ctrlFieldAction;
-      final ctrlFieldSign = sha1.convert(utf8.encode(ctrlFieldData)).toString();
-      final ctrlFieldUrl =
-          'http://web.shinemonitor.com/public/?sign=$ctrlFieldSign&salt=$salt&token=$_token$ctrlFieldAction';
-      final ctrlFieldResponse = await http.post(Uri.parse(ctrlFieldUrl),
-          headers: {'Content-Type': 'application/json'});
-      print("\nDevice Control Fields Response: ${ctrlFieldResponse.body}");
-      // 7. Device Data One Day
-      final dataAction =
-          "&action=queryDeviceDataOneDayPaging&pn=$pn&sn=$sn&devaddr=$devaddr&devcode=$devcode&date=2024-01-01&page=0&pagesize=200&i18n=en_US";
-      final dataData = salt + _secret! + _token! + dataAction;
-      final dataSign = sha1.convert(utf8.encode(dataData)).toString();
-      final dataUrl =
-          'http://web.shinemonitor.com/public/?sign=$dataSign&salt=$salt&token=$_token$dataAction';
-      final dataResponse = await http.post(Uri.parse(dataUrl),
-          headers: {'Content-Type': 'application/json'});
-      print("\nDevice Data One Day Response: ${dataResponse.body}");
-    } else {
-      print("No valid device found for parameter/data tests.");
-    }
-    // 8. Plant Warnings/Alarms
-    final warnAction =
-        "&action=webQueryPlantsWarning&i18n=en_US&page=0&pagesize=100&plantid=$pid";
-    final warnData = salt + _secret! + _token! + warnAction + plantPostaction;
-    final warnSign = sha1.convert(utf8.encode(warnData)).toString();
-    final warnUrl =
-        'http://api.dessmonitor.com/public/?sign=$warnSign&salt=$salt&token=$_token$warnAction$plantPostaction';
-    final warnResponse = await http.post(Uri.parse(warnUrl),
-        headers: {'Content-Type': 'application/json'});
-    print("\nPlant Warnings/Alarms Response: ${warnResponse.body}");
+
+    print('✅ Credentials loaded successfully');
+    print('Token: ${_token!.substring(0, 20)}...');
+    print('Secret: ${_secret!.substring(0, 20)}...');
+    print('');
+
+    // Test all APIs
+    await _testLoginApi();
+    await _testPlantApis();
+    await _testDeviceApis();
+    await _testEnergyApis();
+    await _testAlarmApis();
+    await _testAccountApis();
+    await _testRealtimeApis();
+
+    // Print final results
+    _printFinalResults();
   }
 
-  Future<void> runAllTests(String username, String password) async {
-    print("Starting API Tests...");
-    await testLogin(username, password);
-    await testDessMonitorApis();
-    print("\nAPI Tests completed!");
+  static Future<void> _loadCredentials() async {
+    final prefs = await SharedPreferences.getInstance();
+    _token = prefs.getString('token');
+    _secret = prefs.getString('secret');
+  }
+
+  static Future<void> _testLoginApi() async {
+    print('🔐 Testing Login APIs...');
+    
+    // Test login
+    await _testApi(
+      'Login',
+      'login',
+      {
+        'username': 'test_user',
+        'password': 'test_password',
+      },
+    );
+  }
+
+  static Future<void> _testPlantApis() async {
+    print('🌱 Testing Plant APIs...');
+    
+    // Test plant list
+    await _testApi(
+      'Plant List',
+      'webQueryPlant',
+      {
+        'page': '0',
+        'pagesize': '10',
+      },
+    );
+
+    // Test plant active output power
+    await _testApi(
+      'Plant Active Output Power',
+      'queryPlantActiveOuputPowerOneDay',
+      {
+        'plantid': '5134877',
+        'date': '2025-01-28',
+      },
+    );
+
+    // Test plant energy data
+    await _testApi(
+      'Plant Energy Data',
+      'queryPlantEnergyOneDay',
+      {
+        'plantid': '5134877',
+        'date': '2025-01-28',
+      },
+    );
+  }
+
+  static Future<void> _testDeviceApis() async {
+    print('📱 Testing Device APIs...');
+    
+    // Test device list
+    await _testApi(
+      'Device List',
+      'webQueryDeviceEs',
+      {
+        'page': '0',
+        'pagesize': '100',
+        'plantid': '5134877',
+      },
+    );
+
+    // Test collector list
+    await _testApi(
+      'Collector List',
+      'webQueryCollectorEs',
+      {
+        'page': '0',
+        'pagesize': '100',
+        'plantid': '5134877',
+      },
+    );
+
+    // Test device data one day
+    await _testApi(
+      'Device Data One Day',
+      'queryDeviceDataOneDay',
+      {
+        'sn': 'TEST_SN',
+        'pn': 'TEST_PN',
+        'devcode': '512',
+        'devaddr': '1',
+        'date': '2025-01-28',
+      },
+    );
+
+    // Test device live signal
+    await _testApi(
+      'Device Live Signal',
+      'queryDeviceCtrlFieldse',
+      {
+        'sn': 'TEST_SN',
+        'pn': 'TEST_PN',
+        'devcode': '512',
+        'devaddr': '1',
+      },
+    );
+
+    // Test device key parameter
+    await _testApi(
+      'Device Key Parameter',
+      'querySPDeviceKeyParameterOneDay',
+      {
+        'sn': 'TEST_SN',
+        'pn': 'TEST_PN',
+        'devcode': '512',
+        'devaddr': '1',
+        'parameter': 'PV_OUTPUT_POWER',
+        'date': '2025-01-28',
+      },
+    );
+  }
+
+  static Future<void> _testEnergyApis() async {
+    print('⚡ Testing Energy APIs...');
+    
+    // Test energy summary
+    await _testApi(
+      'Energy Summary',
+      'queryPlantEnergySummary',
+      {
+        'plantid': '5134877',
+      },
+    );
+
+    // Test energy data
+    await _testApi(
+      'Energy Data',
+      'queryPlantEnergyData',
+      {
+        'plantid': '5134877',
+        'date': '2025-01-28',
+      },
+    );
+  }
+
+  static Future<void> _testAlarmApis() async {
+    print('🚨 Testing Alarm APIs...');
+    
+    // Test alarm list
+    await _testApi(
+      'Alarm List',
+      'webQueryAlarmEs',
+      {
+        'page': '0',
+        'pagesize': '50',
+        'plantid': '5134877',
+      },
+    );
+
+    // Test alarm count
+    await _testApi(
+      'Alarm Count',
+      'queryAlarmCount',
+      {
+        'plantid': '5134877',
+      },
+    );
+  }
+
+  static Future<void> _testAccountApis() async {
+    print('👤 Testing Account APIs...');
+    
+    // Test account info
+    await _testApi(
+      'Account Info',
+      'queryAccountInfo',
+      {},
+    );
+
+    // Test change password
+    await _testApi(
+      'Change Password',
+      'changePassword',
+      {
+        'oldPassword': 'old_pass',
+        'newPassword': 'new_pass',
+      },
+    );
+  }
+
+  static Future<void> _testRealtimeApis() async {
+    print('🔄 Testing Realtime APIs...');
+    
+    // Test realtime plant data
+    await _testApi(
+      'Realtime Plant Data',
+      'queryPlantActiveOuputPowerOneDay',
+      {
+        'plantid': '5134877',
+        'date': '2025-01-28',
+      },
+    );
+
+    // Test realtime device data
+    await _testApi(
+      'Realtime Device Data',
+      'queryDeviceCtrlFieldse',
+      {
+        'sn': 'TEST_SN',
+        'pn': 'TEST_PN',
+        'devcode': '512',
+        'devaddr': '1',
+      },
+    );
+  }
+
+  static Future<void> _testApi(String name, String action, Map<String, String> params) async {
+    _totalApis++;
+    
+    try {
+      print('  Testing: $name...');
+      
+      // Build URL with parameters
+      final allParams = {
+        ...params,
+        'action': action,
+        'source': source,
+        'app_id': appId,
+        'app_version': appVersion,
+        'app_client': appClient,
+      };
+
+      // Create postaction string
+      final postaction = allParams.entries
+          .where((entry) => entry.key != 'action')
+          .map((entry) => '&${entry.key}=${entry.value}')
+          .join('');
+
+      // Generate signature
+      final signData = salt + _secret! + _token! + action + postaction;
+      final sign = sha1.convert(utf8.encode(signData)).toString();
+
+      // Build final URL
+      final url = '$baseUrl?sign=$sign&salt=$salt&token=$_token$action$postaction';
+
+      print('    URL: ${url.substring(0, 100)}...');
+      
+      // Make request
+      final response = await http.get(Uri.parse(url)).timeout(
+        Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Request timeout after 10 seconds');
+        },
+      );
+
+      // Parse response
+      final responseData = json.decode(response.body);
+      
+      if (response.statusCode == 200) {
+        final err = responseData['err'];
+        if (err == 0) {
+          _successfulApis++;
+          _results.add(ApiTestResult(
+            name: name,
+            success: true,
+            response: responseData,
+            error: null,
+          ));
+          print('    ✅ Success');
+        } else {
+          _failedApis++;
+          final error = responseData['desc'] ?? 'Unknown error';
+          _results.add(ApiTestResult(
+            name: name,
+            success: false,
+            response: responseData,
+            error: 'API Error: $error',
+          ));
+          print('    ❌ API Error: $error');
+        }
+      } else {
+        _failedApis++;
+        _results.add(ApiTestResult(
+          name: name,
+          success: false,
+          response: null,
+          error: 'HTTP ${response.statusCode}: ${response.reasonPhrase}',
+        ));
+        print('    ❌ HTTP Error: ${response.statusCode}');
+      }
+    } catch (e) {
+      _failedApis++;
+      _results.add(ApiTestResult(
+        name: name,
+        success: false,
+        response: null,
+        error: e.toString(),
+      ));
+      print('    ❌ Exception: ${e.toString()}');
+    }
+    
+    print('');
+  }
+
+  static void _printFinalResults() {
+    print('=' * 50);
+    print('📊 FINAL TEST RESULTS');
+    print('=' * 50);
+    print('Total APIs Tested: $_totalApis');
+    print('✅ Successful: $_successfulApis');
+    print('❌ Failed: $_failedApis');
+    print('📈 Success Rate: ${((_successfulApis / _totalApis) * 100).toStringAsFixed(1)}%');
+    print('');
+
+    if (_failedApis > 0) {
+      print('❌ FAILED APIS:');
+      print('-' * 30);
+      for (final result in _results.where((r) => !r.success)) {
+        print('• ${result.name}: ${result.error}');
+      }
+      print('');
+    }
+
+    if (_successfulApis > 0) {
+      print('✅ SUCCESSFUL APIS:');
+      print('-' * 30);
+      for (final result in _results.where((r) => r.success)) {
+        print('• ${result.name}');
+      }
+      print('');
+    }
+
+    print('🔍 DETAILED RESPONSES:');
+    print('-' * 30);
+    for (final result in _results) {
+      print('${result.name}:');
+      print('  Status: ${result.success ? "✅ Success" : "❌ Failed"}');
+      if (result.error != null) {
+        print('  Error: ${result.error}');
+      }
+      if (result.response != null) {
+        print('  Response: ${json.encode(result.response).substring(0, 200)}...');
+      }
+      print('');
+    }
   }
 }
 
+class ApiTestResult {
+  final String name;
+  final bool success;
+  final Map<String, dynamic>? response;
+  final String? error;
+
+  ApiTestResult({
+    required this.name,
+    required this.success,
+    this.response,
+    this.error,
+  });
+}
+
+// Main function to run tests
 void main() async {
-  final tester = ApiTester();
-  await tester.runAllTests('aatif100', 'hamza1');
+  await ApiTest.runAllTests();
 }

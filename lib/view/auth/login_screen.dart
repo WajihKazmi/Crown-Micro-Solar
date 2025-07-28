@@ -92,30 +92,36 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             );
           }
-    } else {
-          // Show error message if login failed
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                viewModel.error ?? 'Login failed. Please try again.',
-                style: const TextStyle(color: Colors.black),
-              ),
-              backgroundColor: Colors.white,
-              duration: const Duration(seconds: 3),
+        } else {
+          // Show error message if login failed (AlertDialog, not SnackBar)
+          await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Login Error'),
+              content: Text(viewModel.error ?? 'Login failed. Please try again.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
             ),
           );
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'An error occurred: ${e.toString()}',
-              style: const TextStyle(color: Colors.black),
-            ),
-            backgroundColor: Colors.white,
-            duration: const Duration(seconds: 3),
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Login Error'),
+            content: Text('An error occurred: ${e.toString()}'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('OK'),
+              ),
+            ],
           ),
         );
       }

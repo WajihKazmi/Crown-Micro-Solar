@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'onboarding_page.dart';
 import '../../routes/app_routes.dart';
 import '../../core/utils/app_buttons.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -26,7 +27,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     });
   }
 
-  void _skipOnboarding() {
+  void _skipOnboarding() async {
+    // Mark onboarding as complete
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('onboarding_complete', true);
     // Navigate to the next screen, e.g., login screen or home screen
     Navigator.of(context)
         .pushReplacementNamed(AppRoutes.login); // Navigate to the login route

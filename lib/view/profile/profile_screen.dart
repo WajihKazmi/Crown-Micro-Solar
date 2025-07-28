@@ -158,18 +158,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 SizedBox(
                   width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: green,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      elevation: 0,
-                    ),
-                    onPressed: () {},
-                    child: Text('Add Installer',
-                        style: theme.textTheme.labelLarge?.copyWith(
-                            color: Colors.white, fontWeight: FontWeight.bold)),
+                  child: Builder(
+                    builder: (context) {
+                      final authViewModel = Provider.of<AuthViewModel>(context);
+                      final theme = Theme.of(context);
+                      if (authViewModel.isInstaller) {
+                        return ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: green,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            elevation: 0,
+                          ),
+                          onPressed: () {},
+                          child: Text('Add Agent',
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                  color: Colors.white, fontWeight: FontWeight.bold)),
+                        );
+                      } else {
+                        return ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: green,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            elevation: 0,
+                          ),
+                          onPressed: () {},
+                          child: Text('Add Installer',
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                  color: Colors.white, fontWeight: FontWeight.bold)),
+                        );
+                      }
+                    },
                   ),
                 ),
                 const SizedBox(height: 8),

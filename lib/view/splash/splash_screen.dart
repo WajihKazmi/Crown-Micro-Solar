@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:crown_micro_solar/routes/app_routes.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -22,15 +23,20 @@ class _SplashScreenState extends State<SplashScreen> {
     try {
       // Add a small delay for splash screen visibility
       await Future.delayed(const Duration(seconds: 2));
-      
       if (!mounted) return;
-      
+
+      final prefs = await SharedPreferences.getInstance();
+      final onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
+
       setState(() {
         _isInitialized = true;
       });
 
-      // Navigate to onboarding
-      Navigator.of(context).pushReplacementNamed(AppRoutes.onboarding);
+      if (onboardingComplete) {
+        Navigator.of(context).pushReplacementNamed(AppRoutes.login);
+      } else {
+        Navigator.of(context).pushReplacementNamed(AppRoutes.onboarding);
+      }
     } catch (e) {
       print('Error during initialization: $e');
       if (!mounted) return;

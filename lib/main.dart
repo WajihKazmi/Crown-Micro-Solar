@@ -108,7 +108,7 @@ class MyApp extends StatelessWidget {
             title: AppConfig.appName,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.lightTheme,
-            initialRoute: AppRoutes.login,
+            initialRoute: AppRoutes.splash,
             routes: AppRoutes.routes,
             locale: localeProvider.locale,
             supportedLocales: AppLocalizations.supportedLocales,

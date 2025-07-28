@@ -4,6 +4,9 @@ import 'package:crown_micro_solar/core/network/api_endpoints.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:crown_micro_solar/presentation/models/device/device_data_one_day_query_model.dart';
+import 'package:crown_micro_solar/presentation/models/device/device_live_signal_model.dart';
+import 'package:crown_micro_solar/presentation/models/device/device_key_parameter_model.dart';
 
 class DeviceRepository {
   final ApiClient _apiClient;
@@ -211,5 +214,67 @@ class DeviceRepository {
     }
     
     throw Exception('Failed to get device daily data: ${dataJson['desc']}');
+  }
+
+  // Fetch device data for one day (for device detail page)
+  Future<DeviceDataOneDayQueryModel?> fetchDeviceDataOneDay({
+    required String sn,
+    required String pn,
+    required int devcode,
+    required int devaddr,
+    required String date,
+    int page = 0,
+  }) async {
+    // TODO: Implement real API call
+    // This is a stub for integration
+    // Use the old app's logic as reference
+    // Return a dummy model for now
+    return null;
+  }
+
+  // Fetch live device signal/current/voltage/flow data (for device detail page)
+  Future<DeviceLiveSignalModel?> fetchDeviceLiveSignal({
+    required String sn,
+    required String pn,
+    required int devcode,
+    required int devaddr,
+  }) async {
+    // TODO: Implement real API call
+    // This is a stub for integration
+    // Return a dummy model for now
+    return DeviceLiveSignalModel(
+      inputVoltage: 230.0,
+      inputCurrent: 5.0,
+      outputVoltage: 220.0,
+      outputCurrent: 4.8,
+      inputPower: 1150.0,
+      outputPower: 1056.0,
+      signalStrength: 98.0,
+      timestamp: DateTime.now(),
+    );
+  }
+
+  // Fetch key parameter data for one day (e.g., PV_OUTPUT_POWER, current, voltage)
+  Future<DeviceKeyParameterModel?> fetchDeviceKeyParameterOneDay({
+    required String sn,
+    required String pn,
+    required int devcode,
+    required int devaddr,
+    required String parameter,
+    required String date,
+  }) async {
+    // TODO: Implement real API call
+    // This is a stub for integration
+    // Use the old app's logic as reference
+    // Return a dummy model for now
+    return DeviceKeyParameterModel(
+      err: 0,
+      desc: 'Success',
+      dat: DeviceKeyParameterData(
+        total: 1,
+        row: [DeviceKeyParameterRow(field: ["100.0"])],
+        title: [DeviceKeyParameterTitle(title: parameter, unit: "V")],
+      ),
+    );
   }
 } 

@@ -401,14 +401,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   centerTitle: true,
                   actions: [
-                    BorderedIconButton(
-                      icon: Icons.people,
-                      onTap: () {
-                        // Show user switcher dialog
-                        _showUserSwitcherDialog(context);
-                      },
-                      margin: const EdgeInsets.only(right: 8.0),
-                    ),
+                    if (authViewModel.isInstaller)
+                      BorderedIconButton(
+                        icon: Icons.people,
+                        onTap: () {
+                          // Show user switcher dialog
+                          _showUserSwitcherDialog(context);
+                        },
+                        margin: const EdgeInsets.only(right: 8.0),
+                      ),
                     BorderedIconButton(
                       icon: Icons.notifications_none,
                       onTap: () {
