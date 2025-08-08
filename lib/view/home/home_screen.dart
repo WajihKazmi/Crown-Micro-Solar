@@ -5,15 +5,14 @@ import 'package:provider/provider.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/auth_viewmodel.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/dashboard_view_model.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
 import '../common/bordered_icon_button.dart';
 import '../profile/profile_screen.dart';
 import 'app_bottom_nav_bar.dart';
-import 'contact_screen.dart';
-import 'devices_screen.dart';
+import 'devices_screen.dart'; // Use the original version
 import 'alarm_notification_screen.dart';
 import 'package:crown_micro_solar/core/di/service_locator.dart';
 import 'package:crown_micro_solar/view/home/plant_info_screen.dart';
-import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
 import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -35,10 +34,10 @@ class _HomeScreenState extends State<HomeScreen> {
     _plantViewModel = getIt<PlantViewModel>();
     _dashboardViewModel = getIt<DashboardViewModel>();
     _realtimeDataService = getIt<RealtimeDataService>();
-    
+
     // Start real-time data service
     _realtimeDataService.start();
-    
+
     // Load initial data
     _plantViewModel.loadPlants();
     _dashboardViewModel.loadDashboardData();
@@ -48,6 +47,13 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _currentIndex = index;
     });
+
+    // Reload data when switching to specific tabs
+    if (index == 2) {
+      // Device tab
+      // Make sure plant data is loaded
+      _plantViewModel.loadPlants();
+    }
   }
 
   void _onDrawerNavigate(int index) {
@@ -125,10 +131,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _logout(BuildContext context) async {
-    await _performLogout();
-  }
-
   @override
   void dispose() {
     // Stop real-time data service when widget is disposed
@@ -138,18 +140,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showUserSwitcherDialog(BuildContext context) {
     final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Switch User'),
         content: SizedBox(
           width: double.maxFinite,
-          height: MediaQuery.of(context).size.height * 0.6, // 60% of screen height
+          height:
+              MediaQuery.of(context).size.height * 0.6, // 60% of screen height
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (authViewModel.agentsList != null && authViewModel.agentsList!.isNotEmpty) ...[
+              if (authViewModel.agentsList != null &&
+                  authViewModel.agentsList!.isNotEmpty) ...[
                 const Text(
                   'Available Agents:',
                   style: TextStyle(
@@ -162,7 +166,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: ListView.separated(
                     shrinkWrap: true,
                     itemCount: authViewModel.agentsList!.length,
-                    separatorBuilder: (context, index) => const Divider(height: 1),
+                    separatorBuilder: (context, index) =>
+                        const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final agent = authViewModel.agentsList![index];
                       return ListTile(
@@ -196,7 +201,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.people_outline, size: 48, color: Colors.grey),
+                        Icon(Icons.people_outline,
+                            size: 48, color: Colors.grey),
                         SizedBox(height: 16),
                         Text(
                           'No other users available',
@@ -226,7 +232,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _switchToAgent(Map<String, dynamic> agent) async {
     try {
       final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
-      
+
       // Show loading indicator
       showDialog(
         context: context,
@@ -254,7 +260,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (success) {
         // Refresh all data for the new user
         await _refreshDataForNewUser();
-        
+
         // Show success message
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -288,7 +294,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
       }
-      
+
       // Show error message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -309,42 +315,46 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       // Refresh plant data
       await _plantViewModel.loadPlants();
-      
+
       // Refresh dashboard data
       await _dashboardViewModel.loadDashboardData();
-      
+
       // Restart real-time data service with new user context
       _realtimeDataService.stop();
       await Future.delayed(const Duration(milliseconds: 500));
       _realtimeDataService.start();
-      
+
       // Force UI refresh
       setState(() {});
-      
     } catch (e) {
       print('Error refreshing data for new user: $e');
     }
   }
 
   Widget _getBody() {
+    // Create a key for each body to ensure proper widget identity
     switch (_currentIndex) {
       case 0:
-        return _OverviewBody();
+        return _OverviewBody(key: PageStorageKey('overview'));
       case 1:
         // Use the first plant's ID for the plant info screen by default
-        final firstPlant = _plantViewModel.plants.isNotEmpty ? _plantViewModel.plants.first : null;
+        final firstPlant = _plantViewModel.plants.isNotEmpty
+            ? _plantViewModel.plants.first
+            : null;
         return firstPlant != null
-            ? PlantInfoScreen(plantId: firstPlant.id)
-            : const Center(child: CircularProgressIndicator());
+            ? PlantInfoScreen(
+                plantId: firstPlant.id,
+                key: PageStorageKey('plant_${firstPlant.id}'))
+            : Center(
+                child: CircularProgressIndicator(),
+                key: PageStorageKey('plant_loading'));
       case 2:
-        return ChangeNotifierProvider.value(
-          value: getIt<DeviceViewModel>(),
-          child: const DevicesScreen(),
-        );
+        // For devices tab, use a wrapper to ensure correct constraints
+        return DevicesScreen(key: PageStorageKey('devices_screen'));
       case 3:
-        return const ProfileScreen();
+        return ProfileScreen(key: PageStorageKey('profile'));
       default:
-        return _OverviewBody();
+        return _OverviewBody(key: PageStorageKey('overview_default'));
     }
   }
 
@@ -352,13 +362,18 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final authViewModel = Provider.of<AuthViewModel>(context);
     final userInfo = authViewModel.userInfo;
+    // Initialize deviceViewModel once for reuse
+    final deviceViewModel = getIt<DeviceViewModel>();
+
     return MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: _plantViewModel),
         ChangeNotifierProvider.value(value: _dashboardViewModel),
         ChangeNotifierProvider.value(value: _realtimeDataService),
+        ChangeNotifierProvider.value(value: deviceViewModel),
       ],
       child: Scaffold(
+        key: PageStorageKey('home_scaffold_$_currentIndex'),
         extendBody: true,
         drawer: userInfo == null
             ? const Drawer(child: Center(child: CircularProgressIndicator()))
@@ -366,6 +381,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 username: userInfo.usr,
                 email: userInfo.email,
                 onProfileTap: () {
+                  // First close the drawer
+                  Navigator.pop(context);
+                  // Then update the current index to show profile
                   setState(() {
                     _currentIndex = 3;
                   });
@@ -373,61 +391,67 @@ class _HomeScreenState extends State<HomeScreen> {
                 onLogout: _onLogout,
                 onNavigate: _onDrawerNavigate,
               ),
-        body: CustomScrollView(
-              slivers: [
-                SliverAppBar(
-                  backgroundColor: Colors.white,
-                  floating: true,
-                  snap: true,
-                  pinned: true,
-                  leading: Builder(
-                    builder: (context) => BorderedIconButton(
-                      icon: Icons.menu,
-                      onTap: () => Scaffold.of(context).openDrawer(),
-                    ),
-                  ),
-                  title: Text(
-                    _currentIndex == 0
-                        ? 'Overview'
-                        : _currentIndex == 1
-                            ? 'Plant Info'
-                            : _currentIndex == 2
-                                ? 'Devices'
-                                : _currentIndex == 3
-                                    ? 'Profile'
-                                    : 'Overview',
-                    style: const TextStyle(
-                        color: Colors.black, fontWeight: FontWeight.bold),
-                  ),
-                  centerTitle: true,
-                  actions: [
-                    if (authViewModel.isInstaller)
-                      BorderedIconButton(
-                        icon: Icons.people,
-                        onTap: () {
-                          // Show user switcher dialog
-                          _showUserSwitcherDialog(context);
-                        },
-                        margin: const EdgeInsets.only(right: 8.0),
+        // For the devices tab, we use DevicesScreen directly
+        body: _currentIndex == 2
+            ? SafeArea(child: _getBody())
+            : CustomScrollView(
+                slivers: [
+                  SliverAppBar(
+                    backgroundColor: Colors.transparent,
+                    floating: true,
+                    snap: true,
+                    pinned: true,
+                    leading: Builder(
+                      builder: (context) => BorderedIconButton(
+                        icon: Icons.menu,
+                        onTap: () => Scaffold.of(context).openDrawer(),
                       ),
-                    BorderedIconButton(
-                      icon: Icons.notifications_none,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => const AlarmNotificationScreen(),
-                          ),
-                        );
-                      },
-                      margin: const EdgeInsets.only(right: 16.0),
                     ),
-                  ],
-                ),
-                SliverToBoxAdapter(
-                  child: _getBody(),
-                ),
-              ],
-            ),
+                    title: Text(
+                      _currentIndex == 0
+                          ? 'Overview'
+                          : _currentIndex == 1
+                              ? 'Plant Info'
+                              : _currentIndex == 2
+                                  ? 'Devices'
+                                  : _currentIndex == 3
+                                      ? 'Profile'
+                                      : 'Overview',
+                      style: const TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 20),
+                    ),
+                    centerTitle: true,
+                    actions: [
+                      if (authViewModel.isInstaller)
+                        BorderedIconButton(
+                          icon: Icons.people,
+                          onTap: () {
+                            // Show user switcher dialog
+                            _showUserSwitcherDialog(context);
+                          },
+                          margin: const EdgeInsets.only(right: 8.0),
+                        ),
+                      BorderedIconButton(
+                        icon: Icons.notifications_none,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const AlarmNotificationScreen(),
+                            ),
+                          );
+                        },
+                        margin: const EdgeInsets.only(right: 16.0),
+                      ),
+                    ],
+                  ),
+                  SliverToBoxAdapter(
+                    child: _getBody(),
+                  ),
+                ],
+              ),
         bottomNavigationBar: AppBottomNavBar(
           currentIndex: _currentIndex,
           onTap: _onTabTapped,
@@ -439,10 +463,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
 // Extracted overview content to a new widget for cleaner switching
 class _OverviewBody extends StatelessWidget {
+  const _OverviewBody({Key? key}) : super(key: key);
   @override
   Widget build(BuildContext context) {
     return Consumer3<PlantViewModel, DashboardViewModel, RealtimeDataService>(
-      builder: (context, plantViewModel, dashboardViewModel, realtimeService, child) {
+      builder: (context, plantViewModel, dashboardViewModel, realtimeService,
+          child) {
         if (plantViewModel.isLoading || dashboardViewModel.isLoading) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -453,9 +479,14 @@ class _OverviewBody extends StatelessWidget {
           return Center(child: Text('Error: ${dashboardViewModel.error}'));
         }
         // Use real-time data if available, otherwise fall back to plant view model data
-        final plants = realtimeService.plants.isNotEmpty ? realtimeService.plants : plantViewModel.plants;
-        final totalOutput = realtimeService.totalCurrentPower > 0 ? realtimeService.totalCurrentPower : plants.fold<double>(0, (sum, p) => sum + p.currentPower);
-        final totalCapacity = plants.fold<double>(0, (sum, p) => sum + p.capacity);
+        final plants = realtimeService.plants.isNotEmpty
+            ? realtimeService.plants
+            : plantViewModel.plants;
+        final totalOutput = realtimeService.totalCurrentPower > 0
+            ? realtimeService.totalCurrentPower
+            : 0.0; // No fallback, use zero
+        final totalCapacity =
+            plants.fold<double>(0, (sum, p) => sum + p.capacity);
         final totalPlants = plants.length;
         // You can add more aggregations as needed
         return SingleChildScrollView(
@@ -463,122 +494,179 @@ class _OverviewBody extends StatelessWidget {
             children: [
               Container(
                 margin: const EdgeInsets.all(10),
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFEBEE),
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: Column(
+                height: 360, // Fixed height for consistent layout
+                // decoration: BoxDecoration(
+                //   color: const Color(0xFFFFEBEE),
+                //   borderRadius: BorderRadius.circular(24),
+                // ),
+                child: Stack(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                realtimeService.isRunning ? 'Live Data' : (plants.isNotEmpty ? 'Last updated : ${plants.first.lastUpdate.hour}:${plants.first.lastUpdate.minute.toString().padLeft(2, '0')}' : ''),
-                                style: TextStyle(
-                                  color: realtimeService.isRunning ? Colors.green : Colors.black54, 
-                                  fontSize: 12,
-                                  fontWeight: realtimeService.isRunning ? FontWeight.bold : FontWeight.normal,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
+                    // Background image with fixed position
+                    Positioned.fill(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: Image.asset(
+                          'assets/images/overview_bg.png',
+                          fit: BoxFit.cover, // Cover entire container
+                        ),
+                      ),
+                    ),
+                    // Content positioned over the background
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 30, vertical: 10),
+                          child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
-                                  _InfoCard(
-                                    icon: 'assets/icons/home/thunder.svg',
-                                    label: 'Total Output Power',
-                                    value: totalOutput.toStringAsFixed(1),
-                                    unit: 'KWH',
-                                  ),
-                                  const SizedBox(height: 12),
-                                  _InfoCard(
-                                    icon: 'assets/icons/home/capacity.svg',
-                                    label: 'Total Installed Capacity',
-                                    value: totalCapacity.toStringAsFixed(1),
-                                    unit: 'KW',
+                                  Text(
+                                    realtimeService.isRunning
+                                        ? 'Live Data'
+                                        : (plants.isNotEmpty
+                                            ? 'Last updated: ${plants.first.lastUpdate.hour}:${plants.first.lastUpdate.minute.toString().padLeft(2, '0')}'
+                                            : ''),
+                                    style: TextStyle(
+                                      color: Colors
+                                          .black, // Changed to black as per requirements
+                                      fontSize: 12,
+                                      fontWeight: realtimeService.isRunning
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                    ),
                                   ),
                                 ],
                               ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  children: [
-                                    Stack(
-                                      alignment: Alignment.center,
+                              const SizedBox(height: 10),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Flexible(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        Column(
-                                          mainAxisAlignment: MainAxisAlignment.center,
+                                        _InfoCard(
+                                          icon: 'assets/icons/home/thunder.svg',
+                                          label: 'Total Output Power',
+                                          value: totalOutput.toStringAsFixed(1),
+                                          unit: 'KWH',
+                                        ),
+                                        const SizedBox(height: 12),
+                                        _InfoCard(
+                                          icon:
+                                              'assets/icons/home/capacity.svg',
+                                          label: 'Total Installed Capacity',
+                                          value:
+                                              totalCapacity.toStringAsFixed(1),
+                                          unit: 'KW',
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 30),
+                                  SizedBox(
+                                    width: 120, // Fixed width
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors
+                                            .white, // Solid white background
+                                        borderRadius: BorderRadius.circular(16),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color:
+                                                Colors.black.withOpacity(0.1),
+                                            blurRadius: 5,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 10, horizontal: 10),
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
                                           children: [
-                                            Text(totalOutput.toStringAsFixed(2),
+                                            Text(
+                                                totalOutput > 0
+                                                    ? totalOutput
+                                                        .toStringAsFixed(2)
+                                                    : "0.00",
                                                 style: const TextStyle(
-                                                    fontSize: 32,
+                                                    fontSize: 27,
                                                     fontWeight: FontWeight.bold,
                                                     color: Color(0xFFE53935))),
                                             const Text('KW',
                                                 style: TextStyle(
                                                     fontSize: 16,
                                                     color: Color(0xFFE53935),
-                                                    fontWeight: FontWeight.bold)),
+                                                    fontWeight:
+                                                        FontWeight.bold)),
                                             const SizedBox(height: 4),
-                                            const Text('Current Power Generation',
-                                                style: TextStyle(
-                                                    fontSize: 12,
-                                                    color: Colors.black)),
+                                            const Text(
+                                              'Current Power\n Generation',
+                                              style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: Colors.black,
+                                                  fontWeight: FontWeight.w700),
+                                              textAlign: TextAlign.center,
+                                            ),
                                             const Text('All Power Stations',
                                                 style: TextStyle(
-                                                    fontSize: 10,
+                                                    fontSize: 8,
                                                     color: Colors.black54)),
                                           ],
                                         ),
-                                      ],
+                                      ),
                                     ),
-                                    const SizedBox(height: 8),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-                          const SizedBox(height: 25),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              _SummaryCard(
-                                icon: 'assets/icons/home/totalPlants.svg',
-                                label: 'Total Plant',
-                                value: totalPlants.toString(),
-                              ),
-                              _SummaryCard(
-                                icon: 'assets/icons/home/totalDevices.svg',
-                                label: 'Total Device',
-                                value: dashboardViewModel.isLoading ? '-' : dashboardViewModel.totalDevices.toString(),
-                              ),
-                              _SummaryCard(
-                                icon: 'assets/icons/home/totalAlarms.svg',
-                                label: 'Total Alarm',
-                                value: dashboardViewModel.isLoading ? '-' : dashboardViewModel.totalAlarms.toString(),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 25),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _SummaryCard(
+                      icon: 'assets/icons/home/totalPlants.svg',
+                      label: 'Total Plant',
+                      value: totalPlants.toString(),
+                    ),
+                    _SummaryCard(
+                      icon: 'assets/icons/home/totalDevices.svg',
+                      label: 'Total Device',
+                      value: dashboardViewModel.isLoading
+                          ? '-'
+                          : dashboardViewModel.totalDevices.toString(),
+                    ),
+                    _SummaryCard(
+                      icon: 'assets/icons/home/totalAlarms.svg',
+                      label: 'Total Alarm',
+                      value: dashboardViewModel.isLoading
+                          ? '-'
+                          : dashboardViewModel.totalAlarms.toString(),
                     ),
                   ],
                 ),
               ),
               // Dropdown
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -594,11 +682,19 @@ class _OverviewBody extends StatelessWidget {
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
                       padding: EdgeInsets.symmetric(horizontal: 20),
-                      value: 'AC2 Output Voltage',
+                      value: 'OUTPUT_POWER',
                       items: [
                         DropdownMenuItem(
-                          value: 'AC2 Output Voltage',
-                          child: Text('AC2 Output Voltage'),
+                          value: 'OUTPUT_POWER',
+                          child: Text('Output Power'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'GRID_VOLTAGE',
+                          child: Text('Grid Voltage'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'GRID_FREQUENCY',
+                          child: Text('Grid Frequency'),
                         ),
                       ],
                       onChanged: (value) {},
@@ -610,21 +706,23 @@ class _OverviewBody extends StatelessWidget {
               ),
               // Date Selector
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Icon(Icons.arrow_left, color: Colors.black54),
                     Text('June 2024',
-                        style:
-                            TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 16)),
                     Icon(Icons.arrow_right, color: Colors.black54),
                   ],
                 ),
               ),
               // Chart Area
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Container(
                   height: 180,
                   width: double.infinity,
@@ -688,11 +786,12 @@ class _InfoCard extends StatelessWidget {
   final String value;
   final String unit;
 
-  const _InfoCard(
-      {required this.icon,
-      required this.label,
-      required this.value,
-      required this.unit});
+  const _InfoCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.unit,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -700,39 +799,39 @@ class _InfoCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       width: 160,
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.3), // Glass morphism background
+        color: Colors.white, // Solid white background instead of glassmorphism
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.4), // Glass border
-          width: 1,
-        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(2),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SvgPicture.asset(icon, height: 28),
+          const SizedBox(height: 8),
+          Text(label,
+              style: const TextStyle(fontSize: 12, color: Colors.black)),
+          const SizedBox(height: 3),
+          Row(
             children: [
-              SvgPicture.asset(icon, height: 28),
-              const SizedBox(height: 15),
-              Text(label, style: TextStyle(fontSize: 12, color: Colors.black)),
-              const SizedBox(height: 5),
-              Row(
-                children: [
-                  Text(value,
-                      style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                  const SizedBox(
-                    width: 5,
-                  ),
-                  Text("KW/H",
-                      style: TextStyle(fontSize: 10, color: Color(0xFFE53935))),
-                ],
+              Text(
+                value,
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              ),
+              const SizedBox(width: 5),
+              Text(
+                unit,
+                style: const TextStyle(fontSize: 10, color: Color(0xFFE53935)),
               ),
             ],
           ),
-        ),
+        ],
       ),
     );
   }
@@ -766,7 +865,7 @@ class _SummaryCard extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SvgPicture.asset( 
+            SvgPicture.asset(
               icon,
             ),
             const SizedBox(height: 8),
@@ -958,4 +1057,3 @@ class _DrawerItem extends StatelessWidget {
     );
   }
 }
- 

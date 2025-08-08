@@ -13,56 +13,69 @@ class RealtimeDataService extends ChangeNotifier {
   final ApiClient _apiClient;
   final DeviceRepository _deviceRepository;
   final PlantRepository _plantRepository;
-  
+
   Timer? _updateTimer;
+  Timer? _plantTimer;
   bool _isRunning = false;
-  
+
   // Current data
   List<Plant> _plants = [];
   List<Device> _devices = [];
   Map<String, double> _devicePowerData = {};
   Map<String, Map<String, dynamic>> _deviceRealTimeData = {};
-  
+
   // Update intervals (in seconds)
   static const int _plantUpdateInterval = 30; // Update plants every 30 seconds
-  static const int _deviceUpdateInterval = 15; // Update devices every 15 seconds
-  
-  RealtimeDataService(this._apiClient, this._deviceRepository, this._plantRepository);
+  static const int _deviceUpdateInterval =
+      15; // Update devices every 15 seconds
+
+  RealtimeDataService(
+      this._apiClient, this._deviceRepository, this._plantRepository);
 
   // Getters
   List<Plant> get plants => _plants;
   List<Device> get devices => _devices;
   Map<String, double> get devicePowerData => _devicePowerData;
-  Map<String, Map<String, dynamic>> get deviceRealTimeData => _deviceRealTimeData;
+  Map<String, Map<String, dynamic>> get deviceRealTimeData =>
+      _deviceRealTimeData;
   bool get isRunning => _isRunning;
 
   // Start real-time data updates
   Future<void> start() async {
     if (_isRunning) return;
-    
+
     _isRunning = true;
     print('RealtimeDataService: Starting real-time data updates');
-    
+
     // Initial data load
     await _loadInitialData();
-    
-    // Start periodic updates
-    _updateTimer = Timer.periodic(const Duration(seconds: _deviceUpdateInterval), (timer) {
+
+    // Start periodic device updates
+    _updateTimer =
+        Timer.periodic(const Duration(seconds: _deviceUpdateInterval), (timer) {
       _updateRealTimeData();
     });
-    
+    // Start periodic plant updates using the defined interval
+    _plantTimer = Timer.periodic(const Duration(seconds: _plantUpdateInterval),
+        (timer) async {
+      await _updatePlantData();
+      notifyListeners();
+    });
+
     notifyListeners();
   }
 
   // Stop real-time data updates
   void stop() {
     if (!_isRunning) return;
-    
+
     _isRunning = false;
     _updateTimer?.cancel();
     _updateTimer = null;
+    _plantTimer?.cancel();
+    _plantTimer = null;
     print('RealtimeDataService: Stopped real-time data updates');
-    
+
     notifyListeners();
   }
 
@@ -70,22 +83,23 @@ class RealtimeDataService extends ChangeNotifier {
   Future<void> _loadInitialData() async {
     try {
       print('RealtimeDataService: Loading initial data');
-      
+
       // Load plants
       _plants = await _plantRepository.getPlants();
-      
+
       // Load devices for each plant
       for (final plant in _plants) {
-        final result = await _deviceRepository.getDevicesAndCollectors(plant.id);
+        final result =
+            await _deviceRepository.getDevicesAndCollectors(plant.id);
         final allDevices = result['allDevices'] ?? [];
         _devices.addAll(allDevices);
       }
-      
-      print('RealtimeDataService: Loaded ${_plants.length} plants and ${_devices.length} devices');
-      
+
+      print(
+          'RealtimeDataService: Loaded ${_plants.length} plants and ${_devices.length} devices');
+
       // Initial real-time data update
       await _updateRealTimeData();
-      
     } catch (e) {
       print('RealtimeDataService: Error loading initial data: $e');
     }
@@ -94,22 +108,21 @@ class RealtimeDataService extends ChangeNotifier {
   // Update real-time data
   Future<void> _updateRealTimeData() async {
     if (!_isRunning) return;
-    
+
     try {
       print('RealtimeDataService: Updating real-time data');
-      
+
       // Update plant data (less frequent)
       if (_plants.isNotEmpty) {
         await _updatePlantData();
       }
-      
+
       // Update device data (more frequent)
       if (_devices.isNotEmpty) {
         await _updateDeviceData();
       }
-      
+
       notifyListeners();
-      
     } catch (e) {
       print('RealtimeDataService: Error updating real-time data: $e');
     }
@@ -119,7 +132,7 @@ class RealtimeDataService extends ChangeNotifier {
   Future<void> _updatePlantData() async {
     try {
       for (final plant in _plants) {
-        final updatedPlant = await _getPlantRealTimeData(plant.id);
+        final updatedPlant = await _getPlantRealTimeDataFor(plant);
         if (updatedPlant != null) {
           final index = _plants.indexWhere((p) => p.id == plant.id);
           if (index != -1) {
@@ -132,6 +145,91 @@ class RealtimeDataService extends ChangeNotifier {
     }
   }
 
+  // Safer variant that preserves existing plant values on failure
+  Future<Plant?> _getPlantRealTimeDataFor(Plant plant) async {
+    try {
+      const salt = '12345678';
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token') ?? '';
+      final secret = prefs.getString('Secret') ?? '';
+
+      final action =
+          '&action=queryPlantActiveOuputPowerOneDay&plantid=${plant.id}&date=${_getCurrentDate()}';
+      const postaction =
+          '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+      final data = salt + secret + token + action + postaction;
+      final sign = sha1.convert(utf8.encode(data)).toString();
+      final url =
+          'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
+      final response = await _apiClient.signedPost(url);
+      final dataJson = json.decode(response.body);
+
+      if (dataJson['err'] == 0 && dataJson['dat'] != null) {
+        final plantData = dataJson['dat'];
+
+        double apiCurrentPower =
+            double.tryParse(plantData['currentPower']?.toString() ?? '0') ??
+                0.0;
+        double calculatedCurrentPower = 0.0;
+
+        if (apiCurrentPower <= 0) {
+          // Sum power from device caches
+          for (final device in _devices.where((d) => d.plantId == plant.id)) {
+            double devicePower = _devicePowerData[device.pn] ?? 0.0;
+            if (devicePower <= 0 &&
+                _deviceRealTimeData.containsKey(device.pn)) {
+              final realTimeData = _deviceRealTimeData[device.pn];
+              devicePower = double.tryParse(
+                      realTimeData?['outputPower']?.toString() ??
+                          realTimeData?['OUTPUT_POWER']?.toString() ??
+                          '0') ??
+                  0.0;
+            }
+            calculatedCurrentPower += devicePower;
+          }
+        }
+
+        final finalCurrentPower =
+            apiCurrentPower > 0 ? apiCurrentPower : calculatedCurrentPower;
+
+        // Preserve existing capacity and generation values if API lacks them
+        final capacity =
+            double.tryParse(plantData['capacity']?.toString() ?? '') ??
+                plant.capacity;
+        final daily =
+            double.tryParse(plantData['dailyGeneration']?.toString() ?? '') ??
+                plant.dailyGeneration;
+        final monthly =
+            double.tryParse(plantData['monthlyGeneration']?.toString() ?? '') ??
+                plant.monthlyGeneration;
+        final yearly =
+            double.tryParse(plantData['yearlyGeneration']?.toString() ?? '') ??
+                plant.yearlyGeneration;
+
+        return Plant.fromJson({
+          'id': plant.id,
+          'name': plantData['plantName']?.toString() ?? plant.name,
+          'capacity': capacity,
+          'currentPower': finalCurrentPower,
+          'dailyGeneration': daily,
+          'monthlyGeneration': monthly,
+          'yearlyGeneration': yearly,
+          'lastUpdate': DateTime.now().toIso8601String(),
+        });
+      }
+
+      // On API err, keep existing plant unchanged
+      print(
+          'RealtimeDataService: Plant API returned err=${dataJson['err']}, preserving existing plant values');
+      return null;
+    } catch (e) {
+      print(
+          'RealtimeDataService: Error getting plant real-time data (preserving): $e');
+      return null;
+    }
+  }
+
   // Update device real-time data
   Future<void> _updateDeviceData() async {
     try {
@@ -141,7 +239,7 @@ class RealtimeDataService extends ChangeNotifier {
         if (powerData != null) {
           _devicePowerData[device.pn] = powerData;
         }
-        
+
         // Get detailed real-time data for important devices (inverters, etc.)
         if (device.isInverter || device.isCollector) {
           final realTimeData = await _getDeviceDetailedRealTimeData(device);
@@ -155,41 +253,7 @@ class RealtimeDataService extends ChangeNotifier {
     }
   }
 
-  // Get plant real-time data
-  Future<Plant?> _getPlantRealTimeData(String plantId) async {
-    try {
-      const salt = '12345678';
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token') ?? '';
-      final secret = prefs.getString('Secret') ?? '';
-      
-      final action = '&action=queryPlantActiveOuputPowerOneDay&plantid=$plantId&date=${_getCurrentDate()}';
-      final postaction = '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
-      final data = salt + secret + token + action + postaction;
-      final sign = sha1.convert(utf8.encode(data)).toString();
-      final url = 'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
-      
-      final response = await _apiClient.signedPost(url);
-      final dataJson = json.decode(response.body);
-      
-      if (dataJson['err'] == 0 && dataJson['dat'] != null) {
-        final plantData = dataJson['dat'];
-        return Plant.fromJson({
-          'id': plantId,
-          'name': plantData['plantName'] ?? '',
-          'capacity': plantData['capacity'] ?? 0.0,
-          'currentPower': plantData['currentPower'] ?? 0.0,
-          'dailyGeneration': plantData['dailyGeneration'] ?? 0.0,
-          'monthlyGeneration': plantData['monthlyGeneration'] ?? 0.0,
-          'yearlyGeneration': plantData['yearlyGeneration'] ?? 0.0,
-          'lastUpdate': DateTime.now().toIso8601String(),
-        });
-      }
-    } catch (e) {
-      print('RealtimeDataService: Error getting plant real-time data: $e');
-    }
-    return null;
-  }
+  // Removed old _getPlantRealTimeData; using _getPlantRealTimeDataFor instead
 
   // Get device power data
   Future<double?> _getDevicePowerData(Device device) async {
@@ -198,21 +262,30 @@ class RealtimeDataService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token') ?? '';
       final secret = prefs.getString('Secret') ?? '';
-      
-      final action = '&action=queryDeviceDataOneDayPaging&pn=${device.pn}&sn=${device.sn}&devcode=${device.devcode}&devaddr=${device.devaddr}&date=${_getCurrentDate()}&page=0&pagesize=1';
-      final postaction = '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+
+      final action =
+          '&action=queryDeviceDataOneDayPaging&pn=${device.pn}&sn=${device.sn}&devcode=${device.devcode}&devaddr=${device.devaddr}&date=${_getCurrentDate()}&page=0&pagesize=1';
+      final postaction =
+          '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
       final data = salt + secret + token + action + postaction;
       final sign = sha1.convert(utf8.encode(data)).toString();
-      final url = 'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
-      
+      final url =
+          'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
       final response = await _apiClient.signedPost(url);
       final dataJson = json.decode(response.body);
-      
-      if (dataJson['err'] == 0 && dataJson['dat'] != null && dataJson['dat']['data'] != null) {
+
+      if (dataJson['err'] == 0 &&
+          dataJson['dat'] != null &&
+          dataJson['dat']['data'] != null) {
         final deviceData = dataJson['dat']['data'] as List;
         if (deviceData.isNotEmpty) {
           final latestData = deviceData.first;
-          return double.tryParse(latestData['outputPower']?.toString() ?? '0') ?? 0.0;
+          // Check for both lowercase and uppercase parameters
+          return double.tryParse(latestData['outputPower']?.toString() ??
+                  latestData['OUTPUT_POWER']?.toString() ??
+                  '0') ??
+              0.0;
         }
       }
     } catch (e) {
@@ -222,7 +295,8 @@ class RealtimeDataService extends ChangeNotifier {
   }
 
   // Get detailed device real-time data
-  Future<Map<String, dynamic>?> _getDeviceDetailedRealTimeData(Device device) async {
+  Future<Map<String, dynamic>?> _getDeviceDetailedRealTimeData(
+      Device device) async {
     try {
       return await _deviceRepository.getDeviceRealTimeData(
         device.pn,
@@ -231,7 +305,8 @@ class RealtimeDataService extends ChangeNotifier {
         device.devaddr,
       );
     } catch (e) {
-      print('RealtimeDataService: Error getting device detailed real-time data: $e');
+      print(
+          'RealtimeDataService: Error getting device detailed real-time data: $e');
     }
     return null;
   }
@@ -244,22 +319,38 @@ class RealtimeDataService extends ChangeNotifier {
 
   // Get total current power generation
   double get totalCurrentPower {
-    return _plants.fold<double>(0, (sum, plant) => sum + plant.currentPower);
+    double total =
+        _plants.fold<double>(0, (sum, plant) => sum + plant.currentPower);
+    if (total <= 0 && _plants.isNotEmpty) {
+      // Use device power data if available
+      total =
+          _devicePowerData.values.fold<double>(0, (sum, power) => sum + power);
+      if (total > 0) {
+        print(
+            'RealtimeDataService: Using summed device power for totalCurrentPower: $total');
+      }
+    }
+    return total;
   }
 
   // Get total daily generation
   double get totalDailyGeneration {
-    return _plants.fold<double>(0, (sum, plant) => sum + plant.dailyGeneration);
+    double total =
+        _plants.fold<double>(0, (sum, plant) => sum + plant.dailyGeneration);
+    // Return actual values only
+    return total;
   }
 
   // Get total monthly generation
   double get totalMonthlyGeneration {
-    return _plants.fold<double>(0, (sum, plant) => sum + plant.monthlyGeneration);
+    return _plants.fold<double>(
+        0, (sum, plant) => sum + plant.monthlyGeneration);
   }
 
   // Get total yearly generation
   double get totalYearlyGeneration {
-    return _plants.fold<double>(0, (sum, plant) => sum + plant.yearlyGeneration);
+    return _plants.fold<double>(
+        0, (sum, plant) => sum + plant.yearlyGeneration);
   }
 
   // Get device by PN
@@ -285,4 +376,4 @@ class RealtimeDataService extends ChangeNotifier {
     stop();
     super.dispose();
   }
-} 
+}

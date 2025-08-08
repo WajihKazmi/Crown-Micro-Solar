@@ -25,6 +25,7 @@ class EnergyRepository {
     final response = await _apiClient.signedPost(url);
     final dataJson = json.decode(response.body);
     if (dataJson['dat'] != null) {
+      print('Daily energy data: ${dataJson['dat']}');
       return EnergySummary.fromJson(dataJson['dat']);
     }
     throw Exception('Failed to get daily energy data');
@@ -49,6 +50,7 @@ class EnergyRepository {
     final data = json.decode(response.body);
     
     if (data['success'] == true && data['data'] != null) {
+      print('Yearly energy data: ${data['data']}');
       return EnergySummary.fromJson(data['data']);
     }
     throw Exception('Failed to get yearly energy data');
@@ -60,6 +62,7 @@ class EnergyRepository {
     
     if (data['success'] == true && data['data'] != null) {
       final List<dynamic> energyDataJson = data['data'];
+      print('Real-time energy data: $energyDataJson');
       return energyDataJson.map((json) => EnergyData.fromJson(json)).toList();
     }
     return [];

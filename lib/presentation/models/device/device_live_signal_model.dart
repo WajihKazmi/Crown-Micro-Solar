@@ -6,6 +6,7 @@ class DeviceLiveSignalModel {
   final double? inputPower;
   final double? outputPower;
   final double? signalStrength;
+  final double? batteryLevel; // Added battery level
   final DateTime? timestamp;
   final int? status;
   final String? desc;
@@ -18,6 +19,7 @@ class DeviceLiveSignalModel {
     this.inputPower,
     this.outputPower,
     this.signalStrength,
+    this.batteryLevel, // Added battery level
     this.timestamp,
     this.status,
     this.desc,
@@ -32,9 +34,13 @@ class DeviceLiveSignalModel {
       inputPower: (json['inputPower'] ?? json['pin'])?.toDouble(),
       outputPower: (json['outputPower'] ?? json['pout'])?.toDouble(),
       signalStrength: (json['signalStrength'] ?? json['signal'])?.toDouble(),
-      timestamp: json['timestamp'] != null ? DateTime.tryParse(json['timestamp']) : null,
+      batteryLevel:
+          (json['batteryLevel'] ?? json['soc'] ?? json['SOC'])?.toDouble(),
+      timestamp: json['timestamp'] != null
+          ? DateTime.tryParse(json['timestamp'])
+          : null,
       status: json['err'],
       desc: json['desc'],
     );
   }
-} 
+}

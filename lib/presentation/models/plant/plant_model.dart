@@ -53,16 +53,16 @@ class Plant {
 
   factory Plant.fromJson(Map<String, dynamic> json) {
     print('Plant.fromJson: Parsing plant data: $json');
-    
+
     // Handle nested address object
     final addressData = json['address'] as Map<String, dynamic>? ?? {};
-    
-    // Handle nested profit object
-    final profitData = json['profit'] as Map<String, dynamic>? ?? {};
-    
+
     // Parse date strings safely
     DateTime parseDate(String? dateStr) {
-      if (dateStr == null || dateStr.isEmpty || dateStr == "0" || dateStr == "0.0000") {
+      if (dateStr == null ||
+          dateStr.isEmpty ||
+          dateStr == "0" ||
+          dateStr == "0.0000") {
         return DateTime.now();
       }
       try {
@@ -91,8 +91,24 @@ class Plant {
     }
 
     try {
+      // Special handling for plant ID - critical for subsequent API calls
+      String plantId = json['pid']?.toString() ?? '';
+      if (plantId.isEmpty) {
+        print(
+            'WARNING: Plant ID is empty! Attempting to find ID in raw JSON: $json');
+        // Last attempt to find any ID in the data
+        if (json.containsKey('id')) {
+          plantId = json['id']?.toString() ?? '';
+          print('Found alternative ID field: $plantId');
+        }
+      }
+
+      if (plantId.isEmpty) {
+        print('CRITICAL ERROR: Could not find valid plant ID in response');
+      }
+
       final plant = Plant(
-        id: json['pid']?.toString() ?? '',
+        id: plantId,
         name: json['name']?.toString() ?? '',
         location: addressData['address']?.toString() ?? '',
         capacity: parseDouble(json['nominalPower']),
@@ -151,4 +167,4 @@ class Plant {
       'longitude': longitude,
     };
   }
-} 
+}

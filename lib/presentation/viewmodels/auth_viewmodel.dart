@@ -24,11 +24,27 @@ class AuthViewModel extends ChangeNotifier {
 
   AuthViewModel(this._repository) {
     _accountRepository = AccountRepository();
+    _initializeViewModel();
+  }
+
+  Future<void> _initializeViewModel() async {
+    print('AuthViewModel: Initializing...');
+    // First sync credentials from storage
+    await _apiClient.syncCredentialsFromStorage();
+
+    // Then sync state from repository
     _syncStateFromRepository();
+
+    print('AuthViewModel: Initial login state: ${isLoggedIn}');
+
     // Fetch user info on app start if already logged in
     if (isLoggedIn) {
-      fetchUserInfo();
+      print('AuthViewModel: User is logged in, fetching user info...');
+      await fetchUserInfo();
     }
+
+    notifyListeners();
+    print('AuthViewModel: Initialization complete');
   }
 
   bool get isLoading => _isLoading;
@@ -202,7 +218,7 @@ class AuthViewModel extends ChangeNotifier {
       _agentsList = null;
       _error = null;
       _isLoading = false;
-      
+
       // Clear credentials from ApiClient
       _apiClient.setCredentials('', '');
       print('AuthViewModel: Cleared credentials from ApiClient');
@@ -243,7 +259,7 @@ class AuthViewModel extends ChangeNotifier {
       _secret = _repository.getSecret();
       _userId = _repository.getUserId();
       _agentsList = _repository.getAgentsList();
-      
+
       // Set credentials in ApiClient if available
       if (_token != null && _secret != null) {
         _apiClient.setCredentials(_token!, _secret!);
@@ -299,4 +315,3 @@ class AuthViewModel extends ChangeNotifier {
     return await _accountRepository.verifyOtp(email, code);
   }
 }
- 

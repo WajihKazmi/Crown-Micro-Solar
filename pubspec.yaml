@@ -39,6 +39,8 @@ dependencies:
   crypto: ^3.0.3
   convert: any
   simple_rc4: any
+  path_provider: ^2.1.1
+  permission_handler: ^11.0.1
 
   # UI Components
   cupertino_icons: ^1.0.2

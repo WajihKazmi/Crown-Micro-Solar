@@ -1,5 +1,3 @@
-import 'package:crown_micro_solar/view/common/bordered_icon_button.dart';
-import 'package:crown_micro_solar/view/home/alarm_notification_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart';
@@ -16,21 +14,17 @@ class DevicesScreen extends StatefulWidget {
 }
 
 class _DevicesScreenState extends State<DevicesScreen>
-    with WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
+    with WidgetsBindingObserver {
   String _selectedDeviceType = 'All Types';
   late DeviceViewModel _deviceViewModel;
   late PlantViewModel _plantViewModel;
   bool _isLoading = true;
   String? _error;
 
-  @override
-  bool get wantKeepAlive => true;
-
-  // Track whether we've loaded devices at least once
-  bool _initialLoadDone = false;
-
-  // Track when we last loaded devices
-  DateTime? _lastLoadTime;
+  List<Map<String, dynamic>> _collectors = [];
+  List<Device> _standaloneDevices = [];
+  Map<String, List<Device>> _collectorDevices = {};
+  Set<String> _expandedCollectors = {};
 
   @override
   void initState() {
@@ -38,83 +32,41 @@ class _DevicesScreenState extends State<DevicesScreen>
     // Register for lifecycle events
     WidgetsBinding.instance.addObserver(this);
 
-    // Get view models from service locator
+    // Get view models from service locator instead of context
     _deviceViewModel = getIt<DeviceViewModel>();
     _plantViewModel = getIt<PlantViewModel>();
 
-    print('DevicesScreen: Successfully initialized with service locator');
-    print('DevicesScreen: DeviceViewModel: $_deviceViewModel');
-    print('DevicesScreen: PlantViewModel: $_plantViewModel');
-
-    // Only load devices if we haven't already done so or if there are no devices
-    if (!_initialLoadDone || _deviceViewModel.allDevices.isEmpty) {
-      _loadDevices();
-    }
-
-    // Add listener to device view model
-    _deviceViewModel.addListener(_onDeviceViewModelChanged);
+    // Initial data load
+    _loadDevices();
   }
 
   @override
   void dispose() {
-    // Remove listener
-    _deviceViewModel.removeListener(_onDeviceViewModelChanged);
     // Unregister from lifecycle events
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-  void _onDeviceViewModelChanged() {
-    if (mounted) {
-      setState(() {
-        _isLoading = _deviceViewModel.isLoading;
-        _error = _deviceViewModel.error;
-      });
-    }
-  }
-
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Only load if we haven't done initial load and we have no devices
-    if (!_initialLoadDone && _deviceViewModel.allDevices.isEmpty) {
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Reload when app is resumed
+    if (state == AppLifecycleState.resumed) {
       _loadDevices();
     }
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Reload only when app is resumed from background
-    // This is important because device status might have changed while app was in background
-    if (state == AppLifecycleState.resumed) {
-      // Force refresh after a significant time in background
-      final now = DateTime.now();
-      if (_lastLoadTime == null ||
-          now.difference(_lastLoadTime!).inMinutes > 5) {
-        _loadDevices();
+  void _toggleCollectorExpansion(String collectorPn) {
+    setState(() {
+      if (_expandedCollectors.contains(collectorPn)) {
+        _expandedCollectors.remove(collectorPn);
+      } else {
+        _expandedCollectors.add(collectorPn);
       }
-    }
+    });
   }
 
-  // Helper method to navigate to device detail screen (keeping for reference)
-  // Not used directly anymore as we're handling navigation in the GestureDetector
-  /* 
-  void _navigateToDeviceDetail(Device device) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => DeviceDetailScreen(device: device),
-      ),
-    ); // Don't reload devices when returning
-  }
-  */
-
-  void _loadDevices() {
+  Future<void> _loadDevices() async {
     if (!mounted) return;
-
-    // Update last load time
-    _lastLoadTime = DateTime.now();
-    print('DevicesScreen: Loading devices at ${_lastLoadTime}');
 
     setState(() {
       _isLoading = true;
@@ -122,59 +74,55 @@ class _DevicesScreenState extends State<DevicesScreen>
     });
 
     try {
+      // First make sure we have plants loaded
+      if (_plantViewModel.plants.isEmpty) {
+        print('DevicesScreen: No plants loaded, loading plants first');
+        await _plantViewModel.loadPlants();
+      }
+
       if (_plantViewModel.plants.isNotEmpty) {
         final plantId = _plantViewModel.plants.first.id;
         print('DevicesScreen: Loading devices for plant $plantId');
 
-        // Load all devices without filters to show everything
-        _deviceViewModel.loadDevicesAndCollectors(plantId).then((_) {
-          if (mounted) {
-            setState(() {
-              _isLoading = false;
-              _initialLoadDone = true; // Mark that initial load is complete
-            });
-          }
-        }).catchError((error) {
-          if (mounted) {
-            setState(() {
-              _error = error.toString();
-              _isLoading = false;
-            });
-          }
-        });
-      } else {
-        // No plants, load them first
-        _plantViewModel.loadPlants().then((_) {
-          if (_plantViewModel.plants.isNotEmpty) {
-            _loadDevices();
-          } else {
-            if (mounted) {
-              setState(() {
-                _error = "No plants available";
-                _isLoading = false;
-              });
-            }
-          }
-        }).catchError((error) {
-          if (mounted) {
-            setState(() {
-              _error = error.toString();
-              _isLoading = false;
-            });
-          }
-        });
-      }
-    } catch (e) {
-      if (mounted) {
+        if (plantId.isEmpty) {
+          print('DevicesScreen: Plant ID is empty, cannot load devices');
+          setState(() {
+            _error = 'Invalid plant ID. Please restart the app or try again.';
+            _isLoading = false;
+          });
+          return;
+        }
+
+        // Call the public method from the ViewModel
+        await _deviceViewModel.loadDevicesAndCollectors(plantId);
+
         setState(() {
-          _error = e.toString();
+          _standaloneDevices = _deviceViewModel.standaloneDevices;
+          _collectors = _deviceViewModel.collectors;
+          _collectorDevices = _deviceViewModel.collectorDevices;
+          _isLoading = false;
+        });
+
+        print(
+            'DevicesScreen: Loaded ${_standaloneDevices.length} standalone devices');
+        print('DevicesScreen: Loaded ${_collectors.length} collectors');
+      } else {
+        print('DevicesScreen: No plants available after reload attempt');
+        setState(() {
+          _error = 'No plants available. Please check your connection.';
           _isLoading = false;
         });
       }
+    } catch (e) {
+      print('DevicesScreen: Error loading devices: $e');
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
     }
   }
 
-  void _loadDevicesWithFilters() {
+  Future<void> _loadDevicesWithFilters() async {
     if (!mounted) return;
 
     setState(() {
@@ -187,7 +135,7 @@ class _DevicesScreenState extends State<DevicesScreen>
         final plantId = _plantViewModel.plants.first.id;
 
         if (_selectedDeviceType == 'All Types') {
-          _loadDevices();
+          await _loadDevices();
           return;
         }
 
@@ -211,107 +159,136 @@ class _DevicesScreenState extends State<DevicesScreen>
             break;
         }
 
-        _deviceViewModel
-            .loadDevicesWithFilters(
+        // Use the public method from the ViewModel
+        await _deviceViewModel.loadDevicesWithFilters(
           plantId,
           status: '0101',
           deviceType: deviceType,
-        )
-            .then((_) {
-          if (mounted) {
-            setState(() {
-              _isLoading = false;
-            });
-          }
-        }).catchError((error) {
-          if (mounted) {
-            setState(() {
-              _error = error.toString();
-              _isLoading = false;
-            });
-          }
+        );
+
+        setState(() {
+          _standaloneDevices = _deviceViewModel.standaloneDevices;
+          _collectors = _deviceViewModel.collectors;
+          _collectorDevices = _deviceViewModel.collectorDevices;
+          _isLoading = false;
         });
       } else {
         setState(() {
           _isLoading = false;
-          _error = "No plants available";
         });
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e.toString();
-          _isLoading = false;
-        });
-      }
+      print('DevicesScreen: Error loading filtered devices: $e');
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
     }
+  }
+
+  List<Device> _getSubordinateDevices(String collectorPn) {
+    return _collectorDevices[collectorPn] ?? [];
+  }
+
+  bool _isCollectorExpanded(String collectorPn) {
+    return _expandedCollectors.contains(collectorPn);
   }
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // Required for AutomaticKeepAliveClientMixin
+    return SafeArea(
+      child: _buildMainContent(),
+    );
+  }
 
-    // Create the consistent app bar
-    final appBar = AppBar(
-      elevation: 0,
-      backgroundColor: Colors.white,
-      title: Text(
-        'Devices',
-        style: TextStyle(
-          color: Colors.black,
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      actions: [
-        BorderedIconButton(
-          icon: Icons.notifications_none,
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => const AlarmNotificationScreen(),
+  Widget _buildMainContent() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      return _buildErrorWidget();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Header with refresh button
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  "Devices",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
-            );
-          },
-          margin: const EdgeInsets.only(right: 16.0),
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: () {
+                  _plantViewModel.loadPlants().then((_) => _loadDevices());
+                },
+              ),
+            ],
+          ),
+        ),
+
+        // Filter dropdown
+        _buildFilterDropdown(),
+
+        // Device list - use Expanded to take remaining space
+        Expanded(
+          child: _buildDeviceListContent(),
         ),
       ],
     );
+  }
 
-    // Content based on loading/error state
-    Widget content;
-
-    if (_isLoading) {
-      content = const Center(
-        child: CircularProgressIndicator(),
-      );
-    } else if (_error != null) {
-      content = Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, size: 48, color: Colors.red),
-            const SizedBox(height: 16),
-            Text(
-              'Error: $_error',
+  Widget _buildErrorWidget() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline, size: 64, color: Colors.red),
+          const SizedBox(height: 16),
+          const Text(
+            'Error loading devices',
+            style: TextStyle(fontSize: 18, color: Colors.grey),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: Text(
+              _error!,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.red),
+              style: const TextStyle(fontSize: 14, color: Colors.grey),
             ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _loadDevices,
-              child: const Text('Retry'),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _loadDevices,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
             ),
-          ],
-        ),
-      );
-    }
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
+  }
 
-    // Check if we have devices after loading
-    final hasDevices = _deviceViewModel.allDevices.isNotEmpty;
+  Widget _buildDeviceListContent() {
+    final hasStandaloneDevices = _standaloneDevices.isNotEmpty;
+    final hasCollectors = _collectors.isNotEmpty;
 
-    if (!hasDevices) {
-      content = Center(
+    if (!hasStandaloneDevices && !hasCollectors) {
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -323,31 +300,54 @@ class _DevicesScreenState extends State<DevicesScreen>
             ),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: _loadDevices,
+              onPressed: () {
+                _plantViewModel.loadPlants().then((_) => _loadDevices());
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
               child: const Text('Refresh'),
             ),
           ],
         ),
       );
-    } else {
-      content = SingleChildScrollView(
-        child: Column(
-          children: [
-            // Filter dropdown
-            _buildFilterDropdown(),
-
-            // Content
-            _buildDeviceList(),
-          ],
-        ),
-      );
     }
 
-    // Return a Scaffold with the app bar and content
-    return Scaffold(
-      backgroundColor: Colors.grey[50],
-      appBar: appBar,
-      body: content,
+    return _buildDeviceList();
+  }
+
+  Widget _buildDeviceList() {
+    List<Widget> allDevices = [];
+    final hasStandaloneDevices = _standaloneDevices.isNotEmpty;
+    final hasCollectors = _collectors.isNotEmpty;
+
+    // Add collectors (dataloggers)
+    if (hasCollectors) {
+      for (final collector in _collectors) {
+        allDevices.add(_buildCollectorCard(collector));
+
+        // Add subordinate devices as separate cards if expanded
+        final pn = collector['pn']?.toString() ?? '';
+        final isExpanded = _isCollectorExpanded(pn);
+        final subordinateDevices = _getSubordinateDevices(pn);
+
+        if (isExpanded && subordinateDevices.isNotEmpty) {
+          allDevices.addAll(subordinateDevices
+              .map((device) => _buildSubordinateDeviceCard(device)));
+        }
+      }
+    }
+
+    // Add standalone devices
+    if (hasStandaloneDevices) {
+      allDevices
+          .addAll(_standaloneDevices.map((device) => _buildDeviceCard(device)));
+    }
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      children: allDevices,
     );
   }
 
@@ -371,7 +371,7 @@ class _DevicesScreenState extends State<DevicesScreen>
           value: _selectedDeviceType,
           isExpanded: true,
           icon: const Icon(Icons.keyboard_arrow_down),
-          items: const [
+          items: [
             DropdownMenuItem(value: 'All Types', child: Text('All Types')),
             DropdownMenuItem(value: 'Inverter', child: Text('Inverter')),
             DropdownMenuItem(value: 'Datalogger', child: Text('Datalogger')),
@@ -391,67 +391,12 @@ class _DevicesScreenState extends State<DevicesScreen>
     );
   }
 
-  Widget _buildDeviceList() {
-    final hasStandaloneDevices = _deviceViewModel.standaloneDevices.isNotEmpty;
-    final hasCollectors = _deviceViewModel.collectors.isNotEmpty;
-
-    if (!hasStandaloneDevices && !hasCollectors) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.devices_other, size: 64, color: Colors.grey),
-            SizedBox(height: 16),
-            Text(
-              'No devices found',
-              style: TextStyle(fontSize: 18, color: Colors.grey),
-            ),
-          ],
-        ),
-      );
-    }
-
-    List<Widget> allDevices = [];
-
-    // Add collectors (dataloggers)
-    if (hasCollectors) {
-      for (final collector in _deviceViewModel.collectors) {
-        allDevices.add(_buildCollectorCard(collector));
-
-        // Add subordinate devices as separate cards if expanded
-        final pn = collector['pn']?.toString() ?? '';
-        final isExpanded = _deviceViewModel.isCollectorExpanded(pn);
-        final subordinateDevices = _deviceViewModel.getSubordinateDevices(pn);
-
-        if (isExpanded && subordinateDevices.isNotEmpty) {
-          allDevices.addAll(subordinateDevices
-              .map((device) => _buildSubordinateDeviceCard(device)));
-        }
-      }
-    }
-
-    // Add standalone devices
-    if (hasStandaloneDevices) {
-      allDevices.addAll(_deviceViewModel.standaloneDevices
-          .map((device) => _buildDeviceCard(device)));
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Column(
-        children: allDevices,
-      ),
-    );
-  }
-
   Widget _buildDeviceCard(Device device) {
     final isOnline = device.isOnline;
     final statusText = device.getStatusText();
     final statusColor = _getStatusColor(device.status);
-    final hasSubDevices =
-        _deviceViewModel.getSubordinateDevices(device.pn).isNotEmpty;
-    final isExpanded =
-        hasSubDevices ? _deviceViewModel.isCollectorExpanded(device.pn) : false;
+    final hasSubDevices = _hasSubordinateDevices(device);
+    final isExpanded = hasSubDevices ? _isCollectorExpanded(device.pn) : false;
 
     return GestureDetector(
       onTap: () {
@@ -460,7 +405,7 @@ class _DevicesScreenState extends State<DevicesScreen>
           MaterialPageRoute(
             builder: (context) => DeviceDetailScreen(device: device),
           ),
-        ); // Don't reload devices when returning
+        ).then((_) => _loadDevices()); // Reload devices when returning
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
@@ -482,8 +427,7 @@ class _DevicesScreenState extends State<DevicesScreen>
               // Animated dropdown arrow on the left
               if (hasSubDevices)
                 GestureDetector(
-                  onTap: () => setState(() =>
-                      _deviceViewModel.toggleCollectorExpansion(device.pn)),
+                  onTap: () => _toggleCollectorExpansion(device.pn),
                   child: AnimatedRotation(
                     turns: isExpanded ? 0.25 : 0.0,
                     duration: const Duration(milliseconds: 300),
@@ -642,16 +586,50 @@ class _DevicesScreenState extends State<DevicesScreen>
     final signal = collector['signal'] != null
         ? double.tryParse(collector['signal'].toString())
         : null;
-    final isExpanded = _deviceViewModel.isCollectorExpanded(pn);
-    final subordinateDevices = _deviceViewModel.getSubordinateDevices(pn);
+    final isExpanded = _isCollectorExpanded(pn);
+    final subordinateDevices = _getSubordinateDevices(pn);
     final isOnline = status == 0;
     final statusText = _getDeviceStatusText(status);
     final statusColor = _getStatusColor(status);
     final hasSubDevices = subordinateDevices.isNotEmpty;
 
+    // Create a Device object from collector data for navigation
+    final device = Device(
+      id: pn,
+      pn: pn,
+      devcode: collector['devcode'] ?? 0,
+      devaddr: collector['devaddr'] ?? 0,
+      sn: collector['sn']?.toString() ?? '',
+      alias: alias,
+      status: status,
+      uid: collector['uid'] ?? 0,
+      pid: collector['pid'] ?? 0,
+      timezone: collector['timezone'] ?? 0,
+      name: alias,
+      type: 'Datalogger',
+      plantId: collector['plantId']?.toString() ?? '',
+      lastUpdate: DateTime.now(),
+      parameters: {
+        'pn': pn,
+        'sn': collector['sn']?.toString() ?? '',
+        'devcode': collector['devcode']?.toString() ?? '',
+        'devaddr': collector['devaddr']?.toString() ?? '',
+        'token': '',
+        'Secret': '',
+      },
+      load: load,
+      signal: signal,
+    );
+
     return GestureDetector(
-      onTap: () =>
-          setState(() => _deviceViewModel.toggleCollectorExpansion(pn)),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => DeviceDetailScreen(device: device),
+          ),
+        ).then((_) => _loadDevices());
+      },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
@@ -671,13 +649,16 @@ class _DevicesScreenState extends State<DevicesScreen>
             children: [
               // Animated dropdown arrow on the left
               if (hasSubDevices)
-                AnimatedRotation(
-                  turns: isExpanded ? 0.25 : 0.0,
-                  duration: const Duration(milliseconds: 300),
-                  child: Icon(
-                    Icons.keyboard_arrow_right,
-                    color: Colors.grey[600],
-                    size: 24,
+                GestureDetector(
+                  onTap: () => _toggleCollectorExpansion(pn),
+                  child: AnimatedRotation(
+                    turns: isExpanded ? 0.25 : 0.0,
+                    duration: const Duration(milliseconds: 300),
+                    child: Icon(
+                      Icons.keyboard_arrow_right,
+                      color: Colors.grey[600],
+                      size: 24,
+                    ),
                   ),
                 ),
               if (hasSubDevices) const SizedBox(width: 8),
@@ -797,7 +778,22 @@ class _DevicesScreenState extends State<DevicesScreen>
                   ],
                 ),
               ),
-              // No trailing navigation icon for collector (tap anywhere toggles)
+              // Double right arrow icon for navigation
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => DeviceDetailScreen(device: device),
+                    ),
+                  ).then((_) => _loadDevices());
+                },
+                child: Icon(
+                  Icons.keyboard_double_arrow_right,
+                  color: Colors.grey[600],
+                  size: 20,
+                ),
+              ),
             ],
           ),
         ),
@@ -817,10 +813,10 @@ class _DevicesScreenState extends State<DevicesScreen>
           MaterialPageRoute(
             builder: (context) => DeviceDetailScreen(device: device),
           ),
-        ).then((_) => _loadDevices()); // Reload devices when returning
+        ).then((_) => _loadDevices());
       },
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
+        margin: const EdgeInsets.only(left: 24, bottom: 12),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -836,43 +832,51 @@ class _DevicesScreenState extends State<DevicesScreen>
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              // Small Device Icon with Status
+              // Device Icon with Stack
               Stack(
                 children: [
                   Image.asset(
-                    'assets/images/device_sub.png',
-                    width: 40,
-                    height: 40,
+                    'assets/images/device1.png',
+                    width: 50,
+                    height: 50,
                   ),
                   if (isOnline)
                     Positioned(
-                      top: 2,
-                      right: 2,
+                      top: 4,
+                      right: 4,
                       child: Container(
-                        width: 8,
-                        height: 8,
+                        width: 10,
+                        height: 10,
                         decoration: BoxDecoration(
                           color: Colors.green,
                           shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 1),
+                          border: Border.all(color: Colors.white, width: 2),
                         ),
                       ),
                     ),
                 ],
               ),
-              const SizedBox(width: 12),
-
+              const SizedBox(width: 16),
               // Device Details
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'SN: ${device.sn}',
+                      'ALIAS: ${device.alias.isNotEmpty ? device.alias : device.pn}',
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 13,
                         fontWeight: FontWeight.bold,
                         color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'PN: ${device.pn}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black54,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -881,7 +885,7 @@ class _DevicesScreenState extends State<DevicesScreen>
                         const Text(
                           'STATUS: ',
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 11,
                             fontWeight: FontWeight.bold,
                             color: Colors.black54,
                           ),
@@ -889,36 +893,17 @@ class _DevicesScreenState extends State<DevicesScreen>
                         Text(
                           statusText,
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 11,
                             fontWeight: FontWeight.w500,
                             color: statusColor,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'PLANT: ${device.plantId.isEmpty ? "null" : device.plantId}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black54,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'DEVICE TYPE: ${device.devcode}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.green,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
                   ],
                 ),
               ),
-
-              // Arrow Icon
+              // Arrow for navigation
               Icon(
                 Icons.arrow_forward_ios,
                 color: Colors.grey[600],
@@ -929,6 +914,10 @@ class _DevicesScreenState extends State<DevicesScreen>
         ),
       ),
     );
+  }
+
+  bool _hasSubordinateDevices(Device device) {
+    return _getSubordinateDevices(device.pn).isNotEmpty;
   }
 
   Color _getStatusColor(int status) {
@@ -954,13 +943,13 @@ class _DevicesScreenState extends State<DevicesScreen>
       case 1:
         return 'Offline';
       case 2:
-        return 'Warning';
-      case 3:
         return 'Fault';
+      case 3:
+        return 'Standby';
       case 4:
-        return 'PV Loss';
+        return 'Warning';
       case 5:
-        return 'Grid Loss';
+        return 'Error';
       default:
         return 'Unknown';
     }

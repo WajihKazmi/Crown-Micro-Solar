@@ -3,8 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/alarm_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart';
 import 'package:crown_micro_solar/core/di/service_locator.dart';
-import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
-import 'package:crown_micro_solar/presentation/repositories/plant_repository.dart';
 import '../common/bordered_icon_button.dart';
 
 class AlarmNotificationScreen extends StatefulWidget {
@@ -18,7 +16,6 @@ class AlarmNotificationScreen extends StatefulWidget {
 class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
   late AlarmViewModel _alarmViewModel;
   late PlantViewModel _plantViewModel;
-  bool _requestedOnce = false;
 
   @override
   void initState() {
@@ -30,47 +27,13 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadAlarms();
     });
-
-    // Listen for plants loading later and trigger once
-    _plantViewModel.addListener(_onPlantsUpdated);
   }
 
   void _loadAlarms() {
-    String? plantId;
     if (_plantViewModel.plants.isNotEmpty) {
-      plantId = _plantViewModel.plants.first.id;
-    } else {
-      // Try realtime service singleton
-      final realtime = getIt<RealtimeDataService>();
-      if (realtime.plants.isNotEmpty) {
-        plantId = realtime.plants.first.id;
-      }
-    }
-
-    if (plantId != null) {
-      _requestedOnce = true;
+      final plantId = _plantViewModel.plants.first.id;
       _alarmViewModel.loadAlarms(plantId);
-    } else {
-      // Last resort: fetch plants directly once
-      getIt<PlantRepository>().getPlants().then((plants) {
-        if (mounted && plants.isNotEmpty && !_requestedOnce) {
-          _requestedOnce = true;
-          _alarmViewModel.loadAlarms(plants.first.id);
-        }
-      }).catchError((_) {});
     }
-  }
-
-  void _onPlantsUpdated() {
-    if (!_requestedOnce && _plantViewModel.plants.isNotEmpty) {
-      _loadAlarms();
-    }
-  }
-
-  @override
-  void dispose() {
-    _plantViewModel.removeListener(_onPlantsUpdated);
-    super.dispose();
   }
 
   @override
@@ -145,14 +108,14 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
-                  color: isSelected ? Colors.grey[200] : Colors.transparent,
+                  color: isSelected ? Colors.blue : Colors.transparent,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
                   period,
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: isSelected ? Colors.black87 : Colors.grey[600],
+                    color: isSelected ? Colors.white : Colors.grey[600],
                     fontWeight: FontWeight.w500,
                     fontSize: 14,
                   ),
@@ -363,34 +326,26 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
             ),
             const SizedBox(height: 8),
 
-            // Alarm type badge (outlined) and code
+            // Alarm type badge and code
             Row(
               children: [
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: alarm.level == 0
-                          ? Colors.orange
-                          : alarm.level == 1
-                              ? Colors.red
-                              : Colors.redAccent,
-                      width: 1.2,
-                    ),
+                    color: alarm.level == 0
+                        ? Colors.orange
+                        : alarm.level == 1
+                            ? Colors.red
+                            : Colors.redAccent,
+                    borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
                     alarm.severityText.toUpperCase(),
-                    style: TextStyle(
-                      color: alarm.level == 0
-                          ? Colors.orange
-                          : alarm.level == 1
-                              ? Colors.red
-                              : Colors.redAccent,
+                    style: const TextStyle(
+                      color: Colors.white,
                       fontSize: 10,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
@@ -398,9 +353,9 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
                 Text(
                   'Code: ${alarm.code}',
                   style: const TextStyle(
-                    color: Color(0xFF2F80ED),
+                    color: Colors.blue,
                     fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
@@ -449,18 +404,18 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
             ),
             const SizedBox(height: 4),
 
-            // Device type (numeric code in green)
+            // Device type
             Row(
               children: [
                 const Text(
-                  'Device Type: ',
+                  'Device type: ',
                   style: TextStyle(
                     color: Colors.grey,
                     fontSize: 12,
                   ),
                 ),
                 Text(
-                  alarm.devcode.toString(),
+                  alarm.deviceType,
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     color: Colors.green,
@@ -497,121 +452,64 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Action icons at bottom-right
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                IconButton(
-                  tooltip: 'Mark as processed',
-                  onPressed: alarm.handle
-                      ? null
-                      : () => viewModel.markAsProcessed(alarm.id, true),
-                  icon: Icon(
-                    Icons.check_circle,
-                    color: alarm.handle ? Colors.grey[300] : Colors.green,
+            // Action button
+            if (!alarm.handle)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  IconButton(
+                    onPressed: () =>
+                        _showAlarmActions(context, alarm, viewModel),
+                    icon: const Icon(
+                      Icons.more_vert,
+                      color: Colors.grey,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 4),
-                IconButton(
-                  tooltip: 'Delete',
-                  onPressed: () => _showDeleteConfirm(context, () {
-                    Navigator.of(context).pop();
-                    viewModel.deleteAlarm(alarm.id, true);
-                  }),
-                  icon: const Icon(
-                    Icons.delete_outline,
-                    color: Colors.red,
-                  ),
-                ),
-              ],
-            ),
+                ],
+              ),
           ],
         ),
       ),
     );
   }
 
-  // Removed overflow sheet; actions now inline on each card
-
-  String _formatDateTime(DateTime dateTime) {
-    return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
-  }
-
-  void _showDeleteConfirm(BuildContext context, VoidCallback onConfirm) {
-    showDialog(
+  void _showAlarmActions(
+      BuildContext context, dynamic alarm, AlarmViewModel viewModel) {
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) {
-        return Dialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.delete, color: Colors.red, size: 36),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Delete!',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Are you sure this will delete the device with all of its data?',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 13, color: Colors.black54, height: 1.3),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFFE0E0E0)),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          backgroundColor: Colors.white,
-                        ),
-                        onPressed: onConfirm,
-                        child: const Text('Yes, Delete',
-                            style: TextStyle(
-                                color: Colors.black87,
-                                fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          elevation: 0,
-                        ),
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        child: const Text('Cancel',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                  ],
-                )
-              ],
-            ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.check_circle, color: Colors.green),
+                title: const Text('Mark as Processed'),
+                onTap: () {
+                  Navigator.pop(context);
+                  viewModel.markAsProcessed(alarm.id, true);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete, color: Colors.red),
+                title: const Text('Delete Alarm'),
+                onTap: () {
+                  Navigator.pop(context);
+                  // Add delete functionality if needed
+                },
+              ),
+            ],
           ),
         );
       },
     );
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 }

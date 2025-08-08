@@ -119,3 +119,5 @@ build/
 # Windows specific
 **/windows/flutter/generated_plugin_registrant.cc
 **/windows/flutter/generated_plugin_registrant.h
+api_findings_and_improvements.md
+api_improvements_documentation.md

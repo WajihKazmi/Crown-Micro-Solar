@@ -16,16 +16,37 @@ class ApiClient {
   String? get secret => _secret;
   http.Client get client => _client;
 
-  void setCredentials(String token, String secret) {
+  // Updated to persist credentials in SharedPreferences
+  Future<void> setCredentials(String token, String secret) async {
     _token = token;
     _secret = secret;
+
+    // Save to SharedPreferences for persistence across app restarts
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('token', token);
+    await prefs.setString('Secret', secret);
+
+    print('ApiClient: Credentials saved to SharedPreferences');
   }
 
-  // Sync credentials from SharedPreferences
+  // Enhanced sync credentials from SharedPreferences with better error handling
   Future<void> syncCredentialsFromStorage() async {
-    final prefs = await SharedPreferences.getInstance();
-    _token = prefs.getString('token');
-    _secret = prefs.getString('Secret');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _token = prefs.getString('token');
+      _secret = prefs.getString('Secret');
+
+      print('ApiClient: Credentials loaded from SharedPreferences');
+      print('ApiClient: Token exists: ${_token != null}');
+      print('ApiClient: Secret exists: ${_secret != null}');
+
+      if (_token == null || _secret == null) {
+        print(
+            'ApiClient: Warning - One or more credentials missing from SharedPreferences');
+      }
+    } catch (e) {
+      print('ApiClient: Error syncing credentials from storage: $e');
+    }
   }
 
   // Get token with fallback to SharedPreferences
@@ -44,25 +65,26 @@ class ApiClient {
     return _secret;
   }
 
-  Future<http.Response> get(String endpoint, {Map<String, String>? queryParams}) async {
+  Future<http.Response> get(String endpoint,
+      {Map<String, String>? queryParams}) async {
     final uri = Uri.parse(ApiEndpoints.baseUrl + endpoint);
     return await _client.get(uri);
   }
 
-  Future<http.Response> post(String endpoint, {Map<String, dynamic>? body}) async {
+  Future<http.Response> post(String endpoint,
+      {Map<String, dynamic>? body}) async {
     final uri = Uri.parse(ApiEndpoints.baseUrl + endpoint);
     return await _client.post(uri, body: body);
   }
 
   // Method to make signed POST requests
-  Future<http.Response> signedPost(String url, {Map<String, dynamic>? body}) async {
-    return await _client.post(Uri.parse(url), 
-      headers: {'Content-Type': 'application/json'},
-      body: body
-    );
+  Future<http.Response> signedPost(String url,
+      {Map<String, dynamic>? body}) async {
+    return await _client.post(Uri.parse(url),
+        headers: {'Content-Type': 'application/json'}, body: body);
   }
 
   void dispose() {
     _client.close();
   }
-} 
+}

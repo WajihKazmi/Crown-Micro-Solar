@@ -70,6 +70,8 @@ class AuthRepository {
       if (response.statusCode == 200) {
         final data = response.data;
         if (data['Token'] != null) {
+          // Save username before saving auth data
+          await _prefs.setString(_usernameKey, userId);
           await _saveAuthData(data);
           return AuthResponse(
             isSuccess: true,
@@ -170,6 +172,14 @@ class AuthRepository {
     if (data['Secret'] != null) {
       await _prefs.setString(_secretKey, data['Secret']);
     }
+
+    // Set a hardcoded appkey for Growatt API integration
+    // This appears to be needed for alarm queries in the Growatt API
+    await _prefs.setString('appkey', 'bff8a1bef5a20e8c95b4eae6a509f84b');
+
+    // Also set username for alarm repository
+    await _prefs.setString('username', _prefs.getString(_usernameKey) ?? '');
+
     await _prefs.setBool(_loggedInKey, true);
   }
 

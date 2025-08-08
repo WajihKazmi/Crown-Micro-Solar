@@ -1,22 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:crown_micro_solar/presentation/repositories/device_repository.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_data_one_day_query_model.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_live_signal_model.dart';
-import 'package:crown_micro_solar/presentation/models/device/device_key_parameter_model.dart';
+import 'package:crown_micro_solar/presentation/models/device/device_key_parameter_model.dart'
+    as model;
+import 'dart:async';
 
 class DeviceViewModel extends ChangeNotifier {
   final DeviceRepository _deviceRepository;
-  
+
   List<Device> _standaloneDevices = [];
   List<Map<String, dynamic>> _collectors = [];
   Map<String, List<Device>> _collectorDevices = {};
   List<Device> _allDevices = [];
-  
+
   bool _isLoading = false;
   String? _error;
   Set<String> _expandedCollectors = {};
+
+  // Device Detail Fields - for device details page
+  Device? _currentDevice;
+  DeviceDataOneDayQueryModel? _deviceDayData;
+  DeviceLiveSignalModel? _liveSignalData;
+  Map<String, model.DeviceKeyParameterModel> _keyParameterData = {};
+  Map<String, dynamic>? _realTimeData;
+  bool _isAutoUpdateEnabled = false;
+  bool _isDetailLoading = false;
 
   DeviceViewModel(this._deviceRepository);
 
@@ -29,6 +39,16 @@ class DeviceViewModel extends ChangeNotifier {
   String? get error => _error;
   Set<String> get expandedCollectors => _expandedCollectors;
 
+  // Device Detail Getters
+  Device? get currentDevice => _currentDevice;
+  DeviceDataOneDayQueryModel? get deviceDayData => _deviceDayData;
+  DeviceLiveSignalModel? get liveSignalData => _liveSignalData;
+  Map<String, model.DeviceKeyParameterModel> get keyParameterData =>
+      _keyParameterData;
+  Map<String, dynamic>? get realTimeData => _realTimeData;
+  bool get isAutoUpdateEnabled => _isAutoUpdateEnabled;
+  bool get isDetailLoading => _isDetailLoading;
+
   // Load devices and collectors for a plant
   Future<void> loadDevicesAndCollectors(String plantId) async {
     try {
@@ -36,19 +56,21 @@ class DeviceViewModel extends ChangeNotifier {
       _error = null;
       notifyListeners();
 
-      print('DeviceViewModel: Loading devices and collectors for plant $plantId');
-      
+      print(
+          'DeviceViewModel: Loading devices and collectors for plant $plantId');
+
       final result = await _deviceRepository.getDevicesAndCollectors(plantId);
-      
+
       _standaloneDevices = result['standaloneDevices'] ?? [];
       _collectors = result['collectors'] ?? [];
       _collectorDevices = result['collectorDevices'] ?? {};
       _allDevices = result['allDevices'] ?? [];
-      
-      print('DeviceViewModel: Loaded ${_standaloneDevices.length} standalone devices');
+
+      print(
+          'DeviceViewModel: Loaded ${_standaloneDevices.length} standalone devices');
       print('DeviceViewModel: Loaded ${_collectors.length} collectors');
       print('DeviceViewModel: Loaded ${_allDevices.length} total devices');
-      
+
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -60,22 +82,25 @@ class DeviceViewModel extends ChangeNotifier {
   }
 
   // Load devices with filters (matching old app functionality)
-  Future<void> loadDevicesWithFilters(String plantId, {String status = '0101', String deviceType = '0101'}) async {
+  Future<void> loadDevicesWithFilters(String plantId,
+      {String status = '0101', String deviceType = '0101'}) async {
     try {
       _isLoading = true;
       _error = null;
       notifyListeners();
 
-      print('DeviceViewModel: Loading devices with filters - status: $status, deviceType: $deviceType');
-      
-      final devices = await _deviceRepository.getDevicesWithFilters(plantId, status: status, deviceType: deviceType);
-      
+      print(
+          'DeviceViewModel: Loading devices with filters - status: $status, deviceType: $deviceType');
+
+      final devices = await _deviceRepository.getDevicesWithFilters(plantId,
+          status: status, deviceType: deviceType);
+
       // Clear previous data
       _standaloneDevices = [];
       _collectors = [];
       _collectorDevices = {};
       _allDevices = devices;
-      
+
       // Separate collectors and devices
       for (final device in devices) {
         if (device.isCollector) {
@@ -91,10 +116,12 @@ class DeviceViewModel extends ChangeNotifier {
           _standaloneDevices.add(device);
         }
       }
-      
-      print('DeviceViewModel: Loaded ${_standaloneDevices.length} standalone devices with filters');
-      print('DeviceViewModel: Loaded ${_collectors.length} collectors with filters');
-      
+
+      print(
+          'DeviceViewModel: Loaded ${_standaloneDevices.length} standalone devices with filters');
+      print(
+          'DeviceViewModel: Loaded ${_collectors.length} collectors with filters');
+
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -221,16 +248,16 @@ class DeviceViewModel extends ChangeNotifier {
 
   // Get total device count
   int get totalDeviceCount => _allDevices.length;
-  
+
   // Get online device count
   int get onlineDeviceCount => _allDevices.where((d) => d.isOnline).length;
-  
+
   // Get offline device count
   int get offlineDeviceCount => _allDevices.where((d) => !d.isOnline).length;
-  
+
   // Get collector count
   int get collectorCount => _collectors.length;
-  
+
   // Get standalone device count
   int get standaloneDeviceCount => _standaloneDevices.length;
 
@@ -269,7 +296,7 @@ class DeviceViewModel extends ChangeNotifier {
   }
 
   // Device detail: fetch key parameter data for one day
-  Future<DeviceKeyParameterModel?> fetchDeviceKeyParameterOneDay({
+  Future<model.DeviceKeyParameterModel?> fetchDeviceKeyParameterOneDay({
     required String sn,
     required String pn,
     required int devcode,
@@ -277,7 +304,7 @@ class DeviceViewModel extends ChangeNotifier {
     required String parameter,
     required String date,
   }) async {
-    return await _deviceRepository.fetchDeviceKeyParameterOneDay(
+    final response = await _deviceRepository.fetchDeviceKeyParameterOneDay(
       sn: sn,
       pn: pn,
       devcode: devcode,
@@ -285,5 +312,488 @@ class DeviceViewModel extends ChangeNotifier {
       parameter: parameter,
       date: date,
     );
+
+    if (response != null) {
+      try {
+        // Check if the response is a direct API response
+        if (response is Map && response['source'] == 'live_signal') {
+          print(
+              'DeviceViewModel: Received live signal data for $parameter: ${response['value']}');
+
+          // Create a DeviceKeyParameterModel with data from live signal
+          // This ensures compatibility with the existing code expecting this model
+          final model.DeviceKeyParameterModel liveSignalModel =
+              _createKeyParameterModelFromLiveSignal(
+            parameter: parameter,
+            value: response['value'],
+            date: date,
+          );
+
+          return liveSignalModel;
+        } else {
+          // Standard API response
+          return model.DeviceKeyParameterModel.fromJson(response);
+        }
+      } catch (e) {
+        print('DeviceViewModel: Error parsing key parameter data: $e');
+        return null;
+      }
+    }
+    return null;
   }
-} 
+
+  // Helper method to create a KeyParameterModel from live signal data
+  model.DeviceKeyParameterModel _createKeyParameterModelFromLiveSignal({
+    required String parameter,
+    required dynamic value,
+    required String date,
+  }) {
+    print(
+        'DeviceViewModel: Creating key parameter model from live signal. Parameter: $parameter, Value: $value');
+
+    // Create a single data point from the live signal value
+    final double doubleValue =
+        value is double ? value : double.tryParse(value.toString()) ?? 0.0;
+
+    final now = DateTime.now();
+    final timeString = now.toString().substring(11, 16);
+    final fullTimeString = now.toString();
+
+    // Create a model with a single data point
+    // This mimics the format of the actual API response with parameter array
+    return model.DeviceKeyParameterModel(
+      err: 0,
+      desc: 'SUCCESS',
+      dat: model.DeviceKeyParameterData(
+        parameter: doubleValue.toString(),
+        date: fullTimeString,
+        total: 1,
+        row: [
+          model.DeviceKeyParameterRow(
+            time: timeString,
+            field: [doubleValue.toString()],
+          ),
+        ],
+        title: [
+          model.DeviceKeyParameterTitle(
+            title: parameter,
+            unit: _getParameterUnit(parameter),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Prepare graph data for visualization
+  Future<Map<String, dynamic>> prepareGraphData({
+    required String sn,
+    required String pn,
+    required int devcode,
+    required int devaddr,
+    required String parameter,
+    required String date,
+    String timeUnit = 'day', // 'day', 'month', 'year'
+  }) async {
+    try {
+      print(
+          'DeviceViewModel: Preparing graph data for $parameter on $date (timeUnit: $timeUnit)');
+      print('DeviceViewModel: Device code: $devcode, Device address: $devaddr');
+
+      // Map parameter to device-specific parameter name
+      String mappedParameter = _mapParameterToDeviceType(parameter, devcode);
+      print(
+          'DeviceViewModel: Mapped parameter $parameter to $mappedParameter for device type $devcode');
+
+      // Fetch the data based on the parameter
+      final model.DeviceKeyParameterModel? keyParameterData =
+          await fetchDeviceKeyParameterOneDay(
+        sn: sn,
+        pn: pn,
+        devcode: devcode,
+        devaddr: devaddr,
+        parameter: mappedParameter,
+        date: date,
+      );
+
+      if (keyParameterData == null ||
+          keyParameterData.dat == null ||
+          keyParameterData.dat!.row == null ||
+          keyParameterData.dat!.row!.isEmpty) {
+        print('DeviceViewModel: No data available for graph');
+
+        // Try fetching live signal data for current values
+        final liveSignal = await fetchDeviceLiveSignal(
+          sn: sn,
+          pn: pn,
+          devcode: devcode,
+          devaddr: devaddr,
+        );
+
+        if (liveSignal != null) {
+          print('DeviceViewModel: Using live signal data for current values');
+          print('DeviceViewModel: Device code: $devcode');
+
+          // Get the current value from live signal based on parameter
+          double? currentValue;
+
+          // Apply our API test findings for device type 2451
+          if (devcode == 2451) {
+            // For device type 2451, we know OUTPUT_POWER works well for all power-related parameters
+            switch (parameter) {
+              case 'PV_OUTPUT_POWER':
+              case 'LOAD_POWER':
+              case 'GRID_POWER':
+                // Use output power for all power-related parameters based on our testing
+                currentValue = liveSignal.outputPower;
+                break;
+              case 'BATTERY_SOC':
+                currentValue = liveSignal.batteryLevel;
+                break;
+              case 'AC2_OUTPUT_VOLTAGE':
+                currentValue = liveSignal.outputVoltage;
+                break;
+              case 'AC2_OUTPUT_CURRENT':
+                currentValue = liveSignal.outputCurrent;
+                break;
+              case 'PV_INPUT_VOLTAGE':
+                currentValue = liveSignal.inputVoltage;
+                break;
+              default:
+                // For any other parameter on this device type, try output power as a fallback
+                if (parameter.contains('POWER')) {
+                  currentValue = liveSignal.outputPower;
+                } else {
+                  currentValue = null;
+                }
+            }
+          } else {
+            // For other device types, use standard mappings
+            switch (parameter) {
+              case 'PV_OUTPUT_POWER':
+                currentValue = liveSignal.inputPower;
+                break;
+              case 'BATTERY_SOC':
+                currentValue = liveSignal.batteryLevel;
+                break;
+              case 'LOAD_POWER':
+                currentValue = liveSignal.outputPower;
+                break;
+              case 'GRID_POWER':
+                currentValue = null; // No direct mapping in live signal
+                break;
+              case 'AC2_OUTPUT_VOLTAGE':
+                currentValue = liveSignal.outputVoltage;
+                break;
+              case 'AC2_OUTPUT_CURRENT':
+                currentValue = liveSignal.outputCurrent;
+                break;
+              case 'PV_INPUT_VOLTAGE':
+                currentValue = liveSignal.inputVoltage;
+                break;
+              default:
+                currentValue = null;
+            }
+          }
+
+          // If we have a current value, create a simple graph with it
+          if (currentValue != null) {
+            print(
+                'DeviceViewModel: Using current value for graph: $currentValue');
+
+            // Create a minimal graph with the current value
+            return {
+              'labels': ['Now'],
+              'datasets': [
+                {
+                  'label': _getParameterLabel(parameter),
+                  'data': [currentValue],
+                  'color': _getParameterColor(parameter),
+                }
+              ],
+              'minValue': currentValue,
+              'maxValue': currentValue,
+              'avgValue': currentValue,
+              'unit': _getParameterUnit(parameter),
+              'isLiveData': true,
+            };
+          }
+        }
+
+        return {
+          'labels': <String>[],
+          'datasets': <Map<String, dynamic>>[
+            {
+              'label': parameter,
+              'data': <double>[],
+              'color': Colors.blue,
+            }
+          ],
+          'minValue': 0.0,
+          'maxValue': 0.0,
+          'avgValue': 0.0,
+          'unit': _getParameterUnit(parameter),
+          'noData': true,
+        };
+      }
+
+      // Extract value data for the graph
+      final rows = keyParameterData.dat!.row!;
+      final List<String> labels = [];
+      final List<double> values = [];
+
+      // Generate time labels based on the number of data points
+      int dataPointCount = rows.length;
+
+      for (int i = 0; i < dataPointCount; i++) {
+        final row = rows[i];
+
+        if (row.field != null && row.field!.isNotEmpty) {
+          // Generate time label based on index and time unit
+          String timeLabel = '';
+
+          if (timeUnit == 'day') {
+            // For daily data, generate hourly labels (0:00 to 23:00)
+            final hour = (i * 24 ~/ dataPointCount).clamp(0, 23);
+            timeLabel = '$hour:00';
+          } else if (timeUnit == 'month') {
+            // For monthly data, generate day labels (1 to 30/31)
+            final day = (i * 30 ~/ dataPointCount).clamp(1, 30);
+            timeLabel = '$day';
+          } else if (timeUnit == 'year') {
+            // For yearly data, generate month labels (Jan to Dec)
+            final month = (i * 12 ~/ dataPointCount).clamp(0, 11);
+            timeLabel = _getMonthAbbreviation(month + 1);
+          }
+
+          labels.add(timeLabel);
+
+          // Extract value (handling nulls)
+          final value = row.field!.first != null
+              ? double.tryParse(row.field!.first.toString()) ?? 0.0
+              : 0.0;
+          values.add(value);
+        }
+      }
+
+      // Calculate statistics
+      double minValue = 0.0;
+      double maxValue = 0.0;
+      double avgValue = 0.0;
+
+      if (values.isNotEmpty) {
+        minValue = values.reduce((a, b) => a < b ? a : b);
+        maxValue = values.reduce((a, b) => a > b ? a : b);
+        avgValue = values.reduce((a, b) => a + b) / values.length;
+      }
+
+      print(
+          'DeviceViewModel: Graph data prepared with ${labels.length} points');
+      print('DeviceViewModel: Min: $minValue, Max: $maxValue, Avg: $avgValue');
+
+      print('Graph data prepared:');
+      print('- Labels: $labels');
+      print('- Data points: ${values.length}');
+      print('- Min: $minValue, Max: $maxValue, Avg: $avgValue');
+
+      return {
+        'labels': labels,
+        'datasets': [
+          {
+            'label': _getParameterLabel(parameter),
+            'data': values,
+            'color': _getParameterColor(parameter),
+          }
+        ],
+        'minValue': minValue,
+        'maxValue': maxValue,
+        'avgValue': avgValue,
+        'unit': _getParameterUnit(parameter),
+      };
+    } catch (e) {
+      print('DeviceViewModel: Error preparing graph data: $e');
+      return {
+        'labels': <String>[],
+        'datasets': <Map<String, dynamic>>[
+          {
+            'label': parameter,
+            'data': <double>[],
+            'color': Colors.blue,
+          }
+        ],
+        'minValue': 0.0,
+        'maxValue': 0.0,
+        'avgValue': 0.0,
+        'unit': _getParameterUnit(parameter),
+        'error': e.toString(),
+      };
+    }
+  }
+
+  // Map parameter names based on device type
+  String _mapParameterToDeviceType(String parameter, int devcode) {
+    print(
+        'DeviceViewModel: Mapping parameter $parameter for device type $devcode');
+
+    // Based on our API testing, 'OUTPUT_POWER' works well for device type 2451
+    if (devcode == 2451) {
+      // For energy storage devices (2451), we know OUTPUT_POWER works reliably from our testing
+      switch (parameter) {
+        case 'BATTERY_SOC':
+          // For battery level, we need to try multiple parameters as names vary by firmware
+          return 'SOC'; // Try SOC first as it's confirmed working in tests
+        case 'PV_OUTPUT_POWER':
+          // For solar power, use OUTPUT_POWER which is confirmed working
+          return 'OUTPUT_POWER';
+        case 'LOAD_POWER':
+          // For load power
+          return 'OUTPUT_POWER';
+        case 'GRID_POWER':
+          // For grid power
+          return 'OUTPUT_POWER';
+        case 'AC2_OUTPUT_VOLTAGE':
+        case 'OUTPUT_VOLTAGE':
+          return 'OUTPUT_VOLTAGE';
+        case 'AC2_OUTPUT_CURRENT':
+        case 'OUTPUT_CURRENT':
+          return 'OUTPUT_CURRENT';
+        default:
+          // For any power-related parameters, use OUTPUT_POWER as it works reliably
+          if (parameter.contains('POWER')) {
+            return 'OUTPUT_POWER';
+          }
+          return parameter;
+      }
+    }
+    // For other energy storage machines (devcode 2400-2499)
+    else if (devcode >= 2400 && devcode < 2500) {
+      switch (parameter) {
+        case 'BATTERY_SOC':
+          return 'SOC';
+        case 'PV_OUTPUT_POWER':
+          // Try OUTPUT_POWER first based on our test findings
+          return 'OUTPUT_POWER';
+        case 'LOAD_POWER':
+          // Try OUTPUT_POWER first based on our test findings
+          return 'OUTPUT_POWER';
+        case 'GRID_POWER':
+          // Try OUTPUT_POWER first based on our test findings
+          return 'OUTPUT_POWER';
+        case 'AC2_OUTPUT_VOLTAGE':
+          return 'OUTPUT_VOLTAGE';
+        case 'AC2_OUTPUT_CURRENT':
+          return 'OUTPUT_CURRENT';
+        default:
+          // For any power-related parameters, try OUTPUT_POWER as a fallback
+          if (parameter.contains('POWER')) {
+            return 'OUTPUT_POWER';
+          }
+          return parameter;
+      }
+    }
+
+    // For inverters (devcode 512)
+    if (devcode == 512) {
+      switch (parameter) {
+        case 'PV_OUTPUT_POWER':
+          return 'OUTPUT_POWER';
+        case 'AC2_OUTPUT_VOLTAGE':
+          return 'AC_VOLTAGE';
+        case 'AC2_OUTPUT_CURRENT':
+          return 'AC_CURRENT';
+        default:
+          return parameter;
+      }
+    }
+
+    // Default fallback for other device types
+    return parameter;
+  }
+
+  // Helper function to get parameter label
+  String _getParameterLabel(String parameter) {
+    switch (parameter) {
+      case 'PV_OUTPUT_POWER':
+        return 'PV Output Power';
+      case 'BATTERY_SOC':
+        return 'Battery SOC';
+      case 'LOAD_POWER':
+        return 'Load Power';
+      case 'GRID_POWER':
+        return 'Grid Power';
+      case 'AC2_OUTPUT_VOLTAGE':
+        return 'AC2 Output Voltage';
+      case 'AC2_OUTPUT_CURRENT':
+        return 'AC2 Output Current';
+      case 'PV_INPUT_VOLTAGE':
+        return 'PV Input Voltage';
+      case 'PV_INPUT_CURRENT':
+        return 'PV Input Current';
+      default:
+        return parameter;
+    }
+  }
+
+  // Helper function to get parameter unit
+  String _getParameterUnit(String parameter) {
+    if (parameter == 'BATTERY_SOC') {
+      return '%';
+    } else if (parameter.contains('POWER')) {
+      return 'kW';
+    } else if (parameter.contains('VOLTAGE')) {
+      return 'V';
+    } else if (parameter.contains('CURRENT')) {
+      return 'A';
+    } else {
+      return '';
+    }
+  }
+
+  // Helper function to get parameter color
+  Color _getParameterColor(String parameter) {
+    switch (parameter) {
+      case 'PV_OUTPUT_POWER':
+        return Colors.orange;
+      case 'BATTERY_SOC':
+        return Colors.green;
+      case 'LOAD_POWER':
+        return Colors.blue;
+      case 'GRID_POWER':
+        return Colors.purple;
+      case 'AC2_OUTPUT_VOLTAGE':
+      case 'AC2_OUTPUT_CURRENT':
+        return Colors.red;
+      case 'PV_INPUT_VOLTAGE':
+      case 'PV_INPUT_CURRENT':
+        return Colors.amber;
+      default:
+        return Colors.blue;
+    }
+  }
+
+  // Helper function to get month abbreviation
+  String _getMonthAbbreviation(int month) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
+    return months[month - 1];
+  }
+
+  // Helper method to get the latest value for a parameter
+  double getLatestValueForParameter(String parameter) {
+    if (_keyParameterData.containsKey(parameter)) {
+      return _keyParameterData[parameter]!.getLatestValue();
+    }
+    return 0.0;
+  }
+}

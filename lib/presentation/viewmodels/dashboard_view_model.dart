@@ -2,23 +2,24 @@ import 'package:flutter/foundation.dart';
 import 'package:crown_micro_solar/presentation/repositories/plant_repository.dart';
 import 'package:crown_micro_solar/presentation/repositories/device_repository.dart';
 import 'package:crown_micro_solar/presentation/repositories/alarm_repository.dart';
-import 'package:crown_micro_solar/core/network/api_client.dart';
+import 'package:crown_micro_solar/core/di/service_locator.dart';
 
 class DashboardViewModel extends ChangeNotifier {
-  final PlantRepository _plantRepository;
-  final DeviceRepository _deviceRepository;
-  final AlarmRepository _alarmRepository;
-  
+  late final PlantRepository _plantRepository;
+  late final DeviceRepository _deviceRepository;
+  late final AlarmRepository _alarmRepository;
+
   bool _isLoading = false;
   String? _error;
   int _totalPlants = 0;
   int _totalDevices = 0;
   int _totalAlarms = 0;
 
-  DashboardViewModel()
-      : _plantRepository = PlantRepository(ApiClient()),
-        _deviceRepository = DeviceRepository(ApiClient()),
-        _alarmRepository = AlarmRepository(ApiClient());
+  DashboardViewModel() {
+    _plantRepository = getIt<PlantRepository>();
+    _deviceRepository = getIt<DeviceRepository>();
+    _alarmRepository = getIt<AlarmRepository>();
+  }
 
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -57,7 +58,7 @@ class DashboardViewModel extends ChangeNotifier {
 
       _totalDevices = deviceCount;
       _totalAlarms = alarmCount;
-      
+
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -71,4 +72,4 @@ class DashboardViewModel extends ChangeNotifier {
     _error = null;
     notifyListeners();
   }
-} 
+}
