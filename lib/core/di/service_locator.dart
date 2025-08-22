@@ -8,11 +8,13 @@ import 'package:crown_micro_solar/presentation/viewmodels/plant_info_view_model.
 import 'package:crown_micro_solar/presentation/repositories/plant_repository.dart';
 import 'package:crown_micro_solar/presentation/repositories/device_repository.dart';
 import 'package:crown_micro_solar/presentation/repositories/alarm_repository.dart';
+import 'package:crown_micro_solar/presentation/repositories/energy_repository.dart';
 import 'package:crown_micro_solar/core/network/api_client.dart';
 import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_data_one_day_query_model.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_live_signal_model.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_key_parameter_model.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/overview_graph_view_model.dart';
 
 final GetIt getIt = GetIt.instance;
 
@@ -28,6 +30,7 @@ Future<void> setupServiceLocator() async {
     getIt.registerLazySingleton(() => PlantRepository(getIt<ApiClient>()));
     getIt.registerLazySingleton(() => DeviceRepository(getIt<ApiClient>()));
     getIt.registerLazySingleton(() => AlarmRepository(getIt<ApiClient>()));
+    getIt.registerLazySingleton(() => EnergyRepository(getIt<ApiClient>()));
     // Register models for device detail
     getIt.registerFactory(() => DeviceDataOneDayQueryModel());
     getIt.registerFactory(() => DeviceLiveSignalModel());
@@ -40,6 +43,8 @@ Future<void> setupServiceLocator() async {
     getIt.registerFactory(() => AlarmViewModel(getIt<AlarmRepository>()));
     getIt.registerFactory(() => DashboardViewModel());
     getIt.registerFactory(() => PlantInfoViewModel());
+    // Graph view model (used in device detail screen via getIt)
+    getIt.registerFactory(() => OverviewGraphViewModel());
 
     // Register RealtimeDataService as singleton
     getIt.registerLazySingleton(() => RealtimeDataService(

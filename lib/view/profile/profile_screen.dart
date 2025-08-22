@@ -6,9 +6,11 @@ import 'package:crown_micro_solar/localization/app_localizations.dart';
 import 'package:crown_micro_solar/main.dart';
 import 'package:crown_micro_solar/core/utils/app_text_fields.dart';
 import 'package:crown_micro_solar/core/utils/app_buttons.dart';
-import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart';
-import 'package:crown_micro_solar/core/di/service_locator.dart';
+// Removed unused imports
 import 'package:crown_micro_solar/presentation/viewmodels/dashboard_view_model.dart';
+import 'package:crown_micro_solar/core/theme/theme_notifier.dart';
+import 'package:crown_micro_solar/core/theme/app_theme.dart';
+import 'package:crown_micro_solar/routes/app_routes.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({Key? key}) : super(key: key);
@@ -38,11 +40,144 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  void _showAddInstallerDialog(BuildContext context) {
+    final theme = Theme.of(context);
+    final codeController = TextEditingController();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        final authViewModel = Provider.of<AuthViewModel>(dialogCtx);
+        return Dialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Add Installer Code',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                        color: const Color(0xFFEF4444), // red title like Figma
+                        fontWeight: FontWeight.w700)),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: codeController,
+                  decoration: InputDecoration(
+                    hintText: 'Enter Code',
+                    filled: true,
+                    fillColor: const Color(0xFFF3F4F6),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black87,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(color: Colors.black12),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        onPressed: authViewModel.isLoading
+                            ? null
+                            : () => Navigator.of(dialogCtx).pop(),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor:
+                              const Color(0xFFEF4444), // red submit like Figma
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          elevation: 0,
+                        ),
+                        onPressed: authViewModel.isLoading
+                            ? null
+                            : () async {
+                                final code = codeController.text.trim();
+                                if (code.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                          'Please enter installer code',
+                                          style:
+                                              TextStyle(color: Colors.black)),
+                                      backgroundColor: Colors.white,
+                                    ),
+                                  );
+                                  return;
+                                }
+                                final ok =
+                                    await authViewModel.addInstallerCode(code);
+                                if (!mounted) return;
+                                if (ok) {
+                                  Navigator.of(dialogCtx).pop();
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Installer code added',
+                                          style:
+                                              TextStyle(color: Colors.black)),
+                                      backgroundColor: Colors.white,
+                                    ),
+                                  );
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        authViewModel.error ?? 'Wrong code',
+                                        style: const TextStyle(
+                                            color: Colors.black),
+                                      ),
+                                      backgroundColor: Colors.white,
+                                    ),
+                                  );
+                                }
+                              },
+                        child: authViewModel.isLoading
+                            ? const SizedBox(
+                                height: 18,
+                                width: 18,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Text('Submit',
+                                style: TextStyle(color: Colors.white)),
+                      ),
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final authViewModel = Provider.of<AuthViewModel>(context);
-    final dashboardViewModel = Provider.of<DashboardViewModel>(context); // Use the global instance
+    final dashboardViewModel =
+        Provider.of<DashboardViewModel>(context); // Use the global instance
     final userInfo = authViewModel.userInfo;
     const lightGrey = Color(0xFFF3F4F6);
     const green = Color(0xFF22C55E);
@@ -54,40 +189,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Column(
         children: [
           // User Info Card
-          Container(
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: theme.shadowColor.withOpacity(0.08),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(userInfo.usr,
-                          style: theme.textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 4),
-                      Text('Email: ${userInfo.email}',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurface
-                                  .withOpacity(0.6))),
-                    ],
+          GestureDetector(
+            onTap: () => Navigator.of(context).pushNamed(AppRoutes.accountInfo),
+            child: Container(
+              margin: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: theme.shadowColor.withOpacity(0.08),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
                   ),
-                ),
-                Icon(Icons.arrow_forward_ios,
-                    color: theme.iconTheme.color?.withOpacity(0.3), size: 18),
-              ],
+                ],
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(userInfo.usr,
+                            style: theme.textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        Text('Email: ${userInfo.email}',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onSurface
+                                    .withOpacity(0.6))),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.arrow_forward_ios,
+                      color: theme.iconTheme.color?.withOpacity(0.3), size: 18),
+                ],
+              ),
             ),
           ),
           // Summary Cards
@@ -99,17 +237,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _ProfileSummaryCard(
                   icon: 'assets/icons/home/totalPlants.svg',
                   label: 'Total Plant',
-                  value: dashboardViewModel.isLoading ? '-' : dashboardViewModel.totalPlants.toString(),
+                  value: dashboardViewModel.isLoading
+                      ? '-'
+                      : dashboardViewModel.totalPlants.toString(),
                 ),
                 _ProfileSummaryCard(
                   icon: 'assets/icons/home/totalDevices.svg',
                   label: 'Total Device',
-                  value: dashboardViewModel.isLoading ? '-' : dashboardViewModel.totalDevices.toString(),
+                  value: dashboardViewModel.isLoading
+                      ? '-'
+                      : dashboardViewModel.totalDevices.toString(),
                 ),
                 _ProfileSummaryCard(
                   icon: 'assets/icons/home/totalAlarms.svg',
                   label: 'Total Alarm',
-                  value: dashboardViewModel.isLoading ? '-' : dashboardViewModel.totalAlarms.toString(),
+                  value: dashboardViewModel.isLoading
+                      ? '-'
+                      : dashboardViewModel.totalAlarms.toString(),
                 ),
               ],
             ),
@@ -130,14 +274,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _ProfileActionTile(
                   icon: Icons.palette_outlined,
                   label: 'Interface Theme',
-                  onTap: () {},
+                  onTap: () => _showThemeSelector(context),
                   backgroundColor: lightGrey,
                   iconColor: Color(0xFFF59E42),
                 ),
                 _ProfileActionTile(
                   icon: Icons.info_outline,
                   label: 'About App',
-                  onTap: () {},
+                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.about),
                   backgroundColor: lightGrey,
                   iconColor: red,
                 ),
@@ -162,35 +306,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     builder: (context) {
                       final authViewModel = Provider.of<AuthViewModel>(context);
                       final theme = Theme.of(context);
-                      if (authViewModel.isInstaller) {
-                        return ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: green,
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            elevation: 0,
-                          ),
-                          onPressed: () {},
-                          child: Text('Add Agent',
-                              style: theme.textTheme.labelLarge?.copyWith(
-                                  color: Colors.white, fontWeight: FontWeight.bold)),
-                        );
-                      } else {
-                        return ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: green,
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            elevation: 0,
-                          ),
-                          onPressed: () {},
-                          child: Text('Add Installer',
-                              style: theme.textTheme.labelLarge?.copyWith(
-                                  color: Colors.white, fontWeight: FontWeight.bold)),
-                        );
-                      }
+                      final buttonColor = green; // Use Figma green constant
+                      final label = authViewModel.isInstaller
+                          ? 'Add Agent'
+                          : 'Add Installer';
+                      return ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: buttonColor,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          elevation: 0,
+                        ),
+                        onPressed: () => _showAddInstallerDialog(context),
+                        child: Text(label,
+                            style: theme.textTheme.labelLarge?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold)),
+                      );
                     },
                   ),
                 ),
@@ -306,6 +439,107 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
       }
     }
+  }
+}
+
+void _showThemeSelector(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (ctx) {
+      final themeNotifier = Provider.of<ThemeNotifier>(ctx, listen: false);
+      final palette = <Color>[
+        AppTheme.basePrimary, // default
+        const Color(0xFF2563EB), // blue
+        const Color(0xFF0891B2), // teal
+        const Color(0xFF10B981), // green
+        const Color(0xFFF59E0B), // amber
+        const Color(0xFFEC4899), // pink
+        const Color(0xFF6366F1), // indigo
+      ];
+      final current = themeNotifier.primaryColor;
+      return AlertDialog(
+        title: const Text('Primary Color'),
+        content: SizedBox(
+          width: 320,
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              for (final c in palette)
+                _ColorChoice(
+                  color: c,
+                  isSelected: c.value == current.value,
+                  label: c == AppTheme.basePrimary ? 'Default' : null,
+                  onTap: () {
+                    themeNotifier.setPrimaryColor(c);
+                    Navigator.of(ctx).pop();
+                  },
+                ),
+              // Reset button if not on default
+              if (current != AppTheme.basePrimary)
+                TextButton(
+                  onPressed: () {
+                    themeNotifier.resetToDefault();
+                    Navigator.of(ctx).pop();
+                  },
+                  child: const Text('Reset to Default'),
+                ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _ColorChoice extends StatelessWidget {
+  final Color color;
+  final bool isSelected;
+  final VoidCallback onTap;
+  final String? label;
+  const _ColorChoice({
+    required this.color,
+    required this.isSelected,
+    required this.onTap,
+    this.label,
+  });
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [
+                if (isSelected)
+                  BoxShadow(
+                    color: color.withOpacity(0.5),
+                    blurRadius: 8,
+                    spreadRadius: 1,
+                  )
+              ],
+              border: Border.all(
+                color: isSelected ? Colors.black : Colors.black12,
+                width: isSelected ? 2 : 1,
+              ),
+            ),
+            child: isSelected
+                ? const Icon(Icons.check, color: Colors.white, size: 24)
+                : null,
+          ),
+          if (label != null) ...[
+            const SizedBox(height: 4),
+            Text(label!, style: const TextStyle(fontSize: 11)),
+          ]
+        ],
+      ),
+    );
   }
 }
 
@@ -429,15 +663,15 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
     });
     if (success) {
       Navigator.of(context).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Password changed successfully!',
-              style: const TextStyle(color: Colors.black),
-            ),
-            backgroundColor: Colors.white,
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Password changed successfully!',
+            style: const TextStyle(color: Colors.black),
           ),
-        );
+          backgroundColor: Colors.white,
+        ),
+      );
     } else {
       setState(() {
         _error =
@@ -568,4 +802,3 @@ class LanguageSelectorDialog extends StatelessWidget {
     }
   }
 }
- 

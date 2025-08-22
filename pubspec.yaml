@@ -41,14 +41,12 @@ dependencies:
   simple_rc4: any
   path_provider: ^2.1.1
   permission_handler: ^11.0.1
+  package_info_plus: ^8.0.0
 
   # UI Components
   cupertino_icons: ^1.0.2
   flutter_svg: ^2.0.9
-  cached_network_image: ^3.3.1
-  google_fonts: ^6.1.0
   fl_chart: ^0.66.0
-  flutter_easyloading: ^3.0.5
   flutter_rating_bar: ^4.0.1
 
   # Network & API
@@ -62,15 +60,12 @@ dependencies:
   logger: ^2.0.2+1
   get_it: ^7.6.4
   image_picker: ^1.0.5
+  app_settings: ^5.1.1
+  webview_flutter: ^4.9.0
+  url_launcher: ^6.3.0
 
-  # Localization
-  easy_localization: ^3.0.3
-
-  # New dependency
-  persistent_bottom_nav_bar: ^6.2.1
-
-  # Added dependency
-  stylish_bottom_bar: ^1.1.1
+  # (Removed unused: cached_network_image, google_fonts, flutter_easyloading, easy_localization,
+  #  persistent_bottom_nav_bar, stylish_bottom_bar)
 
 dev_dependencies:
   flutter_test:
@@ -85,7 +80,6 @@ dev_dependencies:
   build_runner: ^2.4.8
   mockito: ^5.4.4
   flutter_launcher_icons: ^0.13.1
-  flutter_native_splash: ^2.3.10
   json_serializable: ^6.7.1
 
 # For information on the generic Dart part of this file, see the

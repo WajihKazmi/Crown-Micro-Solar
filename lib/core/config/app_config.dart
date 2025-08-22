@@ -32,6 +32,12 @@ class AppConfig {
   static bool get isMacOS => defaultTargetPlatform == TargetPlatform.macOS;
   static bool get isLinux => defaultTargetPlatform == TargetPlatform.linux;
 
+  // Support configuration
+  // E.164 phone without '+' for wa.me
+  static const String supportWhatsAppNumber = '15551234567';
+  static const String supportWhatsAppMessage =
+      'Hello, I need help with Crown Micro Solar.';
+
   // static Future<void> initialize() async {
   //   await dotenv.load(fileName: ".env");
   //   await Firebase.initializeApp(

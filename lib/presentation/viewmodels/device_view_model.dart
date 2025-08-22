@@ -27,6 +27,8 @@ class DeviceViewModel extends ChangeNotifier {
   Map<String, dynamic>? _realTimeData;
   bool _isAutoUpdateEnabled = false;
   bool _isDetailLoading = false;
+  bool _isAddingDatalogger = false;
+  String? _addError;
 
   DeviceViewModel(this._deviceRepository);
 
@@ -48,6 +50,8 @@ class DeviceViewModel extends ChangeNotifier {
   Map<String, dynamic>? get realTimeData => _realTimeData;
   bool get isAutoUpdateEnabled => _isAutoUpdateEnabled;
   bool get isDetailLoading => _isDetailLoading;
+  bool get isAddingDatalogger => _isAddingDatalogger;
+  String? get addError => _addError;
 
   // Load devices and collectors for a plant
   Future<void> loadDevicesAndCollectors(String plantId) async {
@@ -244,6 +248,43 @@ class DeviceViewModel extends ChangeNotifier {
     _error = null;
     _isLoading = false;
     notifyListeners();
+  }
+
+  // Add a datalogger then refresh lists
+  Future<Map<String, dynamic>> addDatalogger(
+      {required String plantId,
+      required String pn,
+      required String name}) async {
+    _addError = null;
+    _isAddingDatalogger = true;
+    notifyListeners();
+    try {
+      // Basic validation
+      if (pn.isEmpty || pn.length != 14) {
+        throw Exception('PN must be 14 digits');
+      }
+      if (!RegExp(r'^\d{14}$').hasMatch(pn)) {
+        throw Exception('PN must be numeric (14 digits)');
+      }
+      if (name.trim().isEmpty) {
+        throw Exception('Datalogger name is required');
+      }
+
+      final res = await _deviceRepository.addDataLogger(plantId, pn, name);
+      if (res['err'] == 0) {
+        // Refresh
+        await loadDevicesAndCollectors(plantId);
+      } else {
+        _addError = res['desc']?.toString() ?? 'Failed to add datalogger';
+      }
+      return res;
+    } catch (e) {
+      _addError = e.toString();
+      rethrow;
+    } finally {
+      _isAddingDatalogger = false;
+      notifyListeners();
+    }
   }
 
   // Get total device count
@@ -634,22 +675,11 @@ class DeviceViewModel extends ChangeNotifier {
     print(
         'DeviceViewModel: Mapping parameter $parameter for device type $devcode');
 
-    // Based on our API testing, 'OUTPUT_POWER' works well for device type 2451
+    // Device type 2451: map only known aliases; otherwise, use the requested parameter as-is
     if (devcode == 2451) {
-      // For energy storage devices (2451), we know OUTPUT_POWER works reliably from our testing
       switch (parameter) {
         case 'BATTERY_SOC':
-          // For battery level, we need to try multiple parameters as names vary by firmware
-          return 'SOC'; // Try SOC first as it's confirmed working in tests
-        case 'PV_OUTPUT_POWER':
-          // For solar power, use OUTPUT_POWER which is confirmed working
-          return 'OUTPUT_POWER';
-        case 'LOAD_POWER':
-          // For load power
-          return 'OUTPUT_POWER';
-        case 'GRID_POWER':
-          // For grid power
-          return 'OUTPUT_POWER';
+          return 'SOC';
         case 'AC2_OUTPUT_VOLTAGE':
         case 'OUTPUT_VOLTAGE':
           return 'OUTPUT_VOLTAGE';
@@ -657,10 +687,6 @@ class DeviceViewModel extends ChangeNotifier {
         case 'OUTPUT_CURRENT':
           return 'OUTPUT_CURRENT';
         default:
-          // For any power-related parameters, use OUTPUT_POWER as it works reliably
-          if (parameter.contains('POWER')) {
-            return 'OUTPUT_POWER';
-          }
           return parameter;
       }
     }

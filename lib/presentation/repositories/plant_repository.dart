@@ -4,6 +4,9 @@ import 'package:crown_micro_solar/core/network/api_endpoints.dart';
 import 'package:crown_micro_solar/presentation/models/plant/plant_model.dart';
 import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
+import 'dart:io' show Platform;
 
 class PlantRepository {
   final ApiClient _apiClient;
@@ -96,5 +99,96 @@ class PlantRepository {
 
     final data = json.decode(response.body);
     return data['success'] == true;
+  }
+
+  // Legacy DESS API: delete a plant
+  Future<bool> deletePlant(String plantId) async {
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+    if (token.isEmpty || secret.isEmpty) return false;
+
+    final package = await PackageInfo.fromPlatform();
+    final platform = Platform.isAndroid ? 'android' : 'ios';
+    final postaction =
+        '&source=1&app_id=${package.packageName}&app_version=${package.version}&app_client=$platform';
+    final action = '&action=delPlant&plantid=$plantId';
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url =
+        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+    try {
+      final resp = await http.post(Uri.parse(url));
+      if (resp.statusCode != 200) return false;
+      final Map<String, dynamic> jsonBody = json.decode(resp.body);
+      return (jsonBody['err'] == 0);
+    } catch (e) {
+      print('PlantRepository.deletePlant error: $e');
+      return false;
+    }
+  }
+
+  // Legacy DESS API: edit plant name and metadata (minimal: rename)
+  Future<bool> editPlant({
+    required Plant plant,
+    String? newName,
+  }) async {
+    // Build query parameters similar to EDITPS in legacy app
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+    if (token.isEmpty || secret.isEmpty) return false;
+
+    final package = await PackageInfo.fromPlatform();
+    final platform = Platform.isAndroid ? 'android' : 'ios';
+
+    // Fill required fields with existing plant data when possible
+    final qp = <String, String>{
+      'action': 'editPlant',
+      'plantid': plant.id,
+      'name': newName ?? plant.name,
+      'address.country': plant.country ?? '',
+      'address.province': plant.province ?? '',
+      'address.city': plant.city ?? '',
+      'address.county': plant.district ?? '',
+      'address.lon': (plant.longitude ?? 0).toString(),
+      'address.lat': (plant.latitude ?? 0).toString(),
+      'address.timezone': plant.timezone ?? '',
+      'address.town': plant.town ?? '',
+      'address.village': plant.village ?? '',
+      'address.address': plant.address ?? '',
+      'profit.unitProfit': '0',
+      'profit.currency': 'USD',
+      'profit.currencyCountry': plant.country ?? '',
+      'profit.coal': '0',
+      'profit.co2': '0',
+      'profit.so2': '0',
+      'nominalPower': (plant.capacity).toString(),
+      'energyYearEstimate': (plant.plannedPower ?? 0).toString(),
+      'designCompany': plant.company ?? '',
+      'install': plant.establishmentDate ?? DateTime.now().toIso8601String(),
+      'source': '1',
+      'app_id': package.packageName,
+      'app_version': package.version,
+      'app_client': platform,
+    };
+
+    final action = '&' + Uri(queryParameters: qp).query;
+    final data = salt + secret + token + action;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final base = Uri.parse('http://api.dessmonitor.com/public/');
+    final fullParams = {'sign': sign, 'salt': salt, 'token': token, ...qp};
+    final uri = base.replace(queryParameters: fullParams);
+    try {
+      final resp = await http.post(uri);
+      if (resp.statusCode != 200) return false;
+      final Map<String, dynamic> jsonBody = json.decode(resp.body);
+      return (jsonBody['err'] == 0);
+    } catch (e) {
+      print('PlantRepository.editPlant error: $e');
+      return false;
+    }
   }
 }

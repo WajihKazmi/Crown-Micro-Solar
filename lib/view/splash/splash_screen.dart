@@ -10,7 +10,6 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  bool _isInitialized = false;
   String? _error;
 
   @override
@@ -27,15 +26,21 @@ class _SplashScreenState extends State<SplashScreen> {
 
       final prefs = await SharedPreferences.getInstance();
       final onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
+      final isLoggedIn = prefs.getBool('loggedin') ?? false;
 
-      setState(() {
-        _isInitialized = true;
-      });
+      // Mark initialized (no longer tracked with a field)
 
-      if (onboardingComplete) {
-        Navigator.of(context).pushReplacementNamed(AppRoutes.login);
-      } else {
+      if (!onboardingComplete) {
         Navigator.of(context).pushReplacementNamed(AppRoutes.onboarding);
+        return;
+      }
+
+      // Onboarding done; decide between home or login.
+      if (isLoggedIn) {
+        // Go directly to home (root stack replace)
+        Navigator.of(context).pushReplacementNamed(AppRoutes.homeInternal);
+      } else {
+        Navigator.of(context).pushReplacementNamed(AppRoutes.login);
       }
     } catch (e) {
       print('Error during initialization: $e');

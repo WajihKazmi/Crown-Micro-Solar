@@ -9,10 +9,10 @@ import 'package:crown_micro_solar/core/network/api_service.dart';
 import 'package:crown_micro_solar/presentation/repositories/auth_repository.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/auth_viewmodel.dart';
 import 'package:crown_micro_solar/core/config/app_config.dart';
-import 'package:crown_micro_solar/view/auth/login_screen.dart';
 import 'package:crown_micro_solar/localization/app_localizations.dart';
 import 'package:crown_micro_solar/core/utils/navigation_service.dart';
 import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
+import 'package:crown_micro_solar/core/theme/theme_notifier.dart';
 
 void main() async {
   try {
@@ -43,7 +43,8 @@ void main() async {
     // Initialize AuthRepository with both dependencies
     final authRepository = AuthRepository(apiService, prefs);
 
-    runApp(MyApp(authRepository: authRepository));
+    final themeNotifier = await ThemeNotifier.loadFromPrefs();
+    runApp(MyApp(authRepository: authRepository, themeNotifier: themeNotifier));
   } catch (e, stack) {
     print('Error during initialization: $e');
     print('Stack trace: $stack');
@@ -87,8 +88,11 @@ class LocaleProvider extends ChangeNotifier {
 
 class MyApp extends StatelessWidget {
   final AuthRepository authRepository;
+  final ThemeNotifier themeNotifier;
 
-  const MyApp({Key? key, required this.authRepository}) : super(key: key);
+  const MyApp(
+      {Key? key, required this.authRepository, required this.themeNotifier})
+      : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -100,14 +104,16 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => LocaleProvider(),
         ),
+        ChangeNotifierProvider<ThemeNotifier>.value(value: themeNotifier),
       ],
-      child: Consumer<LocaleProvider>(
-        builder: (context, localeProvider, child) {
+      child: Consumer2<LocaleProvider, ThemeNotifier>(
+        builder: (context, localeProvider, themeNotifier, child) {
           return MaterialApp(
-            navigatorKey: NavigationService.navigatorKey, // Use global navigator key
+            navigatorKey:
+                NavigationService.navigatorKey, // Use global navigator key
             title: AppConfig.appName,
-            theme: AppTheme.lightTheme,
-            darkTheme: AppTheme.lightTheme,
+            theme: themeNotifier.themeData,
+            darkTheme: AppTheme.darkTheme,
             initialRoute: AppRoutes.splash,
             routes: AppRoutes.routes,
             locale: localeProvider.locale,

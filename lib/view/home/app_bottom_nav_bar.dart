@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'dart:math';
 import 'dart:ui';
 
 class AppBottomNavBar extends StatelessWidget {
@@ -19,72 +18,70 @@ class AppBottomNavBar extends StatelessWidget {
     final activeColor = theme.colorScheme.primary;
     final inactiveColor = Colors.grey;
     return SizedBox(
-      height: 72,
+      height: 70, // reduced overall height
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // Curved bottom bar background with blur and gradient
+          // Shadow
           Positioned.fill(
-            child: PhysicalShape(
-              clipper: _BottomBarClipper(),
-              color: theme.colorScheme.background,
-              elevation: 12,
-              shadowColor: Colors.black.withOpacity(0.22),
-              child: Container(),
+            child: CustomPaint(
+              painter: _BottomBarShadowPainter(),
             ),
           ),
-          // Bottom bar items with clipping
+          // Background
           Positioned.fill(
             child: ClipPath(
               clipper: _BottomBarClipper(),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildNavItem(
-                    context,
-                    icon: 'assets/icons/home.svg',
-                    label: 'Overview',
-                    index: 0,
-                    activeColor: activeColor,
-                    inactiveColor: inactiveColor,
-                  ),
-                  _buildNavItem(
-                    context,
-                    icon: Icons.eco,
-                    label: 'Plant',
-                    index: 1,
-                    activeColor: activeColor,
-                    inactiveColor: inactiveColor,
-                  ),
-                  const SizedBox(width: 56), // Space for crown
-                  _buildNavItem(
-                    context,
-                    icon: 'assets/icons/deviceDetails.svg',
-                    label: 'Devices',
-                    index: 2,
-                    activeColor: activeColor,
-                    inactiveColor: inactiveColor,
-                  ),
-                  _buildNavItem(
-                    context,
-                    icon: 'assets/icons/profileInfo.svg',
-                    label: 'Profile',
-                    index: 3,
-                    activeColor: activeColor,
-                    inactiveColor: inactiveColor,
-                  ),
-                ],
-              ),
+              child: Container(color: theme.colorScheme.surface),
             ),
           ),
-          // Crown logo (centered, static, no animation or shadow)
+          // Items (no extra clipping to avoid double edge artifact)
+          Positioned.fill(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildNavItem(
+                  context,
+                  icon: 'assets/icons/home.svg',
+                  label: 'Overview',
+                  index: 0,
+                  activeColor: activeColor,
+                  inactiveColor: inactiveColor,
+                ),
+                _buildNavItem(
+                  context,
+                  icon: Icons.eco,
+                  label: 'Plant',
+                  index: 1,
+                  activeColor: activeColor,
+                  inactiveColor: inactiveColor,
+                ),
+                const SizedBox(width: 56),
+                _buildNavItem(
+                  context,
+                  icon: 'assets/icons/deviceDetails.svg',
+                  label: 'Devices',
+                  index: 2,
+                  activeColor: activeColor,
+                  inactiveColor: inactiveColor,
+                ),
+                _buildNavItem(
+                  context,
+                  icon: 'assets/icons/profileInfo.svg',
+                  label: 'Profile',
+                  index: 3,
+                  activeColor: activeColor,
+                  inactiveColor: inactiveColor,
+                ),
+              ],
+            ),
+          ),
+          // Crown logo
           Positioned(
-            top: -16,
+            top: -20, // adjust due to reduced bar height
             left: 0,
             right: 0,
-            child: const Center(
-              child: StaticCrownLogo(size: 44),
-            ),
+            child: const Center(child: StaticCrownLogo(size: 48)),
           ),
         ],
       ),
@@ -107,7 +104,7 @@ class AppBottomNavBar extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             icon is String
                 ? SvgPicture.asset(
                     icon,
@@ -128,7 +125,7 @@ class AppBottomNavBar extends StatelessWidget {
                 fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
           ],
         ),
       ),
@@ -139,31 +136,34 @@ class AppBottomNavBar extends StatelessWidget {
 class _BottomBarClipper extends CustomClipper<Path> {
   @override
   Path getClip(Size size) {
+    // Smooth concave center notch (Figma-like) without overshoot to avoid double edge
     final path = Path();
-    // Start from bottom left
+    final centerX = size.width * 0.5;
+    const notchWidth = 92.0; // width for crown
+    const notchDepth = 34.0; // increased depth for bigger gap
+    final leftEdge = centerX - notchWidth / 2;
+    final rightEdge = centerX + notchWidth / 2;
+
     path.moveTo(0, 0);
-    // Left straight
-    path.lineTo(size.width * 0.25 - 32, 0);
-    // Wide, shallow center curve (gentle U)
+    path.lineTo(leftEdge, 0);
+    // Left curve into notch
     path.cubicTo(
-      size.width * 0.25, 0,
-      size.width * 0.5 - 60, 0,
-      size.width * 0.5 - 36, 16, // left up-curve
-    );
-    path.cubicTo(
-      size.width * 0.5 - 18, 28, // left inner
-      size.width * 0.5 + 18, 28, // right inner
-      size.width * 0.5 + 36, 16, // right up-curve
-    );
-    path.cubicTo(
-      size.width * 0.5 + 60,
+      leftEdge + notchWidth * 0.15,
       0,
-      size.width * 0.75,
+      centerX - notchWidth * 0.30,
+      notchDepth,
+      centerX,
+      notchDepth,
+    );
+    // Right curve out of notch (mirror)
+    path.cubicTo(
+      centerX + notchWidth * 0.30,
+      notchDepth,
+      rightEdge - notchWidth * 0.15,
       0,
-      size.width * 0.75 + 32,
+      rightEdge,
       0,
     );
-    // Right straight
     path.lineTo(size.width, 0);
     path.lineTo(size.width, size.height);
     path.lineTo(0, size.height);
@@ -173,6 +173,22 @@ class _BottomBarClipper extends CustomClipper<Path> {
 
   @override
   bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
+// Painter that draws a soft ambient shadow following the bottom bar's custom path
+class _BottomBarShadowPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = _BottomBarClipper().getClip(size).shift(const Offset(0, 4));
+    final paint = Paint()
+      ..color = Colors.black.withOpacity(0.10)
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class StaticCrownLogo extends StatelessWidget {

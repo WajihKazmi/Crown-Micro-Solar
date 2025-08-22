@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:crown_micro_solar/core/theme/app_theme.dart';
 import 'package:crown_micro_solar/core/utils/app_buttons.dart';
 import 'package:crown_micro_solar/core/utils/app_text_fields.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/auth_viewmodel.dart';
@@ -69,7 +68,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (mounted) {
         if (success) {
-          if (viewModel.agentsList != null) {
+          if (viewModel.agentsList != null && _isInstallerMode) {
             _showAgentSelectionDialog();
           } else {
             // Navigate to home screen
@@ -98,7 +97,8 @@ class _LoginScreenState extends State<LoginScreen> {
             context: context,
             builder: (context) => AlertDialog(
               title: const Text('Login Error'),
-              content: Text(viewModel.error ?? 'Login failed. Please try again.'),
+              content:
+                  Text(viewModel.error ?? 'Login failed. Please try again.'),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
@@ -142,7 +142,12 @@ class _LoginScreenState extends State<LoginScreen> {
           actions: [
             TextButton(
               child: const Text('Cancel'),
-              onPressed: () {
+              onPressed: () async {
+                // Reset installer state and close
+                await viewModel.clearInstallerState();
+                setState(() {
+                  _isInstallerMode = false;
+                });
                 Navigator.of(dialogContext).pop();
               },
             ),
@@ -189,7 +194,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   onTap: () async {
                     // Close dialog first
                     Navigator.of(dialogContext).pop();
-                    
+
                     // Perform login
                     final success = await viewModel.loginAgent(
                       agentsList[index]['Username'],
@@ -198,13 +203,16 @@ class _LoginScreenState extends State<LoginScreen> {
 
                     // Handle result using NavigationService
                     if (success) {
+                      // Clear any installer prompt state after agent login success
+                      await viewModel.clearInstallerState();
                       // Navigate to home screen using NavigationService
                       NavigationService.pushAndRemoveUntil(
                         PageRouteBuilder(
-                          pageBuilder: (context, animation, secondaryAnimation) =>
-                              const HomeScreen(),
-                          transitionsBuilder: (context, animation,
-                              secondaryAnimation, child) {
+                          pageBuilder:
+                              (context, animation, secondaryAnimation) =>
+                                  const HomeScreen(),
+                          transitionsBuilder:
+                              (context, animation, secondaryAnimation, child) {
                             const begin = Offset(1.0, 0.0);
                             const end = Offset.zero;
                             const curve = Curves.easeInOut;
@@ -221,8 +229,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     } else {
                       // Show error message safely using a delayed callback
                       Future.delayed(const Duration(milliseconds: 100), () {
-                        if (NavigationService.navigatorKey.currentContext != null) {
-                          ScaffoldMessenger.of(NavigationService.navigatorKey.currentContext!).showSnackBar(
+                        if (NavigationService.navigatorKey.currentContext !=
+                            null) {
+                          ScaffoldMessenger.of(NavigationService
+                                  .navigatorKey.currentContext!)
+                              .showSnackBar(
                             SnackBar(
                               content: Text(
                                 viewModel.error ?? 'Agent login failed',
@@ -262,35 +273,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  void _showSupportDialog() {
-    _logger.i('Opening Support dialog');
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Contact Support'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('For support, please contact:'),
-            const SizedBox(height: 8),
-            const Text('Email: support@crownmicrosolar.com'),
-            const SizedBox(height: 4),
-            const Text('Phone: +1 (555) 123-4567'),
-            const SizedBox(height: 4),
-            const Text('Hours: Mon-Fri, 9AM-5PM EST'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -307,154 +289,157 @@ class _LoginScreenState extends State<LoginScreen> {
             padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 20),
             child: Form(
               key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.max,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 60.0),
-                    Text(
-                      'Welcome Back',
-                      style: theme.textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
+              child: Column(
+                mainAxisSize: MainAxisSize.max,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: 60.0),
+                      Text(
+                        'Welcome Back',
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 15.0),
-                    Text(
-                      'Enter the data below to get a verification code',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                    const SizedBox(height: 20.0),
-                    Text(
-                      'User ID',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 5.0),
-                    AppTextField(
-                      controller: _userIdController,
-                      hintText: 'Azidaniro25',
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter your User ID';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 15.0),
-                    Text(
-                      'Password',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 5.0),
-                    AppTextField(
-                      controller: _passwordController,
-                        hintText: 'Enter your password',
-                      isPassword: true,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter your password';
-                        }
-                        return null;
-                      },
-                    ),
                       const SizedBox(height: 15.0),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Switch(
-                              value: _isInstallerMode,
-                              onChanged: (value) {
-                                setState(() {
-                                  _isInstallerMode = value;
-                                });
-                              },
-                                activeColor: Colors.green,
-                            ),
-                            Text(
-                              'Installer Mode',
-                              style: theme.textTheme.bodyMedium!
-                                  .copyWith(fontWeight: FontWeight.w600),
-                            ),
-                          ],
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.of(context)
-                                .pushNamed(AppRoutes.forgotPassword);
-                          },
-                          child: Text(
-                            'Forgot Password?',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.primary,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                      const SizedBox(height: 20.0),
-                    AppButtons.primaryButton(
-                        horizontalPadding: 0,
-                      context: context,
-                        text: viewModel.isLoading ? 'Logging in...' : 'Login',
-                        onTap: _login,
-                        isLoading: viewModel.isLoading,
-                    ),
-                    const SizedBox(height: 10.0),
-                    AppButtons.primaryButton(
-                      context: context,
-                        onTap: _showWifiConfigDialog,
-                      text: 'Wi-Fi Configuration',
-                      isFilled: false,
-                      textColor: Colors.black,
-                        horizontalPadding: 0,
-                    ),
-                    const SizedBox(height: 10.0),
-                    AppButtons.primaryButton(
-                      context: context,
-                      onTap: () {
-                          Navigator.of(context)
-                              .pushNamed(AppRoutes.registration);
-                      },
-                      text: 'Register',
-                      isFilled: false,
-                      textColor: Colors.black,
-                        horizontalPadding: 0,
-                    ),
-                    const SizedBox(height: 15.0),
-                    TextButton.icon(
-                        onPressed: _showSupportDialog,
-                      icon: Image.asset(
-                          'assets/icons/support.png',
-                        width: 20,
-                        height: 20,
-                      ),
-                      label: Text(
-                        'Contact to Support',
-                        style: theme.textTheme.bodyMedium?.copyWith(
+                      Text(
+                        'Enter the data below to get a verification code',
+                        style: theme.textTheme.titleMedium?.copyWith(
                           color: Colors.grey[600],
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                Padding(
-                  padding: const EdgeInsetsGeometry.symmetric(vertical: 0),
-                  child: Image.asset(
-                    'assets/images/logo_main.png',
-                    height: 80,
+                      const SizedBox(height: 20.0),
+                      Text(
+                        'User ID',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 5.0),
+                      AppTextField(
+                        controller: _userIdController,
+                        hintText: 'Azidaniro25',
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter your User ID';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 15.0),
+                      Text(
+                        'Password',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 5.0),
+                      AppTextField(
+                        controller: _passwordController,
+                        hintText: 'Enter your password',
+                        isPassword: true,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter your password';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 15.0),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Switch(
+                                value: _isInstallerMode,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _isInstallerMode = value;
+                                  });
+                                },
+                                activeColor: Colors.green,
+                              ),
+                              Text(
+                                'Installer Mode',
+                                style: theme.textTheme.bodyMedium!
+                                    .copyWith(fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(context)
+                                  .pushNamed(AppRoutes.forgotPassword);
+                            },
+                            child: Text(
+                              'Forgot Password?',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20.0),
+                      AppButtons.primaryButton(
+                        horizontalPadding: 0,
+                        context: context,
+                        text: viewModel.isLoading ? 'Logging in...' : 'Login',
+                        onTap: _login,
+                        isLoading: viewModel.isLoading,
+                      ),
+                      const SizedBox(height: 10.0),
+                      AppButtons.primaryButton(
+                        context: context,
+                        onTap: _showWifiConfigDialog,
+                        text: 'Wi-Fi Configuration',
+                        isFilled: false,
+                        textColor: Colors.black,
+                        horizontalPadding: 0,
+                      ),
+                      const SizedBox(height: 10.0),
+                      AppButtons.primaryButton(
+                        context: context,
+                        onTap: () {
+                          Navigator.of(context)
+                              .pushNamed(AppRoutes.registration);
+                        },
+                        text: 'Register',
+                        isFilled: false,
+                        textColor: Colors.black,
+                        horizontalPadding: 0,
+                      ),
+                      const SizedBox(height: 15.0),
+                      TextButton.icon(
+                        onPressed: () {
+                          // Redirect to WhatsApp support screen
+                          Navigator.of(context).pushNamed(AppRoutes.whatsapp);
+                        },
+                        icon: Image.asset(
+                          'assets/icons/whatsapp.png',
+                          width: 24,
+                          height: 24,
+                        ),
+                        label: Text(
+                          'Contact via WhatsApp',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: Colors.green[700],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 0),
+                    child: Image.asset(
+                      'assets/images/logo_main.png',
+                      height: 80,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

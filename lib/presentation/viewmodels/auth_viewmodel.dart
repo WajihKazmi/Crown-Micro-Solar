@@ -1,8 +1,5 @@
-import 'package:crown_micro_solar/core/network/api_service.dart';
 import 'package:crown_micro_solar/core/network/api_client.dart';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../models/auth/auth_response_model.dart';
 import '../repositories/auth_repository.dart';
 import '../models/account/account_info_model.dart';
 import '../repositories/account/account_repository.dart';
@@ -19,7 +16,7 @@ class AuthViewModel extends ChangeNotifier {
   String? _userId;
   AccountInfo? _userInfo;
   late final AccountRepository _accountRepository;
-  ApiService _apiService = ApiService();
+  // ApiService is used via ApiClient; direct field removed
   final ApiClient _apiClient = ApiClient();
 
   AuthViewModel(this._repository) {
@@ -83,6 +80,10 @@ class AuthViewModel extends ChangeNotifier {
 
   void setInstallerMode(bool value) {
     _isInstaller = value;
+    if (!value) {
+      // Clearing any lingering installer state when switching off
+      _agentsList = null;
+    }
     notifyListeners();
   }
 
@@ -218,6 +219,8 @@ class AuthViewModel extends ChangeNotifier {
       _agentsList = null;
       _error = null;
       _isLoading = false;
+      _isInstaller = false;
+      _isAgent = false;
 
       // Clear credentials from ApiClient
       _apiClient.setCredentials('', '');
@@ -278,6 +281,13 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> clearInstallerState() async {
+    await _repository.clearInstallerState();
+    _agentsList = null;
+    _isInstaller = false;
+    notifyListeners();
+  }
+
   Future<void> fetchUserInfo() async {
     _userInfo = await _accountRepository.fetchAccountInfo();
     notifyListeners();
@@ -313,5 +323,26 @@ class AuthViewModel extends ChangeNotifier {
 
   Future<bool> verifyOtp(String email, String code) async {
     return await _accountRepository.verifyOtp(email, code);
+  }
+
+  // Add installer code flow
+  Future<bool> addInstallerCode(String code) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final ok = await _accountRepository.addInstallerCode(code);
+      _isLoading = false;
+      if (!ok) {
+        _error = 'Invalid or rejected installer code';
+      }
+      notifyListeners();
+      return ok;
+    } catch (e) {
+      _isLoading = false;
+      _error = e.toString();
+      notifyListeners();
+      return false;
+    }
   }
 }

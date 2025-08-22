@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +13,13 @@ import 'alarm_notification_screen.dart';
 import 'package:crown_micro_solar/core/di/service_locator.dart';
 import 'package:crown_micro_solar/view/home/plant_info_screen.dart';
 import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/overview_graph_view_model.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:intl/intl.dart';
+import 'package:crown_micro_solar/core/services/report_download_service.dart';
+import 'package:crown_micro_solar/presentation/repositories/device_repository.dart';
+import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
+// MetricAggregatorViewModel not directly used here; metric resolution handled via repository.
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -39,7 +45,19 @@ class _HomeScreenState extends State<HomeScreen> {
     _realtimeDataService.start();
 
     // Load initial data
-    _plantViewModel.loadPlants();
+    _plantViewModel.loadPlants().then((_) async {
+      // Preload devices/collectors for the first plant so graphs have device list early
+      if (_plantViewModel.plants.isNotEmpty) {
+        final firstPlantId = _plantViewModel.plants.first.id;
+        try {
+          final deviceVM = getIt<DeviceViewModel>();
+          // Warm up both lists; ignore errors silently here
+          await deviceVM.loadDevicesAndCollectors(firstPlantId);
+          // After devices loaded attempt metric resolution for instantaneous power
+          // Resolution handled inside overview body when it mounts
+        } catch (_) {}
+      }
+    });
     _dashboardViewModel.loadDashboardData();
   }
 
@@ -49,9 +67,8 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     // Reload data when switching to specific tabs
+    // Ensure data loads when switching to devices tab without separate navigation push
     if (index == 2) {
-      // Device tab
-      // Make sure plant data is loaded
       _plantViewModel.loadPlants();
     }
   }
@@ -371,6 +388,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ChangeNotifierProvider.value(value: _dashboardViewModel),
         ChangeNotifierProvider.value(value: _realtimeDataService),
         ChangeNotifierProvider.value(value: deviceViewModel),
+        ChangeNotifierProvider(create: (_) => OverviewGraphViewModel()),
       ],
       child: Scaffold(
         key: PageStorageKey('home_scaffold_$_currentIndex'),
@@ -381,23 +399,53 @@ class _HomeScreenState extends State<HomeScreen> {
                 username: userInfo.usr,
                 email: userInfo.email,
                 onProfileTap: () {
-                  // First close the drawer
                   Navigator.pop(context);
-                  // Then update the current index to show profile
-                  setState(() {
-                    _currentIndex = 3;
-                  });
+                  setState(() => _currentIndex = 3);
                 },
                 onLogout: _onLogout,
                 onNavigate: _onDrawerNavigate,
               ),
-        // For the devices tab, we use DevicesScreen directly
+        appBar: _currentIndex == 2
+            ? AppBar(
+                backgroundColor: Theme.of(context).colorScheme.surface,
+                elevation: 0,
+                leading: Builder(
+                  builder: (context) => BorderedIconButton(
+                    icon: Icons.menu,
+                    onTap: () => Scaffold.of(context).openDrawer(),
+                  ),
+                ),
+                title: const Text('Devices',
+                    style:
+                        TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+                centerTitle: true,
+                actions: [
+                  if (authViewModel.isInstaller)
+                    BorderedIconButton(
+                      icon: Icons.people,
+                      onTap: () => _showUserSwitcherDialog(context),
+                      margin: const EdgeInsets.only(right: 8.0),
+                    ),
+                  BorderedIconButton(
+                    icon: Icons.notifications_none,
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const AlarmNotificationScreen(),
+                        ),
+                      );
+                    },
+                    margin: const EdgeInsets.only(right: 16.0),
+                  ),
+                ],
+              )
+            : null,
         body: _currentIndex == 2
-            ? SafeArea(child: _getBody())
+            ? DevicesScreen(key: const PageStorageKey('devices_screen_body'))
             : CustomScrollView(
                 slivers: [
                   SliverAppBar(
-                    backgroundColor: Colors.transparent,
+                    backgroundColor: Theme.of(context).colorScheme.surface,
                     floating: true,
                     snap: true,
                     pinned: true,
@@ -412,25 +460,18 @@ class _HomeScreenState extends State<HomeScreen> {
                           ? 'Overview'
                           : _currentIndex == 1
                               ? 'Plant Info'
-                              : _currentIndex == 2
-                                  ? 'Devices'
-                                  : _currentIndex == 3
-                                      ? 'Profile'
-                                      : 'Overview',
+                              : _currentIndex == 3
+                                  ? 'Profile'
+                                  : 'Overview',
                       style: const TextStyle(
-                          color: Colors.black,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 20),
+                          fontWeight: FontWeight.bold, fontSize: 20),
                     ),
                     centerTitle: true,
                     actions: [
                       if (authViewModel.isInstaller)
                         BorderedIconButton(
                           icon: Icons.people,
-                          onTap: () {
-                            // Show user switcher dialog
-                            _showUserSwitcherDialog(context);
-                          },
+                          onTap: () => _showUserSwitcherDialog(context),
                           margin: const EdgeInsets.only(right: 8.0),
                         ),
                       BorderedIconButton(
@@ -447,9 +488,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ],
                   ),
-                  SliverToBoxAdapter(
-                    child: _getBody(),
-                  ),
+                  SliverToBoxAdapter(child: _getBody()),
                 ],
               ),
         bottomNavigationBar: AppBottomNavBar(
@@ -462,13 +501,105 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // Extracted overview content to a new widget for cleaner switching
-class _OverviewBody extends StatelessWidget {
+class _OverviewBody extends StatefulWidget {
   const _OverviewBody({Key? key}) : super(key: key);
   @override
+  State<_OverviewBody> createState() => _OverviewBodyState();
+}
+
+class _OverviewBodyState extends State<_OverviewBody> {
+  GraphMetric _selectedMetric = GraphMetric.outputPower;
+  GraphPeriod _selectedPeriod = GraphPeriod.day;
+  bool _initialized = false;
+  // Metric resolution state (moved from parent)
+  double? _resolvedCurrentPowerKw;
+  bool _resolvingMetrics = false;
+  // Removed aggregate Load/Grid/Battery cards per request (only in device detail)
+
+  Future<void> _resolveCurrentPower(String plantId) async {
+    if (_resolvingMetrics) return;
+    _resolvingMetrics = true;
+    try {
+      final deviceRepo = getIt<DeviceRepository>();
+      final bundle = await deviceRepo.getDevicesAndCollectors(plantId);
+      final devices = (bundle['allDevices'] as List?) ?? [];
+      // New unified aggregation: prioritize energy flow -> paging -> key parameter resolution
+      // Device objects already typed; ensure list is List<Device>
+      final typedDevices = devices.cast<Device>();
+      final sumW = await deviceRepo.aggregateCurrentPvPowerWatts(typedDevices);
+      if (mounted) {
+        setState(() {
+          _resolvedCurrentPowerKw = sumW > 0 ? sumW / 1000.0 : null;
+        });
+      }
+    } catch (_) {
+      // ignore errors silently
+    } finally {
+      _resolvingMetrics = false;
+    }
+  }
+
+  // Aggregate card resolver removed.
+
+  String _formatDate(DateTime d) {
+    // New readable format per request: e.g. 12 Aug 2025
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
+    return '${d.day.toString().padLeft(2, '0')} ${months[d.month - 1]} ${d.year}';
+  }
+
+  String _formatMonth(DateTime d) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
+    return '${months[d.month - 1]} ${d.year}';
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // No-op: we'll react to PlantViewModel updates inside build via Consumer
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Consumer3<PlantViewModel, DashboardViewModel, RealtimeDataService>(
+    return Consumer5<PlantViewModel, DashboardViewModel, RealtimeDataService,
+        OverviewGraphViewModel, DeviceViewModel>(
       builder: (context, plantViewModel, dashboardViewModel, realtimeService,
-          child) {
+          graphVM, deviceVM, child) {
+        // Trigger graph preloading once plants are available
+        if (!_initialized && plantViewModel.plants.isNotEmpty) {
+          _initialized = true;
+          // Defer to next microtask to avoid doing async work mid-build
+          final firstId = plantViewModel.plants.first.id;
+          Future.microtask(() async {
+            await graphVM.init(firstId);
+            await _resolveCurrentPower(firstId);
+          });
+        }
         if (plantViewModel.isLoading || dashboardViewModel.isLoading) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -478,23 +609,36 @@ class _OverviewBody extends StatelessWidget {
         if (dashboardViewModel.error != null) {
           return Center(child: Text('Error: ${dashboardViewModel.error}'));
         }
-        // Use real-time data if available, otherwise fall back to plant view model data
+        // Use real-time data if available
         final plants = realtimeService.plants.isNotEmpty
             ? realtimeService.plants
             : plantViewModel.plants;
-        final totalOutput = realtimeService.totalCurrentPower > 0
-            ? realtimeService.totalCurrentPower
-            : 0.0; // No fallback, use zero
-        final totalCapacity =
-            plants.fold<double>(0, (sum, p) => sum + p.capacity);
+        // Installed capacity should match Plant Info's Installed Capacity (first plant)
+        final installedCapacity =
+            plants.isNotEmpty ? plants.first.capacity : 0.0;
+        // Current power generation: prefer resolved metric sum, then realtime service, then legacy per-device sum
+        double devicesSumLegacy = 0.0;
+        if (deviceVM.allDevices.isNotEmpty) {
+          for (final d in deviceVM.allDevices) {
+            devicesSumLegacy +=
+                (d.currentPower.isFinite ? d.currentPower : 0.0);
+          }
+        }
+        final totalOutput = _resolvedCurrentPowerKw != null
+            ? _resolvedCurrentPowerKw! *
+                1000 // convert kW back to W for consistency below then format
+            : (realtimeService.totalCurrentPower > 0
+                ? realtimeService.totalCurrentPower
+                : (devicesSumLegacy > 0 ? devicesSumLegacy : 0.0));
+        final totalCapacity = installedCapacity; // keep old name for UI below
         final totalPlants = plants.length;
         // You can add more aggregations as needed
         return SingleChildScrollView(
           child: Column(
             children: [
               Container(
-                margin: const EdgeInsets.all(10),
-                height: 360, // Fixed height for consistent layout
+                margin: const EdgeInsets.fromLTRB(10, 10, 10, 0),
+                height: 370, // Slightly taller to allow added spacing
                 // decoration: BoxDecoration(
                 //   color: const Color(0xFFFFEBEE),
                 //   borderRadius: BorderRadius.circular(24),
@@ -542,7 +686,9 @@ class _OverviewBody extends StatelessWidget {
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 10),
+                              const SizedBox(
+                                  height:
+                                      22), // extra padding between image top content and cards
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -553,11 +699,14 @@ class _OverviewBody extends StatelessWidget {
                                       children: [
                                         _InfoCard(
                                           icon: 'assets/icons/home/thunder.svg',
-                                          label: 'Total Output Power',
-                                          value: totalOutput.toStringAsFixed(1),
-                                          unit: 'KWH',
+                                          label: 'Current Power Generation',
+                                          value: (totalOutput / 1000)
+                                              .toStringAsFixed(1),
+                                          unit: 'kW',
                                         ),
-                                        const SizedBox(height: 12),
+                                        const SizedBox(
+                                            height:
+                                                18), // increased vertical gap between stacked cards
                                         _InfoCard(
                                           icon:
                                               'assets/icons/home/capacity.svg',
@@ -566,6 +715,9 @@ class _OverviewBody extends StatelessWidget {
                                               totalCapacity.toStringAsFixed(1),
                                           unit: 'KW',
                                         ),
+                                        const SizedBox(height: 18),
+                                        // Removed duplicate card per request: previously 'Total Daily Generation'
+                                        const SizedBox(height: 18),
                                       ],
                                     ),
                                   ),
@@ -594,20 +746,28 @@ class _OverviewBody extends StatelessWidget {
                                               MainAxisAlignment.center,
                                           children: [
                                             Text(
-                                                totalOutput > 0
-                                                    ? totalOutput
-                                                        .toStringAsFixed(2)
-                                                    : "0.00",
-                                                style: const TextStyle(
-                                                    fontSize: 27,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: Color(0xFFE53935))),
-                                            const Text('KW',
-                                                style: TextStyle(
-                                                    fontSize: 16,
-                                                    color: Color(0xFFE53935),
-                                                    fontWeight:
-                                                        FontWeight.bold)),
+                                              totalOutput > 0
+                                                  ? (totalOutput / 1000)
+                                                      .toStringAsFixed(2)
+                                                  : "0.00",
+                                              style: TextStyle(
+                                                fontSize: 27,
+                                                fontWeight: FontWeight.bold,
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .primary,
+                                              ),
+                                            ),
+                                            Text(
+                                              'kW',
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .primary,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
                                             const SizedBox(height: 4),
                                             const Text(
                                               'Current Power\n Generation',
@@ -636,6 +796,7 @@ class _OverviewBody extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(height: 16),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 25),
                 child: Row(
@@ -663,45 +824,186 @@ class _OverviewBody extends StatelessWidget {
                   ],
                 ),
               ),
-              // Dropdown
+              // Removed Load/Grid/Battery cards per request
+              // Combined parameter dropdown + period chips row
               Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 4,
-                        offset: Offset(0, 2),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Parameter dropdown (full width)
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black12,
+                            blurRadius: 4,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      padding: EdgeInsets.symmetric(horizontal: 20),
-                      value: 'OUTPUT_POWER',
-                      items: [
-                        DropdownMenuItem(
-                          value: 'OUTPUT_POWER',
-                          child: Text('Output Power'),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          value: _selectedMetric.name,
+                          isExpanded: true,
+                          icon: const Icon(Icons.keyboard_arrow_down),
+                          items: [
+                            DropdownMenuItem(
+                                value: GraphMetric.outputPower.name,
+                                child: const Text('Output Power')),
+                            DropdownMenuItem(
+                                value: GraphMetric.loadPower.name,
+                                child: const Text('Load Power')),
+                            DropdownMenuItem(
+                                value: GraphMetric.gridPower.name,
+                                child: const Text('Grid Power')),
+                            DropdownMenuItem(
+                                value: GraphMetric.gridVoltage.name,
+                                child: const Text('Grid Voltage')),
+                            DropdownMenuItem(
+                                value: GraphMetric.gridFrequency.name,
+                                child: const Text('Grid Frequency')),
+                            DropdownMenuItem(
+                                value: GraphMetric.pvInputVoltage.name,
+                                child: const Text('PV Input Voltage')),
+                            DropdownMenuItem(
+                                value: GraphMetric.pvInputCurrent.name,
+                                child: const Text('PV Input Current')),
+                            DropdownMenuItem(
+                                value: GraphMetric.acOutputVoltage.name,
+                                child: const Text('AC Output Voltage')),
+                            DropdownMenuItem(
+                                value: GraphMetric.acOutputCurrent.name,
+                                child: const Text('AC Output Current')),
+                            DropdownMenuItem(
+                                value: GraphMetric.batterySoc.name,
+                                child: const Text('Battery SOC')),
+                          ],
+                          onChanged: (value) async {
+                            if (value == null) return;
+                            final plantId = plantViewModel.plants.isNotEmpty
+                                ? plantViewModel.plants.first.id
+                                : null;
+                            if (plantId == null) return;
+                            setState(() {
+                              _selectedMetric = GraphMetric.values
+                                  .firstWhere((e) => e.name == value);
+                            });
+                            await graphVM.setMetric(_selectedMetric,
+                                plantId: plantId);
+                          },
                         ),
-                        DropdownMenuItem(
-                          value: 'GRID_VOLTAGE',
-                          child: Text('Grid Voltage'),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // Device selection dropdown
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black12,
+                            blurRadius: 4,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          value: graphVM.selectedDeviceKey ?? '__ALL__',
+                          isExpanded: true,
+                          icon: const Icon(Icons.keyboard_arrow_down),
+                          items: [
+                            const DropdownMenuItem(
+                                value: '__ALL__', child: Text('All Devices')),
+                            ...graphVM.deviceOptions
+                                .map((d) => DropdownMenuItem(
+                                      value: d.key,
+                                      child: Text(d.label),
+                                    ))
+                          ],
+                          onChanged: (val) async {
+                            if (val == null) return;
+                            final plantId = plantViewModel.plants.isNotEmpty
+                                ? plantViewModel.plants.first.id
+                                : null;
+                            if (plantId == null) return;
+                            if (val == '__ALL__') {
+                              await graphVM.setSelectedDevice('',
+                                  plantId: plantId);
+                            } else {
+                              await graphVM.setSelectedDevice(val,
+                                  plantId: plantId);
+                            }
+                            final allowed =
+                                graphVM.allowedMetricsForSelectedDevice;
+                            if (!allowed.contains(_selectedMetric)) {
+                              setState(() {
+                                _selectedMetric = allowed.first;
+                              });
+                              await graphVM.setMetric(_selectedMetric,
+                                  plantId: plantId);
+                            }
+                          },
                         ),
-                        DropdownMenuItem(
-                          value: 'GRID_FREQUENCY',
-                          child: Text('Grid Frequency'),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // Period chips stacked below
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Day'),
+                          selected: _selectedPeriod == GraphPeriod.day,
+                          onSelected: (s) async {
+                            if (!s) return;
+                            final plantId = plantViewModel.plants.isNotEmpty
+                                ? plantViewModel.plants.first.id
+                                : null;
+                            if (plantId == null) return;
+                            setState(() => _selectedPeriod = GraphPeriod.day);
+                            await graphVM.setPeriod(GraphPeriod.day,
+                                plantId: plantId);
+                          },
+                        ),
+                        ChoiceChip(
+                          label: const Text('Month'),
+                          selected: _selectedPeriod == GraphPeriod.month,
+                          onSelected: (s) async {
+                            if (!s) return;
+                            final plantId = plantViewModel.plants.isNotEmpty
+                                ? plantViewModel.plants.first.id
+                                : null;
+                            if (plantId == null) return;
+                            setState(() => _selectedPeriod = GraphPeriod.month);
+                            await graphVM.setPeriod(GraphPeriod.month,
+                                plantId: plantId);
+                          },
+                        ),
+                        ChoiceChip(
+                          label: const Text('Year'),
+                          selected: _selectedPeriod == GraphPeriod.year,
+                          onSelected: (s) async {
+                            if (!s) return;
+                            final plantId = plantViewModel.plants.isNotEmpty
+                                ? plantViewModel.plants.first.id
+                                : null;
+                            if (plantId == null) return;
+                            setState(() => _selectedPeriod = GraphPeriod.year);
+                            await graphVM.setPeriod(GraphPeriod.year,
+                                plantId: plantId);
+                          },
                         ),
                       ],
-                      onChanged: (value) {},
-                      isExpanded: true,
-                      icon: Icon(Icons.keyboard_arrow_down),
                     ),
-                  ),
+                  ],
                 ),
               ),
               // Date Selector
@@ -711,11 +1013,62 @@ class _OverviewBody extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Icon(Icons.arrow_left, color: Colors.black54),
-                    Text('June 2024',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 16)),
-                    Icon(Icons.arrow_right, color: Colors.black54),
+                    IconButton(
+                      icon: Icon(Icons.arrow_left, color: Colors.black54),
+                      onPressed: () async {
+                        final plantId = plantViewModel.plants.isNotEmpty
+                            ? plantViewModel.plants.first.id
+                            : null;
+                        if (plantId == null) return;
+                        await graphVM.stepDate(-1, plantId: plantId);
+                      },
+                    ),
+                    Text(
+                      _selectedPeriod == GraphPeriod.day
+                          ? _formatDate(graphVM.anchor)
+                          : _selectedPeriod == GraphPeriod.month
+                              ? _formatMonth(graphVM.anchor)
+                              : graphVM.anchor.year.toString(),
+                      style:
+                          TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    Builder(builder: (context) {
+                      final now = DateTime.now();
+                      bool canGoNext;
+                      switch (_selectedPeriod) {
+                        case GraphPeriod.day:
+                          final today = DateTime(now.year, now.month, now.day);
+                          final anchorDay = DateTime(graphVM.anchor.year,
+                              graphVM.anchor.month, graphVM.anchor.day);
+                          canGoNext = anchorDay.isBefore(today);
+                          break;
+                        case GraphPeriod.month:
+                          final thisMonth = DateTime(now.year, now.month, 1);
+                          final anchorMonth = DateTime(
+                              graphVM.anchor.year, graphVM.anchor.month, 1);
+                          canGoNext = anchorMonth.isBefore(thisMonth);
+                          break;
+                        case GraphPeriod.year:
+                          final thisYear = DateTime(now.year, 1, 1);
+                          final anchorYear =
+                              DateTime(graphVM.anchor.year, 1, 1);
+                          canGoNext = anchorYear.isBefore(thisYear);
+                          break;
+                      }
+                      return IconButton(
+                        icon: Icon(Icons.arrow_right,
+                            color: canGoNext ? Colors.black54 : Colors.black26),
+                        onPressed: canGoNext
+                            ? () async {
+                                final plantId = plantViewModel.plants.isNotEmpty
+                                    ? plantViewModel.plants.first.id
+                                    : null;
+                                if (plantId == null) return;
+                                await graphVM.stepDate(1, plantId: plantId);
+                              }
+                            : null,
+                      );
+                    }),
                   ],
                 ),
               ),
@@ -724,7 +1077,8 @@ class _OverviewBody extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Container(
-                  height: 180,
+                  // Increased height per request to make graph bigger
+                  height: 320,
                   width: double.infinity,
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -739,32 +1093,11 @@ class _OverviewBody extends StatelessWidget {
                   ),
                   child: Stack(
                     children: [
-                      // Placeholder for chart SVG
-                      // Center(
-                      //   child: SvgPicture.asset('assets/icons/home/chart.svg',
-                      //       height: 120),
-                      // ),
-                      // Add Datalogger Button
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 16,
-                        child: Center(
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Color(0xFFE53935),
-                              shape: StadiumBorder(),
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: 24, vertical: 10),
-                            ),
-                            onPressed: () {},
-                            child: Text('+ Add Datalogger',
-                                style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold)),
-                          ),
-                        ),
+                      // Chart rendering
+                      Positioned.fill(
+                        child: _OverviewChart(state: graphVM.state),
                       ),
+                      // Removed '+ Add Datalogger' button for a cleaner chart card per Figma
                     ],
                   ),
                 ),
@@ -777,6 +1110,265 @@ class _OverviewBody extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+class _OverviewChart extends StatelessWidget {
+  final OverviewGraphState state;
+  const _OverviewChart({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    if (state.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (state.error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Text(
+            state.error!,
+            style: const TextStyle(color: Colors.red),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+    if (state.labels.isEmpty || state.series.isEmpty) {
+      return const Center(child: Text('No data'));
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 8, right: 8, top: 8, bottom: 56),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Removed time legend row per request
+          Expanded(child: _LineChart(state: state)),
+        ],
+      ),
+    );
+  }
+}
+
+class _LineChart extends StatelessWidget {
+  final OverviewGraphState state;
+  const _LineChart({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    // Avoid heavy import in this file: use fl_chart types lazily via import at top of file
+    final theme = Theme.of(context);
+    final Color lineColor = theme.colorScheme.primary;
+
+    // Detect daily by label style (24 entries like 00:00)
+    final bool isDaily = state.labels.length == 24 &&
+        (state.labels.first.contains(':') || state.labels.last.contains(':'));
+
+    final double minY = state.min;
+    final double maxY = state.max == state.min ? state.min + 1 : state.max;
+    // range not needed with hidden left axis
+    // Choose up to 5 horizontal ticks (min + 3 intervals + max)
+    // interval no longer needed since left axis labels removed
+
+    // Custom bottom tick strategy: day => 12AM, 6AM, 12PM, 6PM; month => 1, 15, last; year => Jan, Jun, Dec.
+    return LineChart(
+      LineChartData(
+        minY: minY,
+        maxY: maxY,
+        backgroundColor: Colors.transparent,
+        borderData: FlBorderData(
+            show: true,
+            border: Border(
+                left:
+                    BorderSide(color: Colors.black.withOpacity(.15), width: 1),
+                bottom:
+                    BorderSide(color: Colors.black.withOpacity(.15), width: 1),
+                right: const BorderSide(color: Colors.transparent),
+                top: const BorderSide(color: Colors.transparent))),
+        gridData: FlGridData(
+            show: true,
+            drawVerticalLine: true,
+            drawHorizontalLine: true,
+            getDrawingHorizontalLine: (v) =>
+                FlLine(color: Colors.black.withOpacity(.04), strokeWidth: 1),
+            getDrawingVerticalLine: (v) =>
+                FlLine(color: Colors.black.withOpacity(.04), strokeWidth: 1)),
+        titlesData: FlTitlesData(
+            leftTitles:
+                const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles:
+                const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles:
+                const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            bottomTitles: AxisTitles(
+                sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 30,
+                    interval: isDaily ? 360 : 1,
+                    getTitlesWidget: (value, meta) {
+                      String text = '';
+                      if (isDaily) {
+                        final minute = value.round();
+                        if (minute == 0)
+                          text = '12AM';
+                        else if (minute == 360)
+                          text = '6AM';
+                        else if (minute == 720)
+                          text = '12PM';
+                        else if (minute == 1080) text = '6PM';
+                      } else {
+                        final len = state.labels.length;
+                        if (len == 0) return const SizedBox.shrink();
+                        final idx = value.round();
+                        if (len == 12) {
+                          // Year view (12 months)
+                          if (idx == 0)
+                            text = state.labels.first; // Jan
+                          else if (idx == 5)
+                            text = state.labels[5]; // Jun
+                          else if (idx == 11) text = state.labels.last; // Dec
+                        } else {
+                          // Month view (days)
+                          final lastIdx = len - 1;
+                          // Always show day 1
+                          if (idx == 0)
+                            text = state.labels.first; // 1
+                          // Middle (15th) if exists
+                          else if (int.tryParse(state.labels[idx]) == 15) {
+                            text = '15';
+                          } else if (idx == lastIdx) {
+                            text = state.labels.last; // 30/31/28/29
+                          }
+                        }
+                      }
+                      if (text.isEmpty) return const SizedBox.shrink();
+                      return Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(text,
+                              style: const TextStyle(
+                                  fontSize: 10, color: Colors.black54)));
+                    }))),
+        lineTouchData: LineTouchData(
+          enabled: true,
+          touchTooltipData: LineTouchTooltipData(
+            tooltipBgColor: Colors.white,
+            fitInsideHorizontally: true,
+            fitInsideVertically: true,
+            tooltipPadding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            getTooltipItems: (items) => items.map((it) {
+              String label;
+              if (isDaily) {
+                int minute = it.x.round();
+                if (minute < 0) minute = 0;
+                if (minute > 1439) minute = 1439;
+                final h = minute ~/ 60;
+                final m = minute % 60;
+                final hour12 = ((h + 11) % 12) + 1;
+                final ampm = h < 12 ? 'AM' : 'PM';
+                label =
+                    '${hour12.toString()}:${m.toString().padLeft(2, '0')} $ampm';
+              } else {
+                final len = state.labels.length;
+                int idx = it.x.round();
+                if (idx < 0)
+                  idx = 0;
+                else if (idx >= len) idx = len - 1;
+                label = len > 0 ? state.labels[idx] : '';
+              }
+              return LineTooltipItem(
+                '$label\n${it.y.toStringAsFixed(1)} ${state.unit}',
+                const TextStyle(color: Colors.black),
+              );
+            }).toList(),
+          ),
+        ),
+        minX: 0,
+        maxX: isDaily ? 1439 : null,
+        lineBarsData: state.series.map((s) {
+          final spots = isDaily
+              ? _spotsDailyPerMinute(s.data)
+              : _upsampleSpots(s.data, 16);
+          return LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            curveSmoothness: 0.36,
+            color: lineColor,
+            barWidth: 2,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(
+              show: true,
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  lineColor.withOpacity(0.30),
+                  lineColor.withOpacity(0.10),
+                  Colors.transparent,
+                ],
+                stops: const [0.0, 0.55, 1.0],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // Daily per-minute linear interpolation (24 points -> 1440 spots)
+  List<FlSpot> _spotsDailyPerMinute(List<double> hourly) {
+    if (hourly.isEmpty) return const <FlSpot>[];
+    if (hourly.length == 1) {
+      // flat line across a day
+      return List<FlSpot>.generate(
+          1440, (i) => FlSpot(i.toDouble(), hourly.first));
+    }
+    final spots = <FlSpot>[];
+    for (int h = 0; h < hourly.length - 1; h++) {
+      final y0 = hourly[h];
+      final y1 = hourly[h + 1];
+      // minutes within the hour: 0..59
+      for (int m = 0; m < 60; m++) {
+        final r = m / 60.0;
+        final y = y0 + (y1 - y0) * r;
+        final x = h * 60 + m;
+        spots.add(FlSpot(x.toDouble(), y));
+      }
+    }
+    // Add last minute of the day
+    spots.add(FlSpot(1439, hourly.last));
+    return spots;
+  }
+
+  // Linear interpolation upsampling: inserts (factor-1) points between each pair
+  List<FlSpot> _upsampleSpots(List<double> data, int factor) {
+    if (data.isEmpty) return const <FlSpot>[];
+    if (data.length == 1 || factor <= 1) {
+      return List<FlSpot>.generate(
+        data.length,
+        (i) => FlSpot(i.toDouble(), data[i]),
+      );
+    }
+    final spots = <FlSpot>[];
+    for (int i = 0; i < data.length - 1; i++) {
+      final x0 = i.toDouble();
+      final y0 = data[i];
+      final x1 = (i + 1).toDouble();
+      final y1 = data[i + 1];
+      // include start point
+      spots.add(FlSpot(x0, y0));
+      // add intermediate points (exclude the end to avoid duplicates)
+      for (int t = 1; t < factor; t++) {
+        final r = t / factor;
+        final xr = x0 + (x1 - x0) * r;
+        final yr = y0 + (y1 - y0) * r; // linear interp
+        spots.add(FlSpot(xr, yr));
+      }
+    }
+    // add last original point
+    spots.add(FlSpot((data.length - 1).toDouble(), data.last));
+    return spots;
   }
 }
 
@@ -982,7 +1574,264 @@ class AppDrawer extends StatelessWidget {
                 _DrawerItem(
                   icon: 'assets/icons/deviceDataDownload.svg',
                   label: 'Real-time Device Data',
-                  onTap: () {},
+                  onTap: () {
+                    final rootContext = context;
+                    // Show full report dialog with collector picker
+                    showDialog(
+                      context: context,
+                      barrierDismissible: true,
+                      builder: (ctx) {
+                        final deviceVM = Provider.of<DeviceViewModel>(context);
+                        final plantVM = Provider.of<PlantViewModel>(context);
+                        // If collectors are empty, trigger load (only once)
+                        if (deviceVM.collectors.isEmpty &&
+                            plantVM.plants.isNotEmpty &&
+                            !deviceVM.isLoading) {
+                          deviceVM.loadDevicesAndCollectors(
+                              plantVM.plants.first.id);
+                        }
+
+                        CollectorReportRange range = CollectorReportRange.daily;
+                        DateTime anchorDate = DateTime.now();
+                        String? selectedCollectorPn =
+                            deviceVM.collectors.isNotEmpty
+                                ? deviceVM.collectors.first['pn']?.toString()
+                                : null;
+
+                        return Dialog(
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16)),
+                          child: StatefulBuilder(
+                            builder: (context, setState) {
+                              Widget rangeChip(
+                                  CollectorReportRange r, String label) {
+                                final selected = range == r;
+                                return Expanded(
+                                  child: InkWell(
+                                    onTap: () => setState(() => range = r),
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Container(
+                                      margin: const EdgeInsets.all(6),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: selected
+                                            ? Colors.white
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(10),
+                                        boxShadow: selected
+                                            ? [
+                                                BoxShadow(
+                                                  color: Colors.black
+                                                      .withOpacity(0.06),
+                                                  blurRadius: 6,
+                                                  offset: const Offset(0, 2),
+                                                )
+                                              ]
+                                            : null,
+                                      ),
+                                      child: Text(
+                                        label,
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          color: selected
+                                              ? Colors.black
+                                              : Colors.black54,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              String formatDate(
+                                  CollectorReportRange r, DateTime d) {
+                                switch (r) {
+                                  case CollectorReportRange.daily:
+                                    return DateFormat('yyyy/MM/dd').format(d);
+                                  case CollectorReportRange.monthly:
+                                    return DateFormat('yyyy/MM').format(d);
+                                  case CollectorReportRange.yearly:
+                                    return DateFormat('yyyy').format(d);
+                                }
+                              }
+
+                              Future<void> onDownload() async {
+                                if (selectedCollectorPn == null ||
+                                    selectedCollectorPn!.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content: Text(
+                                            'No collector available to export')),
+                                  );
+                                  return;
+                                }
+                                try {
+                                  final service = ReportDownloadService();
+                                  await service.downloadFullReportByCollector(
+                                    collectorPn: selectedCollectorPn!,
+                                    range: range,
+                                    anchorDate: anchorDate,
+                                  );
+                                  Navigator.of(context).pop();
+                                  ScaffoldMessenger.of(rootContext)
+                                      .showSnackBar(
+                                    const SnackBar(
+                                        content:
+                                            Text('Report download started')),
+                                  );
+                                } catch (e) {
+                                  ScaffoldMessenger.of(rootContext)
+                                      .showSnackBar(
+                                    SnackBar(
+                                        content:
+                                            Text('Failed to download: $e')),
+                                  );
+                                }
+                              }
+
+                              return Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Download Full Report',
+                                      style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    // Collector dropdown or loading/message
+                                    if (deviceVM.isLoading)
+                                      const Center(
+                                          child: CircularProgressIndicator())
+                                    else if (deviceVM.collectors.isEmpty)
+                                      const Text(
+                                          'No collectors available for this plant.',
+                                          style: TextStyle(color: Colors.red))
+                                    else
+                                      InputDecorator(
+                                        decoration: InputDecoration(
+                                          labelText: 'Collector',
+                                          border: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                          ),
+                                        ),
+                                        child: DropdownButtonHideUnderline(
+                                          child: DropdownButton<String>(
+                                            isExpanded: true,
+                                            value: selectedCollectorPn,
+                                            hint: const Text(
+                                                'Select a collector (PN)'),
+                                            items: deviceVM.collectors
+                                                .map((c) => DropdownMenuItem(
+                                                      value:
+                                                          c['pn']?.toString(),
+                                                      child: Text(
+                                                        (c['alias']
+                                                                    ?.toString()
+                                                                    .isNotEmpty ==
+                                                                true
+                                                            ? c['alias']
+                                                                .toString()
+                                                            : c['pn']
+                                                                .toString()),
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                    ))
+                                                .toList(),
+                                            onChanged: (v) => setState(
+                                                () => selectedCollectorPn = v),
+                                          ),
+                                        ),
+                                      ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        rangeChip(CollectorReportRange.daily,
+                                            'Daily'),
+                                        rangeChip(CollectorReportRange.monthly,
+                                            'Monthly'),
+                                        rangeChip(CollectorReportRange.yearly,
+                                            'Yearly'),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    GestureDetector(
+                                      onTap: () async {
+                                        final picked = await showDatePicker(
+                                          context: context,
+                                          initialDate: anchorDate,
+                                          firstDate: DateTime(2020),
+                                          lastDate: DateTime.now(),
+                                        );
+                                        if (picked != null) {
+                                          setState(() => anchorDate = picked);
+                                        }
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 12, vertical: 14),
+                                        decoration: BoxDecoration(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          border: Border.all(
+                                              color: const Color(0xFFE0E0E0)),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.calendar_today,
+                                                size: 18, color: Colors.red),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                formatDate(range, anchorDate),
+                                                style: const TextStyle(
+                                                    fontSize: 14),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.end,
+                                      children: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.of(context).pop(),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor:
+                                                const Color(0xFFE53935),
+                                            foregroundColor: Colors.white,
+                                          ),
+                                          onPressed:
+                                              deviceVM.collectors.isNotEmpty
+                                                  ? onDownload
+                                                  : null,
+                                          child: const Text('Download'),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        );
+                      },
+                    );
+                  },
                 ),
                 _DrawerItem(
                   icon: 'assets/icons/contact.svg',

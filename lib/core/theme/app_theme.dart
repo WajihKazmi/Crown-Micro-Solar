@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
-// Define the primary color based on the screenshot (a shade of red/pink)
-const Color customPrimaryColor = Color(0xFFEE3338);
+// Base default primary color
+// ignore: constant_identifier_names
+const Color _BASE_PRIMARY = Color(0xFFEE3338);
 
-// Create a MaterialColor from the custom primary color
+// Material swatch (kept for potential uses like charts / shades)
 const MaterialColor primaryRed = MaterialColor(
   0xFFEE3338,
   <int, Color>{
@@ -21,93 +22,104 @@ const MaterialColor primaryRed = MaterialColor(
 );
 
 class AppTheme {
-  static ThemeData get lightTheme {
-    return ThemeData(
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: customPrimaryColor,
-        brightness: Brightness.light,
-        primary: customPrimaryColor,
-        // Use this color for elevated buttons, focused states, etc.
-        primaryContainer: primaryRed[100], // A lighter shade for containers
-        secondary:
-            Colors.grey[300], // Assuming a light grey from the screenshot
-        onSecondary: Colors.black87, // Text on secondary
-        background: Colors.white, // White background from screenshot
-        surface: Colors.white, // White surface for cards, etc.
-        onPrimary: Colors.white, // Text color on primary (buttons)
-        onBackground: Colors.black87, // Text color on background
-        onSurface: Colors.black87, // Text color on surface
-        error: Colors.redAccent, // Default error color
-        onError: Colors.white,
-      ),
-      useMaterial3: true,
-      appBarTheme: const AppBarTheme(
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.black,
-      ),
-      buttonTheme: const ButtonThemeData(
-        buttonColor: customPrimaryColor,
-        textTheme: ButtonTextTheme.primary,
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: customPrimaryColor, // Button background color
-          foregroundColor: Colors.white, // Button text color
-        ),
-      ),
-      dialogTheme: const DialogThemeData(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        elevation: 8,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(12)),
-        ),
-      ),
-      fontFamily: 'Manrope',
-      // Add other theme customizations here based on your design
-      // inputDecorationTheme: ...,
-      // textTheme: ...,
-    );
-  }
+  static const Color basePrimary = _BASE_PRIMARY;
 
-  static ThemeData get darkTheme {
-    return ThemeData(
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: customPrimaryColor,
-        brightness: Brightness.dark,
-        primary: customPrimaryColor, // Use the custom color in dark mode too
-        primaryContainer: primaryRed[900], // A darker shade for containers
-        secondary: Colors.grey[700], // Assuming a dark grey
-        onSecondary: Colors.white70, // Text on secondary
-        background: Colors.black, // Black background for dark mode
-        surface: Colors.grey[900], // Dark surface for cards, etc.
-        onPrimary: Colors.white, // Text color on primary
-        onBackground: Colors.white70, // Text color on background
-        onSurface: Colors.white70, // Text color on surface
-        error: Colors.redAccent, // Default error color
-        onError: Colors.black,
-      ),
-      useMaterial3: true,
-      appBarTheme: const AppBarTheme(
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.white,
-      ),
-      buttonTheme: const ButtonThemeData(
-        buttonColor: customPrimaryColor,
-        textTheme: ButtonTextTheme.primary,
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: customPrimaryColor, // Button background color
-          foregroundColor: Colors.white, // Button text color
+  static ThemeData buildLightWithPrimary(Color primary) => ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: primary,
+          brightness: Brightness.light,
+          primary: primary,
+          primaryContainer: primary.withOpacity(0.12),
+          secondary: Colors.grey[300],
+          onSecondary: Colors.black87,
+          background: Colors.white,
+          surface: Colors.white,
+          onPrimary: Colors.white,
+          onBackground: Colors.black87,
+          onSurface: Colors.black87,
+          error: Colors.redAccent,
+          onError: Colors.white,
         ),
-      ),
-      fontFamily: 'Manrope',
-      // Add other dark theme customizations here based on your design
-    );
-  }
+        useMaterial3: true,
+        appBarTheme: const AppBarTheme(
+          centerTitle: true,
+          elevation: 0,
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black,
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: primary,
+            foregroundColor: Colors.white,
+          ),
+        ),
+        dialogTheme: const DialogThemeData(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+          elevation: 8,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+          ),
+        ),
+        fontFamily: 'Manrope',
+      );
+
+  static ThemeData get lightTheme => buildLightWithPrimary(basePrimary);
+
+  // Dark theme kept (unused in picker now) so existing MaterialApp.darkTheme still valid.
+  static ThemeData get darkTheme => ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF1A1D21),
+        colorScheme: ColorScheme(
+          brightness: Brightness.dark,
+          primary: basePrimary,
+          onPrimary: Colors.white,
+          secondary: const Color(0xFF262B30),
+          onSecondary: Colors.white,
+          error: Colors.redAccent,
+          onError: Colors.white,
+          background: const Color(0xFF1A1D21),
+          onBackground: Colors.white.withOpacity(0.95),
+          surface: const Color(0xFF1F2428),
+          onSurface: Colors.white.withOpacity(0.94),
+          primaryContainer: const Color(0xFF45181A),
+          onPrimaryContainer: Colors.white,
+          secondaryContainer: const Color(0xFF2C3136),
+          onSecondaryContainer: Colors.white,
+          outline: Colors.white24,
+          outlineVariant: Colors.white10,
+          tertiary: basePrimary,
+          onTertiary: Colors.white,
+          tertiaryContainer: const Color(0xFF30353A),
+          onTertiaryContainer: Colors.white,
+          surfaceVariant: const Color(0xFF252A2F),
+          inverseSurface: Colors.white,
+          inversePrimary: primaryRed[100]!,
+          shadow: Colors.black,
+          scrim: Colors.black54,
+        ),
+        useMaterial3: true,
+        appBarTheme: const AppBarTheme(
+          centerTitle: true,
+          elevation: 0,
+          backgroundColor: Color(0xFF1F2428),
+          foregroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: basePrimary,
+            foregroundColor: Colors.white,
+          ),
+        ),
+        cardColor: const Color(0xFF1F2428),
+        dialogTheme: const DialogThemeData(
+          backgroundColor: Color(0xFF1F2428),
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+          ),
+        ),
+        fontFamily: 'Manrope',
+      );
 }

@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/plant_info_view_model.dart';
 import 'package:crown_micro_solar/core/di/service_locator.dart';
 import 'package:crown_micro_solar/view/common/bordered_icon_button.dart';
-import 'dart:ui';
 
 class PlantInfoScreen extends StatefulWidget {
   final String plantId;
@@ -42,63 +41,33 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
 
           return Stack(
             children: [
-              // Background image at the top (high resolution)
-              Positioned.fill(
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: SizedBox(
-                    height: 300,
+              // Background image at top
+              SizedBox(
+                height: 300,
+                width: double.infinity,
+                child: IgnorePointer(
+                  child: Image.asset(
+                    'assets/images/plantInfo.png',
                     width: double.infinity,
-                    child: Stack(
-                      children: [
-                        // High resolution image kept fixed behind content
-                        IgnorePointer(
-                          child: Image.asset(
-                            'assets/images/plantInfo.png',
-                            width: double.infinity,
-                            height: 300,
-                            fit: BoxFit.cover,
-                            filterQuality: FilterQuality.high,
-                          ),
-                        ),
-                        // Floating buttons at the top right of the image
-                        Positioned(
-                          top: 16,
-                          right: 16,
-                          child: Column(
-                            children: [
-                              BorderedIconButton(
-                                icon: Icons.edit,
-                                onTap: () {
-                                  // TODO: Implement edit action
-                                },
-                              ),
-                              const SizedBox(height: 12),
-                              BorderedIconButton(
-                                icon: Icons.delete,
-                                onTap: () {
-                                  // TODO: Implement delete action
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+                    height: 300,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.high,
                   ),
                 ),
               ),
-              // Scrollable content that slides over the image
+              // Content scroll below image
               SingleChildScrollView(
                 physics: const ClampingScrollPhysics(),
                 child: Padding(
-                  padding: const EdgeInsets.only(top: 280),
+                  // Increase top padding so cards don't overlap the image
+                  padding: const EdgeInsets.only(top: 320),
                   child: Column(
                     children: [
                       // Content area with rounded top corners
                       Container(
                         decoration: const BoxDecoration(
-                          color: Colors.transparent,
+                          // Solid white background to clearly separate from the header image
+                          color: Colors.white,
                           borderRadius: BorderRadius.only(
                             topLeft: Radius.circular(30),
                             topRight: Radius.circular(30),
@@ -112,6 +81,8 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            // Extra gap below the image
+                            const SizedBox(height: 8),
                             _GlassMorphismCard(
                               title: 'Plant Information',
                               children: [
@@ -170,7 +141,107 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
                     ],
                   ),
                 ),
-              )
+              ),
+              // Floating buttons above everything for reliable taps
+              Positioned(
+                top: 16,
+                right: 16,
+                child: Column(
+                  children: [
+                    BorderedIconButton(
+                      icon: Icons.edit,
+                      onTap: () {
+                        final nameController =
+                            TextEditingController(text: plant.name);
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Edit Plant'),
+                            content: TextField(
+                              controller: nameController,
+                              decoration: const InputDecoration(
+                                labelText: 'Plant Name',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text('Cancel'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () async {
+                                  final newName = nameController.text.trim();
+                                  if (newName.isEmpty) return;
+                                  Navigator.pop(ctx);
+                                  final ok = await _viewModel
+                                      .renameCurrentPlant(newName);
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(ok
+                                          ? 'Plant updated'
+                                          : 'Failed to update plant'),
+                                    ),
+                                  );
+                                },
+                                child: const Text('Save'),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    BorderedIconButton(
+                      icon: Icons.delete,
+                      onTap: () {
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Delete Plant'),
+                            content: const Text(
+                                'Are you sure you want to delete this plant? This action cannot be undone.'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text('Cancel'),
+                              ),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor:
+                                      Theme.of(context).colorScheme.primary,
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: () async {
+                                  Navigator.pop(ctx);
+                                  final ok =
+                                      await _viewModel.deleteCurrentPlant();
+                                  if (!mounted) return;
+                                  if (ok) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                          content: Text('Plant deleted')),
+                                    );
+                                    Navigator.of(context).pop();
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                          content:
+                                              Text('Failed to delete plant')),
+                                    );
+                                  }
+                                },
+                                child: const Text('Delete'),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
             ],
           );
         },
@@ -278,10 +349,10 @@ class _GlassMorphismCard extends StatelessWidget {
           children: [
             Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 20,
-                color: Color(0xFFE53935), // Primary red
+                color: Theme.of(context).colorScheme.primary,
               ),
             ),
             const SizedBox(height: 16),

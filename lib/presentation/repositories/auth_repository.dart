@@ -1,9 +1,6 @@
 import 'dart:convert';
-import 'package:crown_micro_solar/core/network/api_endpoints.dart';
 import 'package:crown_micro_solar/core/network/api_service.dart';
 import 'package:crown_micro_solar/presentation/models/auth/auth_response_model.dart';
-import 'package:crypto/crypto.dart';
-import '../models/auth_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 import 'package:http/http.dart' as http;
@@ -21,20 +18,11 @@ class AuthRepository {
   static const String _agentsListKey = 'Agentslist';
 
   // Default values for DESS Monitor API
-  static const String _defaultSalt = "12345678";
-  static const String _defaultSecret =
-      "e216fe6d765ebbd05393ba598c8d0ac20b4d2122";
-  static const String _defaultToken =
-      "4f07ebae2a2cb357608bb1c920924f7dd50536b00c09fb9d973441777ac66b4b";
+  // Legacy defaults removed (unused)
 
   AuthRepository(this._apiService, this._prefs);
 
-  String _generateSign(
-      String salt, String secret, String token, String action) {
-    final data = salt + secret + token + action;
-    final bytes = utf8.encode(data);
-    return sha1.convert(bytes).toString();
-  }
+  // Legacy sign method removed (unused)
 
   Future<AuthResponse> login(String userId, String password,
       {bool isAgent = false}) async {
@@ -72,6 +60,7 @@ class AuthRepository {
         if (data['Token'] != null) {
           // Save username before saving auth data
           await _prefs.setString(_usernameKey, userId);
+          await _prefs.setBool(_isInstallerKey, isAgent);
           await _saveAuthData(data);
           return AuthResponse(
             isSuccess: true,
@@ -221,6 +210,11 @@ class AuthRepository {
     _apiService.clearAuthToken();
     print('AuthRepository: API service auth token cleared');
     print('AuthRepository: Logout completed');
+  }
+
+  Future<void> clearInstallerState() async {
+    await _prefs.remove(_isInstallerKey);
+    await _prefs.remove(_agentsListKey);
   }
 
   String? getToken() {
