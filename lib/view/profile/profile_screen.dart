@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/auth_viewmodel.dart';
-import 'package:crown_micro_solar/localization/app_localizations.dart';
+import 'package:crown_micro_solar/l10n/app_localizations.dart' as gen;
 import 'package:crown_micro_solar/main.dart';
 import 'package:crown_micro_solar/core/utils/app_text_fields.dart';
 import 'package:crown_micro_solar/core/utils/app_buttons.dart';
@@ -180,8 +180,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Provider.of<DashboardViewModel>(context); // Use the global instance
     final userInfo = authViewModel.userInfo;
     const lightGrey = Color(0xFFF3F4F6);
-    const green = Color(0xFF22C55E);
-    const red = Color(0xFFEF4444);
+    final green = const Color(0xFF22C55E);
+    final red = Theme.of(context).colorScheme.primary;
     if (userInfo == null) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -266,28 +266,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 _ProfileActionTile(
                   icon: Icons.lock_outline,
-                  label: 'Change Password',
+                  label: gen.AppLocalizations.of(context).change_password,
                   onTap: () => _showChangePasswordDialog(context),
                   backgroundColor: lightGrey,
                   iconColor: red,
                 ),
                 _ProfileActionTile(
                   icon: Icons.palette_outlined,
-                  label: 'Interface Theme',
+                  label: gen.AppLocalizations.of(context).interface_theme,
                   onTap: () => _showThemeSelector(context),
                   backgroundColor: lightGrey,
                   iconColor: Color(0xFFF59E42),
                 ),
                 _ProfileActionTile(
                   icon: Icons.info_outline,
-                  label: 'About App',
+                  label: gen.AppLocalizations.of(context).about_us,
                   onTap: () => Navigator.of(context).pushNamed(AppRoutes.about),
                   backgroundColor: lightGrey,
                   iconColor: red,
                 ),
                 _ProfileActionTile(
                   icon: Icons.language,
-                  label: 'Change Language',
+                  label: gen.AppLocalizations.of(context).change_language,
                   onTap: () => _showLanguageSelector(context),
                   backgroundColor: lightGrey,
                   iconColor: Color(0xFF3B82F6),
@@ -306,7 +306,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     builder: (context) {
                       final authViewModel = Provider.of<AuthViewModel>(context);
                       final theme = Theme.of(context);
-                      final buttonColor = green; // Use Figma green constant
+                      final buttonColor = green; // Keep green as unique CTA
                       final label = authViewModel.isInstaller
                           ? 'Add Agent'
                           : 'Add Installer';
@@ -327,23 +327,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     },
                   ),
                 ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: red,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      elevation: 0,
-                    ),
-                    onPressed: () {},
-                    child: Text('Delete Account',
-                        style: theme.textTheme.labelLarge?.copyWith(
-                            color: Colors.white, fontWeight: FontWeight.bold)),
-                  ),
-                ),
+                // Delete Account removed per requirement
                 const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
@@ -553,11 +537,12 @@ class _ProfileSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       width: 100,
       padding: const EdgeInsets.symmetric(vertical: 16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -572,13 +557,15 @@ class _ProfileSummaryCard extends StatelessWidget {
         children: [
           SvgPicture.asset(icon, height: 28),
           const SizedBox(height: 8),
-          Text(label, style: TextStyle(fontSize: 12, color: Colors.black)),
+          Text(label,
+              style:
+                  TextStyle(fontSize: 12, color: theme.colorScheme.onSurface)),
           const SizedBox(height: 4),
           Text(value,
               style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 16,
-                  color: Colors.black)),
+                  color: theme.colorScheme.onSurface)),
         ],
       ),
     );
@@ -666,7 +653,7 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Password changed successfully!',
+            gen.AppLocalizations.of(context).password_changed_success,
             style: const TextStyle(color: Colors.black),
           ),
           backgroundColor: Colors.white,
@@ -674,8 +661,7 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
       );
     } else {
       setState(() {
-        _error =
-            'Failed to change password. Please check your old password and try again.';
+        _error = gen.AppLocalizations.of(context).password_change_failed;
       });
     }
   }
@@ -693,33 +679,35 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Change Password',
+              Text(gen.AppLocalizations.of(context).change_password,
                   style: theme.textTheme.titleLarge
                       ?.copyWith(fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
               AppTextField(
                 controller: _oldPasswordController,
-                labelText: 'Old Password',
+                labelText: gen.AppLocalizations.of(context).old_password,
                 isPassword: true,
-                validator: (val) =>
-                    val == null || val.isEmpty ? 'Enter old password' : null,
+                validator: (val) => val == null || val.isEmpty
+                    ? gen.AppLocalizations.of(context).enter_old_password
+                    : null,
               ),
               const SizedBox(height: 12),
               AppTextField(
                 controller: _newPasswordController,
-                labelText: 'New Password',
+                labelText: gen.AppLocalizations.of(context).new_password,
                 isPassword: true,
                 validator: (val) => val == null || val.length < 6
-                    ? 'Password must be at least 6 characters'
+                    ? gen.AppLocalizations.of(context).password_must_be_6
                     : null,
               ),
               const SizedBox(height: 12),
               AppTextField(
                 controller: _confirmPasswordController,
-                labelText: 'Confirm New Password',
+                labelText:
+                    gen.AppLocalizations.of(context).confirm_new_password,
                 isPassword: true,
                 validator: (val) => val != _newPasswordController.text
-                    ? 'Passwords do not match'
+                    ? gen.AppLocalizations.of(context).passwords_do_not_match
                     : null,
               ),
               if (_error != null) ...[
@@ -745,7 +733,7 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
                     child: AppButtons.primaryButton(
                       context: context,
                       onTap: _isLoading ? null : _submit,
-                      text: 'Change',
+                      text: gen.AppLocalizations.of(context).change_password,
                       isLoading: _isLoading,
                     ),
                   ),
@@ -762,10 +750,10 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
 class LanguageSelectorDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final supportedLocales = AppLocalizations.supportedLocales;
+    final supportedLocales = gen.AppLocalizations.supportedLocales;
     final localeProvider = Provider.of<LocaleProvider>(context, listen: false);
     return AlertDialog(
-      title: const Text('Select Language'),
+      title: Text(gen.AppLocalizations.of(context).select_language),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: supportedLocales.map((locale) {
@@ -791,12 +779,9 @@ class LanguageSelectorDialog extends StatelessWidget {
         return 'Spanish';
       case 'fr':
         return 'French';
-      case 'de':
-        return 'German';
-      case 'zh':
-        return 'Chinese';
-      case 'ja':
-        return 'Japanese';
+      case 'ru':
+        // Display in English per requirement
+        return 'Russian';
       default:
         return code;
     }

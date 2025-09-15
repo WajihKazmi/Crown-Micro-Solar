@@ -96,6 +96,9 @@ class AuthViewModel extends ChangeNotifier {
       print('Attempting login for user: $userId');
       print('Installer mode: $_isInstaller');
 
+      // Proactively clear any stale persisted auth before a fresh login
+      await _repository.clearAllPersistedAuth();
+
       final response =
           await _repository.login(userId, password, isAgent: _isInstaller);
       _isLoading = false;
@@ -110,6 +113,8 @@ class AuthViewModel extends ChangeNotifier {
       if (response.agentsList != null) {
         print('Agent list received with ${response.agentsList!.length} agents');
         _agentsList = response.agentsList;
+        // Ensure installer flag remains true so UI can show swap button
+        _isInstaller = true;
         notifyListeners();
         return true;
       }
@@ -155,6 +160,8 @@ class AuthViewModel extends ChangeNotifier {
 
     try {
       print('Attempting agent login for user: $username');
+      // Clear stale persisted auth (switching context)
+      await _repository.clearAllPersistedAuth();
       final response = await _repository.loginAgent(username, password);
       _isLoading = false;
 
@@ -175,11 +182,19 @@ class AuthViewModel extends ChangeNotifier {
       _secret = response.secret;
       _userId = response.userId;
 
+      // Preserve installer context so swap button remains accessible
+      if (_agentsList != null && _agentsList!.isNotEmpty) {
+        _isInstaller = true;
+      }
+
       // Set credentials in ApiClient
       if (_token != null && _secret != null) {
         _apiClient.setCredentials(_token!, _secret!);
         print('AuthViewModel: Set credentials in ApiClient for agent login');
       }
+
+      // Fetch account info for the newly logged-in agent user to avoid stale profile display
+      await fetchUserInfo();
 
       notifyListeners();
       return true;
@@ -208,6 +223,9 @@ class AuthViewModel extends ChangeNotifier {
     try {
       print('AuthViewModel: Starting logout...');
 
+      // Ensure all persisted auth keys wiped even if repository logout is partial
+      await _repository.clearAllPersistedAuth();
+
       // Clear repository state first
       await _repository.logout();
       print('AuthViewModel: Repository logout completed');
@@ -221,10 +239,15 @@ class AuthViewModel extends ChangeNotifier {
       _isLoading = false;
       _isInstaller = false;
       _isAgent = false;
+      _userInfo = null; // reset cached account info
 
       // Clear credentials from ApiClient
       _apiClient.setCredentials('', '');
       print('AuthViewModel: Cleared credentials from ApiClient');
+
+      // Double safety: clear again to be absolutely sure
+      await _repository.clearAllPersistedAuth();
+      _userInfo = null;
 
       print('AuthViewModel: Local state cleared');
 

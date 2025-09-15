@@ -27,6 +27,8 @@ class AuthRepository {
   Future<AuthResponse> login(String userId, String password,
       {bool isAgent = false}) async {
     try {
+      // Always clear previous auth/session state before a new login to avoid stale leakage
+      await clearAllPersistedAuth();
       // Use Crown Micro API for all logins
       final url = 'https://apis.crown-micro.net/api/MonitoringApp/Login';
       final headers = {
@@ -97,6 +99,8 @@ class AuthRepository {
 
   Future<AuthResponse> loginAgent(String username, String password) async {
     try {
+      // Clear previous session fully before agent login to prevent cross-account leakage
+      await clearAllPersistedAuth();
       final url = 'https://apis.crown-micro.net/api/MonitoringApp/Login';
       final headers = {
         'Content-Type': 'application/json',
@@ -210,6 +214,20 @@ class AuthRepository {
     _apiService.clearAuthToken();
     print('AuthRepository: API service auth token cleared');
     print('AuthRepository: Logout completed');
+  }
+
+  // Force-remove every auth-related key (used before new logins and externally on logout flows)
+  Future<void> clearAllPersistedAuth() async {
+    await _prefs.remove(_tokenKey);
+    await _prefs.remove(_userIdKey);
+    await _prefs.remove(_secretKey);
+    await _prefs.remove(_loggedInKey);
+    await _prefs.remove(_isInstallerKey);
+    await _prefs.remove(_agentsListKey);
+    await _prefs.remove(_usernameKey);
+    await _prefs.remove(_passwordKey);
+    await _prefs.remove('appkey');
+    await _prefs.remove('username');
   }
 
   Future<void> clearInstallerState() async {

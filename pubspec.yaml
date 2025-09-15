@@ -48,6 +48,7 @@ dependencies:
   flutter_svg: ^2.0.9
   fl_chart: ^0.66.0
   flutter_rating_bar: ^4.0.1
+  video_player: ^2.8.6
 
   # Network & API
   http: ^1.1.0
@@ -81,6 +82,7 @@ dev_dependencies:
   mockito: ^5.4.4
   flutter_launcher_icons: ^0.13.1
   json_serializable: ^6.7.1
+  flutter_native_splash: ^2.4.1
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -99,6 +101,9 @@ flutter:
     - assets/icons/
     - assets/icons/home/
     - assets/translations/
+    - assets/energy_diagram/
+    # Include legacy asset paths used by About Us from old app
+    - assets/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
@@ -115,3 +120,11 @@ flutter:
     - family: Manrope
       fonts:
         - asset: assets/fonts/manrope.ttf
+
+  # Enable code generation (includes l10n)
+  generate: true
+
+  # Localization configuration is in l10n.yaml
+
+flutter_intl:
+  enabled: false

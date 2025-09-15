@@ -53,6 +53,14 @@ class AppTheme {
             foregroundColor: Colors.white,
           ),
         ),
+        floatingActionButtonTheme: FloatingActionButtonThemeData(
+          backgroundColor: primary,
+          foregroundColor: Colors.white,
+        ),
+        drawerTheme: const DrawerThemeData(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+        ),
         dialogTheme: const DialogThemeData(
           backgroundColor: Colors.white,
           surfaceTintColor: Colors.white,

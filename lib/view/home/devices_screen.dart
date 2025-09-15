@@ -199,32 +199,21 @@ class _DevicesScreenState extends State<DevicesScreen>
       );
     }
 
-    // Fixed bottom Add Datalogger button (stays at bottom while list scrolls)
-    return Column(
+    // Floating Add Datalogger button using Stack so it doesn't cut background
+    return Stack(
       children: [
-        Expanded(child: content),
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: Align(
-              alignment: Alignment.center,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(minWidth: 160, maxWidth: 200),
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    shape: const StadiumBorder(),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 12),
-                  ),
-                  onPressed: (_loading || !_initialLoadDone)
-                      ? null
-                      : _showAddDataloggerDialog,
-                  child: const Text('+ Add Datalogger'),
-                ),
-              ),
-            ),
+        Positioned.fill(child: content),
+        Positioned(
+          right: 16,
+          bottom: 16 + MediaQuery.of(context).padding.bottom,
+          child: FloatingActionButton.extended(
+            heroTag: 'add_datalogger_fab',
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            icon: const Icon(Icons.add),
+            label: const Text('Datalogger'),
+            onPressed: (_loading || !_initialLoadDone)
+                ? null
+                : _showAddDataloggerDialog,
           ),
         )
       ],

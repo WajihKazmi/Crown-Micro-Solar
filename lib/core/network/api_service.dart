@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
-import 'package:crown_micro_solar/core/network/api_endpoints.dart';
+import 'package:dio/io.dart';
+import 'dart:io';
 
 class ApiService {
   final Dio _dio;
@@ -14,7 +15,7 @@ class ApiService {
         'x-api-key': 'C5BFF7F0-B4DF-475E-A331-F737424F013C'
       },
     );
-    
+
     // Add logging interceptor to see what URLs are being called
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) {
@@ -24,15 +25,48 @@ class ApiService {
         handler.next(options);
       },
       onResponse: (response, handler) {
-        print('API Response: ${response.statusCode} ${response.requestOptions.uri}');
+        print(
+            'API Response: ${response.statusCode} ${response.requestOptions.uri}');
         handler.next(response);
       },
       onError: (error, handler) {
         print('API Error: ${error.message}');
         print('API Error URL: ${error.requestOptions.uri}');
+        // Print underlying OS error (e.g., HandshakeException / CERTIFICATE_VERIFY_FAILED)
+        try {
+          // In Dio v5, error.error may contain the underlying HandshakeException
+          print('API Error underlying: ${error.error}');
+        } catch (_) {}
         handler.next(error);
       },
     ));
+
+    // Optional: allow insecure SSL for development when explicitly enabled.
+    // Enable by passing: --dart-define=ALLOW_INSECURE_SSL=true
+    const bool allowInsecureSsl = bool.fromEnvironment('ALLOW_INSECURE_SSL');
+    if (allowInsecureSsl) {
+      final adapter = IOHttpClientAdapter();
+      adapter.createHttpClient = () {
+        final client = HttpClient();
+        client.badCertificateCallback =
+            (X509Certificate cert, String host, int port) {
+          const allowedHosts = {'apis.crown-micro.net'};
+          final allow = allowedHosts.contains(host);
+          if (allow) {
+            // DO NOT ENABLE IN PRODUCTION: accepting invalid certificate for dev/testing only
+            // Certificate subject: ${cert.subject}
+            // Expiry: ${cert.endValidity}
+            // Host: $host
+            // Port: $port
+            // ignore: avoid_print
+            print('[WARN] Allowing insecure SSL for $host:$port (DEV ONLY)');
+          }
+          return allow;
+        };
+        return client;
+      };
+      _dio.httpClientAdapter = adapter;
+    }
   }
 
   // Generic GET request
@@ -107,4 +141,4 @@ class ApiService {
   void clearAuthToken() {
     _dio.options.headers.remove('Authorization');
   }
-} 
+}

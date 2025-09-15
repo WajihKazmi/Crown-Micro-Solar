@@ -129,6 +129,42 @@ class DeviceEnergyFlowModel {
     return sumW;
   }
 
+  // Attempt to derive PV voltage if any pvStatus entry is in volts
+  double? get pvVoltage {
+    for (final p in pvStatus) {
+      final unit = (p.unit ?? '').toLowerCase();
+      final par = (p.par).toLowerCase();
+      if (unit == 'v' || par.contains('volt')) return p.value;
+    }
+    return null;
+  }
+
+  // Battery voltage (typical range 12-60V or higher for stacks). Look for V unit or 'volt' keyword.
+  double? get batteryVoltage {
+    // Direct match on unit V or parameter name containing volt
+    for (final b in btStatus) {
+      final unit = (b.unit ?? '').toLowerCase();
+      final par = (b.par).toLowerCase();
+      if (unit == 'v' || par.contains('volt')) return b.value;
+    }
+    // Heuristic: look for a value in plausible battery stack voltage range (10-800V) that is
+    // not a percentage (exclude soc / capacity) and not a power unit.
+    DeviceEnergyFlowItem? candidate;
+    for (final b in btStatus) {
+      final unit = (b.unit ?? '').toLowerCase();
+      final par = (b.par).toLowerCase();
+      final val = b.value;
+      if (val == null) continue;
+      if (par.contains('soc') || par.contains('capacity')) continue;
+      if (unit == 'kw' || unit == 'w' || unit == '%') continue;
+      if (val >= 10 && val <= 800) {
+        candidate = b;
+        break; // first plausible
+      }
+    }
+    return candidate?.value;
+  }
+
   double? get gridPower {
     if (gdStatus.isEmpty) return null;
     // Prefer entry whose par mentions power / active

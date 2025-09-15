@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
-class AppLocalizations {
+// Legacy placeholder; kept to avoid breaking imports elsewhere. Do not use.
+class OldAppLocalizations {
   static const List<LocalizationsDelegate<dynamic>> localizationsDelegates = [
     GlobalMaterialLocalizations.delegate,
     GlobalWidgetsLocalizations.delegate,
@@ -19,4 +20,4 @@ class AppLocalizations {
   ];
 
   static const Locale defaultLocale = Locale('en');
-} 
+}

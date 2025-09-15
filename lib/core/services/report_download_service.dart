@@ -17,7 +17,13 @@ enum FullReportRange { daily, monthly, custom }
 
 class ReportDownloadService {
   final Dio _dio;
-  ReportDownloadService({Dio? dio}) : _dio = dio ?? Dio();
+  ReportDownloadService({Dio? dio})
+      : _dio = dio ??
+            Dio(BaseOptions(
+              connectTimeout: const Duration(seconds: 12),
+              receiveTimeout: const Duration(seconds: 30),
+              sendTimeout: const Duration(seconds: 30),
+            ));
 
   // New: Download collector/device report using legacy-compatible exportCollectorsData
   // Requires collector PN and a daily/monthly/yearly selection.
@@ -92,11 +98,7 @@ class ReportDownloadService {
     final downloadsDir = await _getDownloadsDirectory();
     final filePath = '${downloadsDir.path}/${filePrefix}_$fileTag.xlsx';
 
-    await _dio.download(
-      url,
-      filePath,
-      onReceiveProgress: onProgress,
-    );
+    await _dio.download(url, filePath, onReceiveProgress: onProgress);
 
     return filePath;
   }

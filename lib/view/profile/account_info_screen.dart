@@ -18,12 +18,27 @@ class AccountInfoScreen extends StatelessWidget {
                 _infoCard('Username', user.usr, Icons.person),
                 _infoCard('Email', user.email, Icons.email),
                 _infoCard('Mobile', user.mobile, Icons.phone),
-                _infoCard('Role', user.role.toString(), Icons.badge),
+                _infoCard('Role', _roleLabel(user.role), Icons.badge),
                 _infoCard('Active', user.enable ? 'Yes' : 'No', Icons.check),
                 _infoCard('Since', user.gts.toLocal().toString(), Icons.event),
               ],
             ),
     );
+  }
+
+  String _roleLabel(int role) {
+    switch (role) {
+      case 0:
+        return 'Plant Owner';
+      case 1:
+        return 'Installer';
+      case 2:
+        return 'Agent';
+      case 3:
+        return 'Viewer';
+      default:
+        return 'User';
+    }
   }
 
   Widget _infoCard(String title, String value, IconData icon) {

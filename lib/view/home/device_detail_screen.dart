@@ -3,10 +3,13 @@ import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
+import 'package:crown_micro_solar/l10n/app_localizations.dart' as gen;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:crown_micro_solar/core/di/service_locator.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:crown_micro_solar/core/services/report_download_service.dart';
+import 'package:crown_micro_solar/core/utils/navigation_service.dart';
+import 'dart:ui' as ui;
 import 'package:crown_micro_solar/presentation/models/device/device_live_signal_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/overview_graph_view_model.dart';
@@ -16,6 +19,7 @@ import 'package:crown_micro_solar/presentation/repositories/device_repository.da
     show DeviceEnergyFlowModel; // ensure model available
 // Use the unified alarm notification screen (same as home) for consistent loading logic
 import 'package:crown_micro_solar/view/home/alarm_notification_screen.dart';
+import 'package:video_player/video_player.dart';
 
 class DeviceDetailScreen extends StatefulWidget {
   final Device device;
@@ -27,14 +31,24 @@ class DeviceDetailScreen extends StatefulWidget {
 class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   late final DeviceViewModel _deviceVM;
   DeviceLiveSignalModel? _live;
-  // Replaced per-metric one-day models with unified metric aggregator
   late final MetricAggregatorViewModel _metricAggVM;
-  DeviceEnergyFlowModel? _energyFlow; // direct energy flow API model
+  DeviceEnergyFlowModel? _energyFlow;
   bool _loading = true;
-  bool _hasData = false; // track initial load done to suppress spinner later
+  bool _hasData = false;
   String? _err;
   DateTime _anchorDate = DateTime.now();
   Timer? _refreshTimer;
+  bool _isFetching = false;
+  String? _lastFlowKey;
+
+  String _computeFlowKey(DeviceEnergyFlowModel? flow) {
+    if (flow == null) return 'empty';
+    final pvOn = (flow.pvVoltage ?? 0) > 50 || (flow.pvPower ?? 0) > 50;
+    final gridOn = (flow.gridVoltage ?? 0) > 50;
+    final batOn = (flow.batteryVoltage ?? 0) > 20 || (flow.batterySoc ?? 0) > 5;
+    return '${pvOn ? 1 : 0}${gridOn ? 1 : 0}${batOn ? 1 : 0}';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -49,9 +63,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     );
     _fetch();
     _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      if (mounted) {
-        _fetch(silent: true); // silent refresh without global spinner
-      }
+      if (mounted) _fetch(silent: true);
     });
   }
 
@@ -62,6 +74,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   }
 
   Future<void> _fetch({bool silent = false}) async {
+    if (_isFetching) return; // skip if a fetch is already in flight
+    _isFetching = true;
     if (!silent) {
       setState(() {
         _loading = true;
@@ -70,29 +84,38 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     }
     try {
       final date = DateFormat('yyyy-MM-dd').format(_anchorDate);
-      final live = await _deviceVM.fetchDeviceLiveSignal(
-        sn: widget.device.sn,
-        pn: widget.device.pn,
-        devcode: widget.device.devcode,
-        devaddr: widget.device.devaddr,
-      );
-      await _metricAggVM.resolveMetrics([
-        'PV_OUTPUT_POWER',
-        'BATTERY_SOC',
-        'LOAD_POWER',
-        'GRID_POWER',
-      ], date: date);
+      // Run independent calls in parallel for faster turnaround
       final repo = getIt<DeviceRepository>();
-      final flow = await repo.fetchDeviceEnergyFlow(
-        sn: widget.device.sn,
-        pn: widget.device.pn,
-        devcode: widget.device.devcode,
-        devaddr: widget.device.devaddr,
-      );
+      final futures = await Future.wait([
+        _deviceVM.fetchDeviceLiveSignal(
+          sn: widget.device.sn,
+          pn: widget.device.pn,
+          devcode: widget.device.devcode,
+          devaddr: widget.device.devaddr,
+        ),
+        repo.fetchDeviceEnergyFlow(
+          sn: widget.device.sn,
+          pn: widget.device.pn,
+          devcode: widget.device.devcode,
+          devaddr: widget.device.devaddr,
+        ),
+        _metricAggVM.resolveMetrics([
+          'PV_OUTPUT_POWER',
+          'PV_INPUT_VOLTAGE',
+          'AC2_OUTPUT_VOLTAGE',
+          'BATTERY_SOC',
+          'LOAD_POWER',
+          'GRID_POWER',
+        ], date: date),
+      ]);
+      final live = futures[0] as DeviceLiveSignalModel?;
+      final flow = futures[1] as DeviceEnergyFlowModel?;
       if (!mounted) return;
+      final newKey = _computeFlowKey(flow);
       setState(() {
         _live = live;
         _energyFlow = flow;
+        _lastFlowKey = newKey;
         _loading = false;
         _hasData = true;
       });
@@ -103,6 +126,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         _loading = false;
       });
     }
+    _isFetching = false;
   }
 
   String _fmtPowerW(double? w) {
@@ -114,11 +138,15 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
 
   String _fmtVoltageOrPower(double? v) {
     if (v == null) return '--';
-    // Heuristic: treat 80-400 range as volts
-    if (v >= 80 && v <= 400) {
+    if (v >= 10 && v <= 800) {
       return '${v.toStringAsFixed(0)} V';
     }
     return _fmtPowerW(v);
+  }
+
+  String _fmtVoltage(double? v) {
+    if (v == null) return '--';
+    return '${v.toStringAsFixed(0)} V';
   }
 
   String _fmtSoc(double? s) {
@@ -128,204 +156,266 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
 
   void _showReportDialog() {
     showDialog(
-        context: context,
-        builder: (context) {
-          CollectorReportRange range = CollectorReportRange.daily;
-          DateTime anchorDate = DateTime.now();
+      context: context,
+      builder: (context) {
+        CollectorReportRange range = CollectorReportRange.daily;
+        DateTime anchorDate = DateTime.now();
 
-          Widget rangeChip(CollectorReportRange r, String label) {
-            final selected = r == range;
-            return InkWell(
+        return StatefulBuilder(
+          builder: (context, setState) {
+            Widget rangeChip(CollectorReportRange r, String label) {
+              final selected = r == range;
+              return InkWell(
                 onTap: () => setState(() {
-                      range = r;
-                    }),
+                  range = r;
+                }),
                 borderRadius: BorderRadius.circular(10),
                 child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                        color: selected ? Colors.white : Colors.transparent,
-                        borderRadius: BorderRadius.circular(10),
-                        boxShadow: selected
-                            ? [
-                                BoxShadow(
-                                    color: Colors.black.withOpacity(0.06),
-                                    blurRadius: 6,
-                                    offset: const Offset(0, 2))
-                              ]
-                            : null),
-                    child: Text(label,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            color: selected ? Colors.black : Colors.black54,
-                            fontWeight: FontWeight.w600))));
-          }
-
-          String formatDate(CollectorReportRange r, DateTime d) {
-            switch (r) {
-              case CollectorReportRange.daily:
-                return DateFormat('yyyy/MM/dd').format(d);
-              case CollectorReportRange.monthly:
-                return DateFormat('yyyy/MM').format(d);
-              case CollectorReportRange.yearly:
-                return DateFormat('yyyy').format(d);
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: selected ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: selected
+                        ? [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.06),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: selected ? Colors.black : Colors.black54,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              );
             }
-          }
 
-          Future<void> onDownload() async {
-            try {
-              final service = ReportDownloadService();
-              await service.downloadFullReportByCollector(
+            String formatDate(CollectorReportRange r, DateTime d) {
+              switch (r) {
+                case CollectorReportRange.daily:
+                  return DateFormat('yyyy/MM/dd').format(d);
+                case CollectorReportRange.monthly:
+                  return DateFormat('yyyy/MM').format(d);
+                case CollectorReportRange.yearly:
+                  return DateFormat('yyyy').format(d);
+              }
+            }
+
+            Future<void> onDownload() async {
+              try {
+                final service = ReportDownloadService();
+                await service.downloadFullReportByCollector(
                   collectorPn: widget.device.pn,
                   range: range,
-                  anchorDate: anchorDate);
-              if (mounted) {
-                Navigator.of(context).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Report download started')));
-              }
-            } catch (e) {
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Failed to download: $e')));
+                  anchorDate: anchorDate,
+                );
+                if (mounted) {
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Report download started')),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to download: $e')),
+                  );
+                }
               }
             }
-          }
 
-          return StatefulBuilder(builder: (context, setState) {
             return Dialog(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
-                insetPadding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-                child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Download Full Report',
-                              style: TextStyle(
-                                  fontSize: 16, fontWeight: FontWeight.w700)),
-                          const SizedBox(height: 16),
-                          Row(children: [
-                            rangeChip(CollectorReportRange.daily, 'Daily'),
-                            rangeChip(CollectorReportRange.monthly, 'Monthly'),
-                            rangeChip(CollectorReportRange.yearly, 'Yearly'),
-                          ]),
-                          const SizedBox(height: 12),
-                          GestureDetector(
-                              onTap: () async {
-                                final picked = await showDatePicker(
-                                    context: context,
-                                    initialDate: anchorDate,
-                                    firstDate: DateTime(2020),
-                                    lastDate: DateTime.now());
-                                if (picked != null) {
-                                  setState(() => anchorDate = picked);
-                                }
-                              },
-                              child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 14),
-                                  decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                          color: const Color(0xFFE0E0E0))),
-                                  child: Row(children: [
-                                    Icon(Icons.calendar_today,
-                                        size: 18,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                        child: Text(
-                                            formatDate(range, anchorDate),
-                                            style:
-                                                const TextStyle(fontSize: 14)))
-                                  ]))),
-                          const SizedBox(height: 16),
-                          Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                TextButton(
-                                    onPressed: () =>
-                                        Navigator.of(context).pop(),
-                                    child: const Text('Cancel')),
-                                const SizedBox(width: 8),
-                                ElevatedButton(
-                                    style: ElevatedButton.styleFrom(
-                                        backgroundColor: Theme.of(context)
-                                            .colorScheme
-                                            .primary,
-                                        foregroundColor: Colors.white),
-                                    onPressed: onDownload,
-                                    child: const Text('Download'))
-                              ])
-                        ])));
-          });
-        });
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 24,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      gen.AppLocalizations.of(
+                        context,
+                      ).report_download_full_title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        rangeChip(
+                          CollectorReportRange.daily,
+                          gen.AppLocalizations.of(context).range_day,
+                        ),
+                        rangeChip(
+                          CollectorReportRange.monthly,
+                          gen.AppLocalizations.of(context).range_month,
+                        ),
+                        rangeChip(
+                          CollectorReportRange.yearly,
+                          gen.AppLocalizations.of(context).range_year,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    GestureDetector(
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: anchorDate,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime.now(),
+                        );
+                        if (picked != null) {
+                          setState(() => anchorDate = picked);
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 14,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFE0E0E0)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.calendar_today,
+                              size: 18,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                formatDate(range, anchorDate),
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: Text(
+                            gen.AppLocalizations.of(context).action_cancel,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Theme.of(
+                              context,
+                            ).colorScheme.primary,
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: onDownload,
+                          child: Text(
+                            gen.AppLocalizations.of(context).action_download,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   // Uniform summary metric cards
   Widget _summaryCards() {
-    final repo = getIt<DeviceRepository>();
-    final devcode = widget.device.devcode;
-    final pv = _metricAggVM.metric('PV_OUTPUT_POWER');
-    final bat = _metricAggVM.metric('BATTERY_SOC');
-    final load = _metricAggVM.metric('LOAD_POWER');
-    final grid = _metricAggVM.metric('GRID_POWER');
+    final pvPowerMetric = _metricAggVM.metric('PV_OUTPUT_POWER');
+    final pvVoltageMetric = _metricAggVM.metric('PV_INPUT_VOLTAGE');
+    final batSocMetric = _metricAggVM.metric('BATTERY_SOC');
+    final loadPowerMetric = _metricAggVM.metric('LOAD_POWER');
+    final gridPowerMetric = _metricAggVM.metric('GRID_POWER');
+    final acOutVoltageMetric = _metricAggVM.metric('AC2_OUTPUT_VOLTAGE');
 
-    double? pvVal =
-        _energyFlow?.pvPower ?? pv?.latestValue ?? _live?.inputPower;
-    double? loadVal =
-        _energyFlow?.loadPower ?? load?.latestValue ?? _live?.outputPower;
-    double? gridPowerVal = _energyFlow?.gridPower ?? grid?.latestValue;
-    double? gridVoltageVal = _energyFlow?.gridVoltage;
-    double? gridDisplayVal = (gridPowerVal != null && gridPowerVal != 0)
-        ? gridPowerVal
-        : gridVoltageVal;
-    double? batVal =
-        _energyFlow?.batterySoc ?? bat?.latestValue ?? _live?.batteryLevel;
-    // Battery power & subtitle removed per request (no Idle/Charging text)
-    String? batSubtitle;
+    final pvVoltage = _energyFlow?.pvVoltage ?? pvVoltageMetric?.latestValue;
+    final pvPower =
+        _energyFlow?.pvPower ?? pvPowerMetric?.latestValue ?? _live?.inputPower;
+    final loadVoltage = acOutVoltageMetric?.latestValue;
+    final loadPower = _energyFlow?.loadPower ??
+        loadPowerMetric?.latestValue ??
+        _live?.outputPower;
+    final gridVoltageVal = _energyFlow?.gridVoltage;
+    final gridPowerVal = _energyFlow?.gridPower ?? gridPowerMetric?.latestValue;
+    final batteryVoltage = _energyFlow?.batteryVoltage;
+    final batSoc = _energyFlow?.batterySoc ??
+        batSocMetric?.latestValue ??
+        _live?.batteryLevel;
 
     final rawCards = <Map<String, Object?>>[];
-    if (repo.deviceSupportsParameter(devcode, 'PV_OUTPUT_POWER')) {
+    if (pvVoltage != null || pvPower != null) {
       rawCards.add({
-        'title': 'Power Generation',
-        'value': _fmtPowerW(pvVal),
-        'subtitle': null,
+        'title': 'PV',
+        'value': _fmtVoltageOrPower(pvVoltage ?? pvPower),
+        'subtitle':
+            pvVoltage != null && pvPower != null ? _fmtPowerW(pvPower) : null,
         'icon': Icons.solar_power,
       });
     }
-    if (repo.deviceSupportsParameter(devcode, 'BATTERY_SOC')) {
+    if (batteryVoltage != null || batSoc != null) {
       rawCards.add({
         'title': 'Battery',
-        'value': _fmtSoc(batVal),
-        'subtitle': batSubtitle,
+        'value': batteryVoltage != null
+            ? _fmtVoltage(batteryVoltage)
+            : _fmtSoc(batSoc),
+        'subtitle': () {
+          if (batteryVoltage != null && batSoc != null) return _fmtSoc(batSoc);
+          final pw = _energyFlow?.batteryPower;
+          if (batteryVoltage == null && pw != null && pw.abs() > 0) {
+            return _fmtPowerW(pw);
+          }
+          return null;
+        }(),
         'icon': Icons.battery_full,
       });
     }
-    if (repo.deviceSupportsParameter(devcode, 'LOAD_POWER')) {
+    if (loadVoltage != null || loadPower != null) {
       rawCards.add({
         'title': 'Load',
-        'value': _fmtPowerW(loadVal),
-        'subtitle': null,
+        'value': _fmtVoltageOrPower(loadVoltage ?? loadPower),
+        'subtitle': (loadVoltage != null && loadPower != null)
+            ? _fmtPowerW(loadPower)
+            : null,
         'icon': Icons.home,
       });
     }
-    if (repo.deviceSupportsParameter(devcode, 'GRID_POWER') ||
-        gridVoltageVal != null) {
+    if (gridVoltageVal != null || gridPowerVal != null) {
       rawCards.add({
-        'title': (gridDisplayVal != null &&
-                gridDisplayVal >= 80 &&
-                gridDisplayVal <= 400)
-            ? 'Grid Voltage'
-            : 'Grid',
-        'value': _fmtVoltageOrPower(gridDisplayVal),
-        'subtitle': null,
+        'title': 'Grid',
+        'value': _fmtVoltageOrPower(gridVoltageVal ?? gridPowerVal),
+        'subtitle': (gridVoltageVal != null && gridPowerVal != null)
+            ? _fmtPowerW(gridPowerVal)
+            : null,
         'icon': Icons.electrical_services,
       });
     }
@@ -347,27 +437,39 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
               borderRadius: BorderRadius.circular(14),
               boxShadow: [
                 BoxShadow(
-                    color: Colors.black.withOpacity(.06),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2))
+                  color: Colors.black.withOpacity(.06),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
               ],
             ),
-            padding:
-                const EdgeInsets.fromLTRB(6, 12, 6, 6), // more top, less bottom
+            padding: const EdgeInsets.fromLTRB(
+              6,
+              12,
+              6,
+              6,
+            ), // more top, less bottom
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Builder(builder: (context) {
-                  final primary = Theme.of(context).colorScheme.primary;
-                  return Container(
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                        color: primary, borderRadius: BorderRadius.circular(8)),
-                    child: Icon(c['icon'] as IconData,
-                        color: Colors.white, size: 16),
-                  );
-                }),
+                Builder(
+                  builder: (context) {
+                    final primary = Theme.of(context).colorScheme.primary;
+                    return Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: primary,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        c['icon'] as IconData,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                    );
+                  },
+                ),
                 const SizedBox(height: 6),
                 SizedBox(
                   height: titleAreaHeight,
@@ -375,9 +477,10 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                     child: Text(
                       c['title'] as String,
                       style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF4A6882)),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF4A6882),
+                      ),
                       textAlign: TextAlign.center,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -385,23 +488,30 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 3), // a bit more space before value
-                Text(c['value'] as String,
-                    style: const TextStyle(
-                        fontSize: 11, fontWeight: FontWeight.bold)),
+                Text(
+                  c['value'] as String,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 2),
                 SizedBox(
                   height: subtitleHeight,
                   child: (c['subtitle'] != null)
-                      ? Text(c['subtitle'] as String,
+                      ? Text(
+                          c['subtitle'] as String,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.black54),
+                            fontSize: 9,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.black54,
+                          ),
                           maxLines: 1,
-                          overflow: TextOverflow.ellipsis)
+                          overflow: TextOverflow.ellipsis,
+                        )
                       : const SizedBox.shrink(),
-                )
+                ),
               ],
             ),
           ),
@@ -440,22 +550,11 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                // Power generation (collector) report
+                // Power generation (collector) report - open prompt dialog
                 _SquareIconButton(
                   customSvg: 'assets/icons/download_report_svg.svg',
                   tooltip: 'Power Generation Report',
-                  onTap: () {
-                    // quick download for daily power generation for today
-                    final service = ReportDownloadService();
-                    service.downloadCollectorReport(
-                        collectorPn: widget.device.pn,
-                        range: CollectorReportRange.daily,
-                        anchorDate: DateTime.now(),
-                        filePrefix: 'power_generation');
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content:
-                            Text('Power generation report download started')));
-                  },
+                  onTap: _showPowerGenerationDialog,
                 ),
                 const SizedBox(width: 8),
                 // Full report dialog (user selects range)
@@ -470,8 +569,11 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                   icon: Icons.notifications_none,
                   tooltip: 'Alarms',
                   onTap: () {
-                    Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => const AlarmNotificationScreen()));
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const AlarmNotificationScreen(),
+                      ),
+                    );
                   },
                 ),
               ],
@@ -483,12 +585,19 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _err != null
               ? Center(
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Text('Error: $_err',
-                      style: const TextStyle(color: Colors.red)),
-                  const SizedBox(height: 12),
-                  ElevatedButton(onPressed: _fetch, child: const Text('Retry'))
-                ]))
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Error: $_err',
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                          onPressed: _fetch, child: const Text('Retry')),
+                    ],
+                  ),
+                )
               : SingleChildScrollView(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -496,20 +605,286 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                     children: [
                       _DeviceHeader(device: widget.device, live: _live),
                       const SizedBox(height: 16),
-                      _EnergyFlowDiagram(
-                        pvW: _energyFlow?.pvPower,
-                        loadW: _energyFlow?.loadPower,
-                        gridW: _energyFlow?.gridPower,
-                        batterySoc: _energyFlow?.batterySoc,
-                        batteryFlowW: _energyFlow?.batteryPower,
-                        lastUpdated: _live?.timestamp,
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 400),
+                        switchInCurve: Curves.easeOut,
+                        switchOutCurve: Curves.easeIn,
+                        child: _EnergyFlowDiagram(
+                          key: ValueKey(_lastFlowKey ?? 'empty'),
+                          pvW: _energyFlow?.pvVoltage ?? _energyFlow?.pvPower,
+                          loadW: _energyFlow?.loadPower,
+                          gridW: _energyFlow?.gridVoltage ??
+                              _energyFlow?.gridPower,
+                          batterySoc: _energyFlow?.batterySoc,
+                          batteryFlowW: _energyFlow?.batteryVoltage ??
+                              _energyFlow?.batteryPower,
+                          lastUpdated: _live?.timestamp,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       _summaryCards(),
                       const SizedBox(height: 24),
-                      _DeviceMetricGraph(device: widget.device)
+                      _DeviceMetricGraph(device: widget.device),
                     ],
-                  )),
+                  ),
+                ),
+    );
+  }
+
+  void _showPowerGenerationDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        CollectorReportRange range = CollectorReportRange.daily;
+        DateTime anchorDate = DateTime.now();
+
+        String formatDate(CollectorReportRange r, DateTime d) {
+          switch (r) {
+            case CollectorReportRange.daily:
+              return DateFormat('yyyy/MM/dd').format(d);
+            case CollectorReportRange.monthly:
+              return DateFormat('yyyy/MM').format(d);
+            case CollectorReportRange.yearly:
+              return DateFormat('yyyy').format(d);
+          }
+        }
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            Widget rangeChip(CollectorReportRange r, String label) {
+              final selected = r == range;
+              return InkWell(
+                onTap: () => setState(() => range = r),
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: selected ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: selected
+                        ? [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.06),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: selected ? Colors.black : Colors.black54,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            Future<void> onDownload() async {
+              try {
+                final service = ReportDownloadService();
+                Navigator.of(context).pop();
+
+                final progressVN = ValueNotifier<double>(0);
+                final safeContext =
+                    NavigationService.navigatorKey.currentContext;
+                if (safeContext == null) return;
+                showModalBottomSheet(
+                  context: safeContext,
+                  isDismissible: false,
+                  enableDrag: false,
+                  builder: (_) {
+                    return Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: ValueListenableBuilder<double>(
+                        valueListenable: progressVN,
+                        builder: (c, value, _) {
+                          final pctText = value > 0
+                              ? '${(value * 100).clamp(0, 100).toStringAsFixed(0)}%'
+                              : 'Starting...';
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Power Generation Report',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              LinearProgressIndicator(
+                                value: value == 0 ? null : value,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(pctText),
+                              const SizedBox(height: 8),
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.of(c).pop();
+                                },
+                                child: Text(
+                                  gen.AppLocalizations.of(c).action_cancel,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    );
+                  },
+                );
+
+                await service.downloadCollectorReport(
+                  collectorPn: widget.device.pn,
+                  range: range,
+                  anchorDate: anchorDate,
+                  filePrefix: 'power_generation',
+                  onProgress: (r, t) {
+                    if (t > 0) {
+                      progressVN.value = (r / t).clamp(0, 1);
+                    }
+                  },
+                );
+
+                if (NavigationService.canPop()) {
+                  NavigationService.pop();
+                }
+                final sc = NavigationService.navigatorKey.currentContext;
+                if (sc != null) {
+                  ScaffoldMessenger.of(sc).showSnackBar(
+                    const SnackBar(content: Text('Report saved to Downloads')),
+                  );
+                }
+              } catch (e) {
+                if (NavigationService.canPop()) {
+                  NavigationService.pop();
+                }
+                final sc = NavigationService.navigatorKey.currentContext;
+                if (sc != null) {
+                  ScaffoldMessenger.of(sc).showSnackBar(
+                    SnackBar(content: Text('Failed to download: $e')),
+                  );
+                }
+              }
+            }
+
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 24,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Power Generation Report',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        rangeChip(
+                          CollectorReportRange.daily,
+                          gen.AppLocalizations.of(context).range_day,
+                        ),
+                        rangeChip(
+                          CollectorReportRange.monthly,
+                          gen.AppLocalizations.of(context).range_month,
+                        ),
+                        rangeChip(
+                          CollectorReportRange.yearly,
+                          gen.AppLocalizations.of(context).range_year,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    GestureDetector(
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: anchorDate,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime.now(),
+                        );
+                        if (picked != null) {
+                          setState(() => anchorDate = picked);
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 14,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFE0E0E0)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.calendar_today,
+                              size: 18,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                formatDate(range, anchorDate),
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: Text(
+                            gen.AppLocalizations.of(context).action_cancel,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor:
+                                Theme.of(context).colorScheme.primary,
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: onDownload,
+                          child: Text(
+                            gen.AppLocalizations.of(context).action_download,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -541,7 +916,7 @@ class _SquareIconButton extends StatelessWidget {
               color: Colors.black.withOpacity(.08),
               blurRadius: 6,
               offset: const Offset(0, 2),
-            )
+            ),
           ],
         ),
         alignment: Alignment.center,
@@ -570,60 +945,92 @@ class _DeviceHeader extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         image: const DecorationImage(
-            image: AssetImage('assets/images/overview_bg.png'),
-            fit: BoxFit.cover,
-            opacity: .18),
+          image: AssetImage('assets/images/overview_bg.png'),
+          fit: BoxFit.cover,
+          opacity: .18,
+        ),
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(.05),
-              blurRadius: 10,
-              offset: const Offset(0, 2))
+            color: Colors.black.withOpacity(.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
-      child: Row(children: [
-        Stack(children: [
-          Image.asset('assets/images/device1.png',
-              width: 70, height: 70, fit: BoxFit.contain),
-          Positioned(
-              top: 4,
-              right: 4,
-              child: Container(
+      child: Row(
+        children: [
+          Stack(
+            children: [
+              Image.asset(
+                'assets/images/device1.png',
+                width: 70,
+                height: 70,
+                fit: BoxFit.contain,
+              ),
+              Positioned(
+                top: 4,
+                right: 4,
+                child: Container(
                   width: 12,
                   height: 12,
                   decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: online ? Colors.green : Colors.red,
-                      border: Border.all(color: Colors.white, width: 2))))
-        ]),
-        const SizedBox(width: 16),
-        Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(device.alias.isNotEmpty ? device.alias : device.pn,
-              style:
-                  const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 4),
-          Text(online ? 'Online' : 'Offline',
-              style: TextStyle(
-                  color: online ? Colors.green : Colors.red,
-                  fontWeight: FontWeight.w500)),
-          if (live != null) ...[
-            const SizedBox(height: 4),
-            Row(children: [
-              Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                      color: Colors.green, shape: BoxShape.circle)),
-              const SizedBox(width: 6),
-              const Text('Live Data',
-                  style: TextStyle(fontSize: 12, color: Colors.black54))
-            ])
-          ]
-        ]))
-      ]),
+                    shape: BoxShape.circle,
+                    color: online ? Colors.green : Colors.red,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  device.alias.isNotEmpty ? device.alias : device.pn,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  online
+                      ? gen.AppLocalizations.of(context).online
+                      : gen.AppLocalizations.of(context).offline,
+                  style: TextStyle(
+                    color: online ? Colors.green : Colors.red,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (live != null) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Colors.green,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        gen.AppLocalizations.of(context).live_data,
+                        style: TextStyle(fontSize: 12, color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -648,13 +1055,14 @@ class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
         : widget.device.pid.toString();
     // Initialize for this specific device so allowed metrics filter correctly
     final deviceRef = DeviceRef(
-        sn: widget.device.sn,
-        pn: widget.device.pn,
-        devcode: widget.device.devcode,
-        devaddr: widget.device.devaddr,
-        alias: widget.device.alias.isNotEmpty
-            ? widget.device.alias
-            : widget.device.pn);
+      sn: widget.device.sn,
+      pn: widget.device.pn,
+      devcode: widget.device.devcode,
+      devaddr: widget.device.devaddr,
+      alias: widget.device.alias.isNotEmpty
+          ? widget.device.alias
+          : widget.device.pn,
+    );
     // Fire async after build frame
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _vm.initForDevice(device: deviceRef, plantId: plantId);
@@ -664,140 +1072,229 @@ class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider.value(
-        value: _vm,
-        child: Consumer<OverviewGraphViewModel>(builder: (context, vm, _) {
+      value: _vm,
+      child: Consumer<OverviewGraphViewModel>(
+        builder: (context, vm, _) {
           final plantId = widget.device.plantId.isNotEmpty
               ? widget.device.plantId
               : widget.device.pid.toString();
           String anchorLabel;
           switch (vm.period) {
             case GraphPeriod.day:
-              anchorLabel = DateFormat('d/M/yyyy').format(vm.anchor);
+              const months = [
+                'Jan',
+                'Feb',
+                'Mar',
+                'Apr',
+                'May',
+                'Jun',
+                'Jul',
+                'Aug',
+                'Sept',
+                'Oct',
+                'Nov',
+                'Dec',
+              ];
+              anchorLabel =
+                  '${vm.anchor.day.toString().padLeft(2, '0')} ${months[vm.anchor.month - 1]} ${vm.anchor.year}';
               break;
             case GraphPeriod.month:
-              anchorLabel = DateFormat('MMM yyyy').format(vm.anchor);
+              const months = [
+                'Jan',
+                'Feb',
+                'Mar',
+                'Apr',
+                'May',
+                'Jun',
+                'Jul',
+                'Aug',
+                'Sept',
+                'Oct',
+                'Nov',
+                'Dec',
+              ];
+              anchorLabel = '${months[vm.anchor.month - 1]} ${vm.anchor.year}';
               break;
             case GraphPeriod.year:
-              anchorLabel = DateFormat('yyyy').format(vm.anchor);
+              anchorLabel = vm.anchor.year.toString();
               break;
           }
           final state = vm.state;
           return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(children: [
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
                   Expanded(
                     child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 4),
-                        decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                  color: Colors.black.withOpacity(.06),
-                                  blurRadius: 6,
-                                  offset: const Offset(0, 2))
-                            ]),
-                        child: DropdownButtonHideUnderline(
-                            child: DropdownButton<String>(
-                                value: vm.metric.name,
-                                isExpanded: true,
-                                icon: const Icon(Icons.keyboard_arrow_down),
-                                items: vm.allowedMetricsForSelectedDevice
-                                    .map((m) => DropdownMenuItem(
-                                          value: m.name,
-                                          child: Text(_metricLabel(m)),
-                                        ))
-                                    .toList(),
-                                onChanged: (val) async {
-                                  if (val == null) return;
-                                  final m = vm.allowedMetricsForSelectedDevice
-                                      .firstWhere((g) => g.name == val,
-                                          orElse: () => vm
-                                              .allowedMetricsForSelectedDevice
-                                              .first);
-                                  await vm.setMetric(m, plantId: plantId);
-                                }))),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(.06),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: vm.metric.name,
+                          isExpanded: true,
+                          icon: const Icon(Icons.keyboard_arrow_down),
+                          items: vm.allowedMetricsForSelectedDevice
+                              .map(
+                                (m) => DropdownMenuItem(
+                                  value: m.name,
+                                  child: Text(_metricLabel(m)),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (val) async {
+                            if (val == null) return;
+                            final m =
+                                vm.allowedMetricsForSelectedDevice.firstWhere(
+                              (g) => g.name == val,
+                              orElse: () =>
+                                  vm.allowedMetricsForSelectedDevice.first,
+                            );
+                            await vm.setMetric(m, plantId: plantId);
+                          },
+                        ),
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 12),
-                  _periodChip('Day', vm.period == GraphPeriod.day,
-                      () => vm.setPeriod(GraphPeriod.day, plantId: plantId)),
+                  _periodChip(
+                    'Day',
+                    vm.period == GraphPeriod.day,
+                    () => vm.setPeriod(GraphPeriod.day, plantId: plantId),
+                  ),
                   const SizedBox(width: 8),
-                  _periodChip('Month', vm.period == GraphPeriod.month,
-                      () => vm.setPeriod(GraphPeriod.month, plantId: plantId)),
+                  _periodChip(
+                    'Month',
+                    vm.period == GraphPeriod.month,
+                    () => vm.setPeriod(GraphPeriod.month, plantId: plantId),
+                  ),
                   const SizedBox(width: 8),
-                  _periodChip('Year', vm.period == GraphPeriod.year,
-                      () => vm.setPeriod(GraphPeriod.year, plantId: plantId)),
-                ]),
-                const SizedBox(height: 12),
-                Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      IconButton(
-                          icon: const Icon(Icons.arrow_left,
-                              color: Colors.black54),
-                          onPressed: () => vm.stepDate(-1, plantId: plantId)),
-                      Text(anchorLabel,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 16)),
-                      Builder(builder: (_) {
-                        final now = DateTime.now();
-                        bool canForward;
-                        switch (vm.period) {
-                          case GraphPeriod.day:
-                            canForward = DateTime(vm.anchor.year,
-                                    vm.anchor.month, vm.anchor.day)
-                                .isBefore(
-                                    DateTime(now.year, now.month, now.day));
-                            break;
-                          case GraphPeriod.month:
-                            canForward =
-                                DateTime(vm.anchor.year, vm.anchor.month)
-                                    .isBefore(DateTime(now.year, now.month));
-                            break;
-                          case GraphPeriod.year:
-                            canForward = vm.anchor.year < now.year;
-                            break;
-                        }
-                        return IconButton(
-                            icon: Icon(Icons.arrow_right,
-                                color: canForward
-                                    ? Colors.black54
-                                    : Colors.black26),
-                            onPressed: canForward
-                                ? () => vm.stepDate(1, plantId: plantId)
-                                : null);
-                      })
-                    ]),
-                const SizedBox(height: 8),
-                // Increased height for bigger graph per request
-                SizedBox(height: 320, child: _LineChart(state: state)),
-              ]);
-        }));
+                  _periodChip(
+                    'Year',
+                    vm.period == GraphPeriod.year,
+                    () => vm.setPeriod(GraphPeriod.year, plantId: plantId),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_left, color: Colors.black54),
+                    onPressed: () => vm.stepDate(-1, plantId: plantId),
+                  ),
+                  Text(
+                    anchorLabel,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  Builder(
+                    builder: (_) {
+                      final now = DateTime.now();
+                      bool canForward;
+                      switch (vm.period) {
+                        case GraphPeriod.day:
+                          canForward = DateTime(
+                            vm.anchor.year,
+                            vm.anchor.month,
+                            vm.anchor.day,
+                          ).isBefore(DateTime(now.year, now.month, now.day));
+                          break;
+                        case GraphPeriod.month:
+                          canForward = DateTime(
+                            vm.anchor.year,
+                            vm.anchor.month,
+                          ).isBefore(DateTime(now.year, now.month));
+                          break;
+                        case GraphPeriod.year:
+                          canForward = vm.anchor.year < now.year;
+                          break;
+                      }
+                      return IconButton(
+                        icon: Icon(
+                          Icons.arrow_right,
+                          color: canForward ? Colors.black54 : Colors.black26,
+                        ),
+                        onPressed: canForward
+                            ? () => vm.stepDate(1, plantId: plantId)
+                            : null,
+                      );
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // Single unified graph card containing the chart
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(.06),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Padding(
+                  // adjust bottom padding to reduce excess whitespace below chart
+                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                  child: SizedBox(height: 240, child: _LineChart(state: state)),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   Widget _periodChip(String label, bool selected, VoidCallback tap) {
     return InkWell(
-        onTap: tap,
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-                color: selected ? Colors.white : Colors.transparent,
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: selected
-                    ? [
-                        BoxShadow(
-                            color: Colors.black.withOpacity(.06),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2))
-                      ]
-                    : null),
-            child: Text(label,
-                style: TextStyle(
-                    color: selected ? Colors.black : Colors.black54,
-                    fontWeight: FontWeight.w600))));
+      onTap: tap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(.06),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? Colors.black : Colors.black54,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -810,7 +1307,8 @@ class _LineChart extends StatelessWidget {
       return const Center(child: CircularProgressIndicator());
     if (state.error != null) {
       return Center(
-          child: Text(state.error!, style: const TextStyle(color: Colors.red)));
+        child: Text(state.error!, style: const TextStyle(color: Colors.red)),
+      );
     }
     if (state.labels.isEmpty || state.series.isEmpty) {
       return const Center(child: Text('No data'));
@@ -824,133 +1322,171 @@ class _LineChart extends StatelessWidget {
     // range calculation not needed without left tick labels
     // interval removed (no left axis labels)
     // Unified axis style: ticks on bottom only with custom labels
-    return LineChart(LineChartData(
+    return LineChart(
+      LineChartData(
         minY: minY,
         maxY: maxY,
         backgroundColor: Colors.transparent,
         borderData: FlBorderData(
-            show: true,
-            border: Border(
-                left:
-                    BorderSide(color: Colors.black.withOpacity(.15), width: 1),
-                bottom:
-                    BorderSide(color: Colors.black.withOpacity(.15), width: 1),
-                right: const BorderSide(color: Colors.transparent),
-                top: const BorderSide(color: Colors.transparent))),
+          show: true,
+          border: Border(
+            left: BorderSide(color: Colors.black.withOpacity(.15), width: 1),
+            bottom: BorderSide(color: Colors.black.withOpacity(.15), width: 1),
+            right: const BorderSide(color: Colors.transparent),
+            top: const BorderSide(color: Colors.transparent),
+          ),
+        ),
         gridData: FlGridData(
-            show: true,
-            drawVerticalLine: true,
-            drawHorizontalLine: true,
-            getDrawingHorizontalLine: (v) =>
-                FlLine(color: Colors.black.withOpacity(.04), strokeWidth: 1),
-            getDrawingVerticalLine: (v) =>
-                FlLine(color: Colors.black.withOpacity(.04), strokeWidth: 1)),
+          show: true,
+          drawVerticalLine: true,
+          drawHorizontalLine: true,
+          getDrawingHorizontalLine: (v) =>
+              FlLine(color: Colors.black.withOpacity(.04), strokeWidth: 1),
+          getDrawingVerticalLine: (v) =>
+              FlLine(color: Colors.black.withOpacity(.04), strokeWidth: 1),
+        ),
         titlesData: FlTitlesData(
-            leftTitles:
-                const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            rightTitles:
-                const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            topTitles:
-                const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            bottomTitles: AxisTitles(
-                sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 30,
-                    interval: isDaily ? 360 : 1,
-                    getTitlesWidget: (value, meta) {
-                      String text = '';
-                      if (isDaily) {
-                        final minute = value.round();
-                        if (minute == 0)
-                          text = '12AM';
-                        else if (minute == 360)
-                          text = '6AM';
-                        else if (minute == 720)
-                          text = '12PM';
-                        else if (minute == 1080) text = '6PM';
-                      } else {
-                        final len = state.labels.length;
-                        if (len == 0) return const SizedBox.shrink();
-                        final idx = value.round();
-                        if (len == 12) {
-                          if (idx == 0)
-                            text = state.labels.first; // Jan
-                          else if (idx == 5)
-                            text = state.labels[5]; // Jun
-                          else if (idx == 11) text = state.labels.last; // Dec
-                        } else {
-                          final lastIdx = len - 1;
-                          if (idx == 0)
-                            text = state.labels.first; // 1
-                          else if (int.tryParse(state.labels[idx]) == 15)
-                            text = '15';
-                          else if (idx == lastIdx)
-                            text = state.labels.last; // last day
-                        }
-                      }
-                      if (text.isEmpty) return const SizedBox.shrink();
-                      return Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(text,
-                              style: const TextStyle(
-                                  fontSize: 10, color: Colors.black54)));
-                    }))),
+          leftTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              // reduced reserved size to lessen bottom whitespace
+              reservedSize: 38,
+              interval: isDaily ? 360 : 1,
+              getTitlesWidget: (value, meta) {
+                String text = '';
+                bool isFirst = false;
+                if (isDaily) {
+                  final minute = value.round();
+                  if (minute == 0) {
+                    text = '12AM';
+                    isFirst = true;
+                  } else if (minute == 360)
+                    text = '6AM';
+                  else if (minute == 720)
+                    text = '12PM';
+                  else if (minute == 1080) text = '6PM';
+                } else {
+                  final len = state.labels.length;
+                  if (len == 0) return const SizedBox.shrink();
+                  final idx = value.round();
+                  if (len == 12) {
+                    if (idx == 0) {
+                      text = state.labels.first; // Jan
+                      isFirst = true;
+                    } else if (idx == 5)
+                      text = state.labels[5]; // Jun
+                    else if (idx == 11) text = state.labels.last; // Dec
+                  } else {
+                    final lastIdx = len - 1;
+                    if (idx == 0) {
+                      text = state.labels.first; // 1
+                      isFirst = true;
+                    } else if (int.tryParse(state.labels[idx]) == 15)
+                      text = '15';
+                    else if (idx == lastIdx)
+                      text = state.labels.last; // last day
+                  }
+                }
+                if (text.isEmpty) return const SizedBox.shrink();
+                final style = const TextStyle(
+                  fontSize: 11,
+                  height: 1.0,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.black54,
+                );
+                final textDir = Directionality.of(context);
+                final tp = TextPainter(
+                  text: TextSpan(text: text, style: style),
+                  textDirection: textDir,
+                )..layout();
+                final sign = (textDir == ui.TextDirection.ltr) ? 1.0 : -1.0;
+                final dx = isFirst ? sign * (tp.width / 2 + 2) : 0.0;
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8, right: 6),
+                  child: Transform.translate(
+                    offset: Offset(dx, 2),
+                    child: Text(
+                      text,
+                      textAlign: TextAlign.center,
+                      style: style,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
         lineTouchData: LineTouchData(
-            enabled: true,
-            touchTooltipData: LineTouchTooltipData(
-                tooltipBgColor: Colors.white,
-                fitInsideHorizontally: true,
-                fitInsideVertically: true,
-                tooltipPadding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                getTooltipItems: (items) => items.map((it) {
-                      String label;
-                      if (isDaily) {
-                        int minute = it.x.round();
-                        minute = minute.clamp(0, 1439);
-                        final h = minute ~/ 60;
-                        final m = minute % 60;
-                        final hour12 = ((h + 11) % 12) + 1;
-                        final ampm = h < 12 ? 'AM' : 'PM';
-                        label = '$hour12:${m.toString().padLeft(2, '0')} $ampm';
-                      } else {
-                        final len = state.labels.length;
-                        int idx = it.x.round();
-                        if (idx < 0) idx = 0;
-                        if (idx >= len) idx = len - 1;
-                        label = len > 0 ? state.labels[idx] : '';
-                      }
-                      return LineTooltipItem(
-                          '$label\n${it.y.toStringAsFixed(1)} ${state.unit}',
-                          const TextStyle(color: Colors.black));
-                    }).toList())),
+          enabled: true,
+          touchTooltipData: LineTouchTooltipData(
+            tooltipBgColor: Colors.white,
+            fitInsideHorizontally: true,
+            fitInsideVertically: true,
+            tooltipPadding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 6,
+            ),
+            getTooltipItems: (items) => items.map((it) {
+              String label;
+              if (isDaily) {
+                int minute = it.x.round();
+                minute = minute.clamp(0, 1439);
+                final h = minute ~/ 60;
+                final m = minute % 60;
+                final hour12 = ((h + 11) % 12) + 1;
+                final ampm = h < 12 ? 'AM' : 'PM';
+                label = '$hour12:${m.toString().padLeft(2, '0')} $ampm';
+              } else {
+                final len = state.labels.length;
+                int idx = it.x.round();
+                if (idx < 0) idx = 0;
+                if (idx >= len) idx = len - 1;
+                label = len > 0 ? state.labels[idx] : '';
+              }
+              return LineTooltipItem(
+                '$label\n${it.y.toStringAsFixed(1)} ${state.unit}',
+                const TextStyle(color: Colors.black),
+              );
+            }).toList(),
+          ),
+        ),
         minX: 0,
         maxX: isDaily ? 1439 : null,
         lineBarsData: state.series.map((s) {
           final spots = isDaily ? _expandDaily(s.data) : _upsample(s.data, 16);
           return LineChartBarData(
-              spots: spots,
-              isCurved: true,
-              curveSmoothness: 0.36,
-              color: lineColor,
-              barWidth: 2,
-              dotData: const FlDotData(show: false),
-              belowBarData: BarAreaData(
-                  show: true,
-                  gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        lineColor.withOpacity(.30),
-                        lineColor.withOpacity(.10),
-                        Colors.transparent
-                      ],
-                      stops: const [
-                        0.0,
-                        0.55,
-                        1.0
-                      ])));
-        }).toList()));
+            spots: spots,
+            isCurved: true,
+            curveSmoothness: 0.36,
+            color: lineColor,
+            barWidth: 2,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(
+              show: true,
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  lineColor.withOpacity(.30),
+                  lineColor.withOpacity(.10),
+                  Colors.transparent,
+                ],
+                stops: const [0.0, 0.55, 1.0],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
   }
 
   List<FlSpot> _expandDaily(List<double> hourly) {
@@ -1015,200 +1551,166 @@ String _metricLabel(GraphMetric m) {
 }
 
 class _EnergyFlowDiagram extends StatefulWidget {
-  final double? pvW;
+  final double? pvW; // using W or Voltage value generically for presence
   final double? loadW;
-  final double? gridW; // positive import, treat >0 as active
+  final double? gridW;
   final double? batterySoc;
-  final double? batteryFlowW;
+  final double? batteryFlowW; // using battery voltage/power for presence
   final DateTime? lastUpdated;
   const _EnergyFlowDiagram({
+    Key? key,
     required this.pvW,
     required this.loadW,
     required this.gridW,
     required this.batterySoc,
     required this.batteryFlowW,
     required this.lastUpdated,
-  });
+  }) : super(key: key);
   @override
   State<_EnergyFlowDiagram> createState() => _EnergyFlowDiagramState();
 }
 
-class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
+class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
+  VideoPlayerController? _controller;
+  String? _currentAsset;
+
+  bool _present(double? v, {double threshold = 5}) => (v ?? 0) > threshold;
+
+  String _selectVideoAsset() {
+    // Use thresholds consistent with previous image selection logic
+    final pvOn = _present(widget.pvW, threshold: 50);
+    final gridOn = _present(widget.gridW, threshold: 50);
+    final batOn = _present(widget.batteryFlowW, threshold: 20) ||
+        (widget.batterySoc ?? 0) > 5;
+
+    if (pvOn && gridOn) return 'assets/energy_diagram/grid_solar.mp4';
+    if (pvOn && batOn) return 'assets/energy_diagram/solar_battery.mp4';
+    if (gridOn && batOn) return 'assets/energy_diagram/grid_battery.mp4';
+    if (pvOn) return 'assets/energy_diagram/solar_battery.mp4';
+    if (gridOn) return 'assets/energy_diagram/grid_battery.mp4';
+    return 'assets/energy_diagram/battery_only.mp4';
+  }
+
+  Future<void> _initControllerFor(String asset) async {
+    if (_currentAsset == asset && _controller != null) return;
+    final old = _controller;
+    _controller = VideoPlayerController.asset(asset);
+    _currentAsset = asset;
+    try {
+      await _controller!.initialize();
+      _controller!.setLooping(true);
+      await _controller!.play();
+    } catch (_) {
+      // ignore play errors for missing/invalid assets
+    }
+    if (mounted) setState(() {});
+    await old?.pause();
+    await old?.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant _EnergyFlowDiagram oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final asset = _selectVideoAsset();
+    _initControllerFor(asset);
+  }
+
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1600))
-      ..repeat();
+    final asset = _selectVideoAsset();
+    _initControllerFor(asset);
   }
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
-  bool _active(double? v) => (v ?? 0) > 5; // threshold
-
   @override
   Widget build(BuildContext context) {
-    final pvActive = _active(widget.pvW);
-    final gridActive = _active(widget.gridW);
-    final loadActive = _active(widget.loadW);
-    final batteryActive = widget.batterySoc != null; // show SOC anyway
-
-    return Container(
-      width: double.infinity,
-      height: 240, // fixed height to provide finite constraints for Stack
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(.05),
-              blurRadius: 10,
-              offset: const Offset(0, 2))
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(children: [
-        // Background static illustration
-        Positioned.fill(
-            child: Image.asset('assets/images/realtimedetail.png',
-                fit: BoxFit.cover)),
-        // Animated overlay lines
-        Positioned.fill(
-            child: AnimatedBuilder(
-                animation: _ctrl,
-                builder: (_, __) {
-                  return CustomPaint(
-                      painter: _FlowPainter(
-                    t: _ctrl.value,
-                    pvActive: pvActive,
-                    gridActive: gridActive,
-                    loadActive: loadActive,
-                    batteryActive: batteryActive,
-                  ));
-                })),
-        // Live Data indicator
-        Positioned(
-            right: 10,
-            bottom: 10,
-            child: Row(children: const [
-              _LiveDot(),
-              SizedBox(width: 6),
-              Text('Live Data',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.green))
-            ]))
-      ]),
+    final ready = _controller != null && _controller!.value.isInitialized;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final aspect = 365 / 302; // original design aspect
+        final double height =
+            width.isFinite ? (width / aspect).toDouble() : 240.0;
+        if (!ready) return const SizedBox.shrink();
+        return Container(
+          width: double.infinity,
+          height: height,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(.05),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: (_controller != null && _controller!.value.isInitialized)
+                    ? FittedBox(
+                        fit: BoxFit.cover,
+                        child: SizedBox(
+                          width: _controller!.value.size.width,
+                          height: _controller!.value.size.height,
+                          child: VideoPlayer(_controller!),
+                        ),
+                      )
+                    : const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+              ),
+              Positioned(
+                right: 10,
+                bottom: 10,
+                child: Row(
+                  children: [
+                    const _LiveDataDot(),
+                    const SizedBox(width: 6),
+                    Text(
+                      gen.AppLocalizations.of(context).live_data,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.green,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
 
-class _LiveDot extends StatelessWidget {
-  const _LiveDot();
+class _LiveDataDot extends StatelessWidget {
+  const _LiveDataDot();
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 10,
-      height: 10,
-      decoration: BoxDecoration(
+  Widget build(BuildContext context) => Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(
           color: Colors.green,
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-                color: Colors.green.withOpacity(.5),
-                blurRadius: 4,
-                spreadRadius: 1)
-          ]),
-    );
-  }
-}
-
-class _FlowPainter extends CustomPainter {
-  final double t; // 0..1 animation phase
-  final bool pvActive, gridActive, loadActive, batteryActive;
-  _FlowPainter({
-    required this.t,
-    required this.pvActive,
-    required this.gridActive,
-    required this.loadActive,
-    required this.batteryActive,
-  });
-
-  final Color activeColor = const Color(0xFFFFC400); // yellow
-  final Color inactiveColor = const Color(0xFFB0BEC5); // grey
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Define approximate path coordinates relative to background image
-    // (These should be tuned visually.)
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 4; // thinner to sit on existing artwork lines
-
-    void drawDashed(Path path, bool active) {
-      final pathColor = active ? activeColor : inactiveColor.withOpacity(.6);
-      paint.color = pathColor;
-      if (!active) {
-        canvas.drawPath(path, paint);
-        return;
-      }
-      // Animated dash: simple segments moving along path
-      final seg = 22.0; // length of visible dash
-      final gap = 14.0;
-      final shift = t * (seg + gap);
-      for (final metric in path.computeMetrics()) {
-        double dist = -shift;
-        while (dist < metric.length) {
-          final double start = dist.clamp(0, metric.length).toDouble();
-          final double end = (dist + seg).clamp(0, metric.length).toDouble();
-          if (end > start) {
-            final extract = metric.extractPath(start, end);
-            canvas.drawPath(extract, paint);
-          }
-          dist += seg + gap;
-        }
-      }
-    }
-
-    // Paths (approx): pv -> hub, grid -> hub, hub -> load, hub -> battery
-    // These coordinates should be tweaked to match exact artwork lines.
-    final Path pv = Path()
-      ..moveTo(size.width * 0.07, size.height * 0.28)
-      ..lineTo(size.width * 0.27, size.height * 0.34)
-      ..lineTo(size.width * 0.47, size.height * 0.39);
-    final Path grid = Path()
-      ..moveTo(size.width * 0.93, size.height * 0.09)
-      ..lineTo(size.width * 0.72, size.height * 0.18)
-      ..lineTo(size.width * 0.55, size.height * 0.31)
-      ..lineTo(size.width * 0.50, size.height * 0.37);
-    final Path load = Path()
-      ..moveTo(size.width * 0.52, size.height * 0.45)
-      ..lineTo(size.width * 0.73, size.height * 0.55)
-      ..lineTo(size.width * 0.82, size.height * 0.63);
-    final Path battery = Path()
-      ..moveTo(size.width * 0.32, size.height * 0.72)
-      ..lineTo(size.width * 0.43, size.height * 0.60)
-      ..lineTo(size.width * 0.50, size.height * 0.48);
-
-    drawDashed(pv, pvActive);
-    drawDashed(grid, gridActive);
-    drawDashed(load, loadActive);
-    drawDashed(battery, batteryActive);
-  }
-
-  @override
-  bool shouldRepaint(covariant _FlowPainter old) =>
-      old.t != t ||
-      old.pvActive != pvActive ||
-      old.gridActive != gridActive ||
-      old.loadActive != loadActive ||
-      old.batteryActive != batteryActive;
+              color: Colors.green.withOpacity(.5),
+              blurRadius: 4,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+      );
 }

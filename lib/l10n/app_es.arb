@@ -1,0 +1,26 @@
+{
+  "devices": "Dispositivos",
+  "select_language": "Seleccionar idioma",
+  "tabs_home": "Inicio",
+  "tabs_plant": "Planta",
+  "tabs_device": "Dispositivos",
+  "tabs_user": "Perfil",
+  "plant_information": "Información de la planta",
+  "about_us": "Sobre nosotros",
+  "interface_theme": "Tema de interfaz",
+  "change_language": "Cambiar idioma",
+  "account_information": "Información de cuenta",
+  "introduction": "INTRODUCCIÓN",
+  "about_us_introduction": "Crown Micro ha estado sirviendo con sus variados productos de TI y energía, desde 1992 establecido como un nombre sólido y confiable en la ciudad de Los Ángeles, California, EE. UU. El equipo próspero y defensor está trabajando arduamente para servirle con productos innovadores, respetuosos con el medio ambiente y valiosos. La dedicación es lo primero que ponemos en nuestros productos, para suministrarte lo mejor. Nuestro trabajo duro progresivo da sus frutos y en 2006 nos unimos como miembro del conocido nombre SADITA Holding LTD, pero Crown Micro mantiene el legado de ser próspero y de tomar más poder, seguir trabajando y tener como objetivo extenderlo a algunas partes adicionales del mundo. Por lo tanto, dentro de los 20 años de establecimiento, Crown micro marcó su nombre en el mercado de los Emiratos Árabes Unidos, Rusia, Kazajstán, Ucrania, China, Alemania, Reino de Arabia Saudita, Kuwait, Pakistán, Nigeria, Kenia, Túnez, Siria, Líbano, Irak, Marruecos y Ghana. Ahora estamos en colaboración con más de 75 empresas en todo el mundo y reconocidos como Crown Micro, una marca internacional. Crown Micro posee productos de calidad en cada unidad de tecnología, incluida una amplia gama de computadoras, accesorios para móviles, inversores solares innovadores, AVR, UPS, paneles solares y mucho más",
+  "company_name": "CROWN MICRO (PVT) LIMITED"
+  ,
+  "change_password": "Cambiar contraseña",
+  "old_password": "Contraseña anterior",
+  "new_password": "Nueva contraseña",
+  "confirm_new_password": "Confirmar nueva contraseña",
+  "enter_old_password": "Ingrese la contraseña anterior",
+  "password_must_be_6": "La contraseña debe tener al menos 6 caracteres",
+  "passwords_do_not_match": "Las contraseñas no coinciden",
+  "password_changed_success": "¡Contraseña cambiada con éxito!",
+  "password_change_failed": "No se pudo cambiar la contraseña. Verifique su contraseña anterior e inténtelo nuevamente."
+}

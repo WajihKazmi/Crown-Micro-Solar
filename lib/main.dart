@@ -4,12 +4,12 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crown_micro_solar/core/di/service_locator.dart';
 import 'package:crown_micro_solar/routes/app_routes.dart';
-import 'package:crown_micro_solar/core/theme/app_theme.dart';
 import 'package:crown_micro_solar/core/network/api_service.dart';
 import 'package:crown_micro_solar/presentation/repositories/auth_repository.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/auth_viewmodel.dart';
 import 'package:crown_micro_solar/core/config/app_config.dart';
-import 'package:crown_micro_solar/localization/app_localizations.dart';
+import 'package:crown_micro_solar/localization/l10n.dart';
+import 'package:crown_micro_solar/l10n/app_localizations.dart' as gen;
 import 'package:crown_micro_solar/core/utils/navigation_service.dart';
 import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
 import 'package:crown_micro_solar/core/theme/theme_notifier.dart';
@@ -76,13 +76,45 @@ void main() async {
 }
 
 class LocaleProvider extends ChangeNotifier {
-  Locale _locale = AppLocalizations.defaultLocale;
+  // Default to English explicitly
+  Locale _locale = const Locale('en');
   Locale get locale => _locale;
 
   void setLocale(Locale locale) {
-    if (!AppLocalizations.supportedLocales.contains(locale)) return;
+    if (!gen.AppLocalizations.supportedLocales.contains(locale)) return;
     _locale = locale;
+    _persistLocale(locale);
     notifyListeners();
+  }
+
+  static const _localeKey = 'app_locale_code';
+
+  static Future<LocaleProvider> loadFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final code = prefs.getString(_localeKey);
+    // Use saved locale if valid; otherwise prefer device locale if supported
+    Locale? locale;
+    if (code != null) {
+      final saved = Locale(code);
+      if (gen.AppLocalizations.supportedLocales.contains(saved)) {
+        locale = saved;
+      }
+    }
+    locale ??= () {
+      final device = WidgetsBinding.instance.platformDispatcher.locale;
+      for (final s in gen.AppLocalizations.supportedLocales) {
+        if (s.languageCode == device.languageCode) return s;
+      }
+      return const Locale('en');
+    }();
+    final provider = LocaleProvider();
+    provider._locale = locale;
+    return provider;
+  }
+
+  Future<void> _persistLocale(Locale locale) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_localeKey, locale.languageCode);
   }
 }
 
@@ -101,8 +133,16 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => AuthViewModel(authRepository),
         ),
-        ChangeNotifierProvider(
-          create: (_) => LocaleProvider(),
+        // Initialize locale provider synchronously with default, then restore from prefs
+        ChangeNotifierProvider<LocaleProvider>(
+          create: (_) {
+            final provider = LocaleProvider();
+            // Fire-and-forget load persisted locale
+            LocaleProvider.loadFromPrefs().then((loaded) {
+              provider.setLocale(loaded.locale);
+            });
+            return provider;
+          },
         ),
         ChangeNotifierProvider<ThemeNotifier>.value(value: themeNotifier),
       ],
@@ -112,13 +152,23 @@ class MyApp extends StatelessWidget {
             navigatorKey:
                 NavigationService.navigatorKey, // Use global navigator key
             title: AppConfig.appName,
+            // Force light mode only per requirement: remove dark theme usage
             theme: themeNotifier.themeData,
-            darkTheme: AppTheme.darkTheme,
+            themeMode: ThemeMode.light,
             initialRoute: AppRoutes.splash,
             routes: AppRoutes.routes,
             locale: localeProvider.locale,
-            supportedLocales: AppLocalizations.supportedLocales,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: L10nConfig.supportedLocales,
+            localizationsDelegates: L10nConfig.localizationsDelegates,
+            localeResolutionCallback: (device, supported) {
+              if (device == null) return localeProvider.locale;
+              for (final s in supported) {
+                if (s.languageCode == device.languageCode) {
+                  return s; // map ru_RU -> ru, etc.
+                }
+              }
+              return localeProvider.locale;
+            },
           );
         },
       ),

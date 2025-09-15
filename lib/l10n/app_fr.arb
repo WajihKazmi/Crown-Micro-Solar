@@ -1,0 +1,26 @@
+{
+  "devices": "Appareils",
+  "select_language": "Sélectionner la langue",
+  "tabs_home": "Accueil",
+  "tabs_plant": "Centrale",
+  "tabs_device": "Appareils",
+  "tabs_user": "Profil",
+  "plant_information": "Informations sur la centrale",
+  "about_us": "À propos",
+  "interface_theme": "Thème d'interface",
+  "change_language": "Changer de langue",
+  "account_information": "Informations du compte",
+  "introduction": "INTRODUCTION",
+  "about_us_introduction": "Crown Micro sert avec ses divers produits informatiques et énergétiques depuis 1992, établie comme un nom robuste et digne de confiance dans la ville de Los Angeles, en Californie, aux États-Unis. L'équipe prospère et défensive s'efforce de vous servir avec des produits innovants, respectueux de l'environnement et précieux. La dédication est la première chose que nous mettons dans nos produits, pour vous fournir le meilleur. Notre travail acharné progressif porte ses fruits et en 2006, nous nous sommes associés à un membre du nom bien connu SADITA Holding LTD mais Crown Micro maintient l'héritage de prospérité et d'acquisition de plus de puissance, continue à travailler et vise à le propager à quelques autres parties supplémentaires du globe. Par conséquent, dans les 20 ans suivant sa création, Crown Micro a marqué son nom sur le marché des Émirats arabes unis, de la Russie, du Kazakhstan, de l'Ukraine, de la Chine, de l'Allemagne, du Royaume d'Arabie saoudite, du Koweït, du Pakistan, du Nigeria, du Kenya, de la Tunisie, de la Syrie, du Liban, de l'Irak, du Maroc et du Ghana. Nous collaborons désormais avec plus de 75 entreprises dans le monde entier et sommes reconnus comme Crown Micro une marque internationale. Crown Micro possède des produits de qualité dans chaque unité de technologie, y compris une gamme immersive d'ordinateurs, d'accessoires pour mobiles, d'onduleurs solaires innovants, d'AVR, d'UPS, de panneaux solaires, et bien plus encore.",
+  "company_name": "CROWN MICRO (PVT) LIMITED"
+  ,
+  "change_password": "Changer le mot de passe",
+  "old_password": "Ancien mot de passe",
+  "new_password": "Nouveau mot de passe",
+  "confirm_new_password": "Confirmer le nouveau mot de passe",
+  "enter_old_password": "Entrez l'ancien mot de passe",
+  "password_must_be_6": "Le mot de passe doit comporter au moins 6 caractères",
+  "passwords_do_not_match": "Les mots de passe ne correspondent pas",
+  "password_changed_success": "Mot de passe modifié avec succès !",
+  "password_change_failed": "Échec du changement de mot de passe. Veuillez vérifier votre ancien mot de passe et réessayer."
+}

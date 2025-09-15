@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:ui';
+import 'package:crown_micro_solar/l10n/app_localizations.dart' as gen;
 
 class AppBottomNavBar extends StatelessWidget {
   final int currentIndex;
@@ -17,6 +18,8 @@ class AppBottomNavBar extends StatelessWidget {
     final theme = Theme.of(context);
     final activeColor = theme.colorScheme.primary;
     final inactiveColor = Colors.grey;
+    // Access localized strings
+    final l10n = gen.AppLocalizations.of(context);
     return SizedBox(
       height: 70, // reduced overall height
       child: Stack(
@@ -43,7 +46,7 @@ class AppBottomNavBar extends StatelessWidget {
                 _buildNavItem(
                   context,
                   icon: 'assets/icons/home.svg',
-                  label: 'Overview',
+                  label: l10n.tabs_home,
                   index: 0,
                   activeColor: activeColor,
                   inactiveColor: inactiveColor,
@@ -51,7 +54,7 @@ class AppBottomNavBar extends StatelessWidget {
                 _buildNavItem(
                   context,
                   icon: Icons.eco,
-                  label: 'Plant',
+                  label: l10n.tabs_plant,
                   index: 1,
                   activeColor: activeColor,
                   inactiveColor: inactiveColor,
@@ -60,7 +63,7 @@ class AppBottomNavBar extends StatelessWidget {
                 _buildNavItem(
                   context,
                   icon: 'assets/icons/deviceDetails.svg',
-                  label: 'Devices',
+                  label: l10n.tabs_device,
                   index: 2,
                   activeColor: activeColor,
                   inactiveColor: inactiveColor,
@@ -68,7 +71,7 @@ class AppBottomNavBar extends StatelessWidget {
                 _buildNavItem(
                   context,
                   icon: 'assets/icons/profileInfo.svg',
-                  label: 'Profile',
+                  label: l10n.tabs_user,
                   index: 3,
                   activeColor: activeColor,
                   inactiveColor: inactiveColor,

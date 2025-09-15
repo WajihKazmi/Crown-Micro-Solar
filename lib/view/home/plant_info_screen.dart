@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+// removed unused imports
 import 'package:provider/provider.dart';
+import 'package:crown_micro_solar/l10n/app_localizations.dart' as gen;
 import 'package:crown_micro_solar/presentation/viewmodels/plant_info_view_model.dart';
 import 'package:crown_micro_solar/core/di/service_locator.dart';
 import 'package:crown_micro_solar/view/common/bordered_icon_button.dart';
@@ -84,27 +86,40 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
                             // Extra gap below the image
                             const SizedBox(height: 8),
                             _GlassMorphismCard(
-                              title: 'Plant Information',
+                              title: gen.AppLocalizations.of(
+                                context,
+                              ).plant_information,
                               children: [
                                 _infoRow('Plant Name', plant.name),
                                 _infoRow(
-                                    'Design Company', plant.company ?? 'N/A'),
-                                _infoRow('Installed Capacity',
-                                    '${plant.capacity.toStringAsFixed(2)} KW'),
+                                  'Design Company',
+                                  plant.company ?? 'N/A',
+                                ),
                                 _infoRow(
-                                    'Annual Planned Power',
-                                    plant.plannedPower != null
-                                        ? '${plant.plannedPower!.toStringAsFixed(2)} KW'
-                                        : 'N/A'),
-                                _infoRow('Establishment Date',
-                                    _formatDate(plant.establishmentDate)),
-                                _infoRow('Last Update',
-                                    _formatDateTime(plant.lastUpdate)),
+                                  'Installed Capacity',
+                                  '${plant.capacity.toStringAsFixed(2)} KW',
+                                ),
+                                _infoRow(
+                                  'Annual Planned Power',
+                                  plant.plannedPower != null
+                                      ? '${plant.plannedPower!.toStringAsFixed(2)} KW'
+                                      : 'N/A',
+                                ),
+                                _infoRow(
+                                  'Establishment Date',
+                                  _formatDate(plant.establishmentDate),
+                                ),
+                                _infoRow(
+                                  'Last Update',
+                                  _formatDateTime(plant.lastUpdate),
+                                ),
                               ],
                             ),
                             const SizedBox(height: 16),
                             _GlassMorphismCard(
-                              title: 'Location Details',
+                              title: gen.AppLocalizations.of(
+                                context,
+                              ).location_details,
                               children: [
                                 _infoRow('Country', plant.country ?? 'N/A'),
                                 _infoRow('Province', plant.province ?? 'N/A'),
@@ -114,24 +129,36 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
                                 _infoRow('Village', plant.village ?? 'N/A'),
                                 _infoRow('Time Zone', plant.timezone ?? 'N/A'),
                                 _infoRow('Address', plant.address ?? 'N/A'),
-                                _infoRow('Coordinates',
-                                    '${plant.latitude?.toStringAsFixed(6) ?? 'N/A'}, ${plant.longitude?.toStringAsFixed(6) ?? 'N/A'}'),
+                                _infoRow(
+                                  'Coordinates',
+                                  '${plant.latitude?.toStringAsFixed(6) ?? 'N/A'}, ${plant.longitude?.toStringAsFixed(6) ?? 'N/A'}',
+                                ),
                               ],
                             ),
                             const SizedBox(height: 16),
                             _GlassMorphismCard(
                               title: 'Energy Statistics',
                               children: [
-                                _infoRow('Current Power',
-                                    '${plant.currentPower.toStringAsFixed(2)} KW'),
-                                _infoRow('Daily Generation',
-                                    '${plant.dailyGeneration.toStringAsFixed(2)} KWH'),
-                                _infoRow('Monthly Generation',
-                                    '${plant.monthlyGeneration.toStringAsFixed(2)} KWH'),
-                                _infoRow('Yearly Generation',
-                                    '${plant.yearlyGeneration.toStringAsFixed(2)} KWH'),
-                                _infoRow('Plant Status',
-                                    _getStatusText(plant.status)),
+                                _infoRow(
+                                  'Current Power',
+                                  '${plant.currentPower.toStringAsFixed(2)} KW',
+                                ),
+                                _infoRow(
+                                  'Daily Generation',
+                                  '${plant.dailyGeneration.toStringAsFixed(2)} KWH',
+                                ),
+                                _infoRow(
+                                  'Monthly Generation',
+                                  '${plant.monthlyGeneration.toStringAsFixed(2)} KWH',
+                                ),
+                                _infoRow(
+                                  'Yearly Generation',
+                                  '${plant.yearlyGeneration.toStringAsFixed(2)} KWH',
+                                ),
+                                _infoRow(
+                                  'Plant Status',
+                                  _getStatusText(plant.status),
+                                ),
                               ],
                             ),
                             const SizedBox(height: 100),
@@ -151,8 +178,9 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
                     BorderedIconButton(
                       icon: Icons.edit,
                       onTap: () {
-                        final nameController =
-                            TextEditingController(text: plant.name);
+                        final nameController = TextEditingController(
+                          text: plant.name,
+                        );
                         showDialog(
                           context: context,
                           builder: (ctx) => AlertDialog(
@@ -179,9 +207,11 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
                                   if (!mounted) return;
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text(ok
-                                          ? 'Plant updated'
-                                          : 'Failed to update plant'),
+                                      content: Text(
+                                        ok
+                                            ? 'Plant updated'
+                                            : 'Failed to update plant',
+                                      ),
                                     ),
                                   );
                                 },
@@ -201,7 +231,8 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
                           builder: (ctx) => AlertDialog(
                             title: const Text('Delete Plant'),
                             content: const Text(
-                                'Are you sure you want to delete this plant? This action cannot be undone.'),
+                              'Are you sure you want to delete this plant? This action cannot be undone.',
+                            ),
                             actions: [
                               TextButton(
                                 onPressed: () => Navigator.pop(ctx),
@@ -209,26 +240,28 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
                               ),
                               ElevatedButton(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor:
-                                      Theme.of(context).colorScheme.primary,
+                                  backgroundColor: Theme.of(
+                                    context,
+                                  ).colorScheme.primary,
                                   foregroundColor: Colors.white,
                                 ),
                                 onPressed: () async {
                                   Navigator.pop(ctx);
-                                  final ok =
-                                      await _viewModel.deleteCurrentPlant();
+                                  final ok = await _viewModel
+                                      .deleteCurrentPlant();
                                   if (!mounted) return;
                                   if (ok) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
-                                          content: Text('Plant deleted')),
+                                        content: Text('Plant deleted'),
+                                      ),
                                     );
                                     Navigator.of(context).pop();
                                   } else {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
-                                          content:
-                                              Text('Failed to delete plant')),
+                                        content: Text('Failed to delete plant'),
+                                      ),
                                     );
                                   }
                                 },
@@ -273,21 +306,14 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
                 flex: 3,
                 child: Text(
                   value,
-                  style: const TextStyle(
-                    color: Colors.black54,
-                    fontSize: 14,
-                  ),
+                  style: const TextStyle(color: Colors.black54, fontSize: 14),
                   textAlign: TextAlign.right,
                 ),
               ),
             ],
           ),
         ),
-        const Divider(
-          height: 1,
-          thickness: 0.5,
-          color: Colors.grey,
-        ),
+        const Divider(height: 1, thickness: 0.5, color: Colors.grey),
       ],
     );
   }
@@ -322,10 +348,7 @@ class _GlassMorphismCard extends StatelessWidget {
   final String title;
   final List<Widget> children;
 
-  const _GlassMorphismCard({
-    required this.title,
-    required this.children,
-  });
+  const _GlassMorphismCard({required this.title, required this.children});
 
   @override
   Widget build(BuildContext context) {

@@ -35,6 +35,11 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // Explicitly disable code shrinking/obfuscation for now to avoid R8 file locking issue on Windows.
+            isMinifyEnabled = false
+            isShrinkResources = false
+            // If you later enable minify, supply a default proguard rules file:
+            // proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 }

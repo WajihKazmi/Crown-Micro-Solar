@@ -7,6 +7,8 @@ import 'package:crown_micro_solar/routes/app_routes.dart';
 import 'package:crown_micro_solar/view/home/home_screen.dart';
 import 'package:crown_micro_solar/core/utils/navigation_service.dart';
 import 'package:logger/logger.dart';
+import 'package:app_settings/app_settings.dart';
+import 'package:crown_micro_solar/view/home/wifi_module_webview.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -203,8 +205,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                     // Handle result using NavigationService
                     if (success) {
-                      // Clear any installer prompt state after agent login success
-                      await viewModel.clearInstallerState();
                       // Navigate to home screen using NavigationService
                       NavigationService.pushAndRemoveUntil(
                         PageRouteBuilder(
@@ -257,18 +257,60 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _showWifiConfigDialog() {
-    _logger.i('Opening Wi-Fi Configuration dialog');
+    _logger.i('Opening Wi‑Fi Configuration dialog');
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Wi-Fi Configuration'),
-        content: const Text('Wi-Fi configuration feature coming soon!'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                const Expanded(
+                    child: Text('Wi‑Fi Configuration',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w700))),
+                IconButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close))
+              ]),
+              const SizedBox(height: 8),
+              const Text(
+                '1) Connect your phone to the Wi‑Fi whose SSID matches the module PN.\n'
+                '2) Open the module network page to set STA Wi‑Fi credentials and restart.',
+                style: TextStyle(color: Colors.black54, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              Row(children: [
+                Expanded(
+                    child: OutlinedButton(
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          await AppSettings.openAppSettings(
+                              asAnotherTask: true);
+                        },
+                        child: const Text('Open Wi‑Fi Settings'))),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor:
+                                Theme.of(context).colorScheme.primary,
+                            foregroundColor:
+                                Theme.of(context).colorScheme.onPrimary),
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          Navigator.of(context).push(MaterialPageRoute(
+                              builder: (_) => const WifiModuleWebView()));
+                        },
+                        child: const Text('Open Network Page')))
+              ])
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
