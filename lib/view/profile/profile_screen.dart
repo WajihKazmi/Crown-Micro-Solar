@@ -327,7 +327,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     },
                   ),
                 ),
-                // Delete Account removed per requirement
+                const SizedBox(height: 8),
+                // Delete Account button with confirm dialog
+                SizedBox(
+                  width: double.infinity,
+                  child: Builder(builder: (context) {
+                    return ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFEF4444),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        elevation: 0,
+                      ),
+                      onPressed: () => _showDeleteAccountDialog(context),
+                      child: Text('Delete Account',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold)),
+                    );
+                  }),
+                ),
                 const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
@@ -423,6 +443,74 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
       }
     }
+  }
+
+  void _showDeleteAccountDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final authViewModel = Provider.of<AuthViewModel>(ctx);
+        return AlertDialog(
+          title: const Text('Delete Account'),
+          content: const Text(
+              'Are you sure you want to delete your account? This action cannot be undone.'),
+          actions: [
+            TextButton(
+              onPressed: authViewModel.isLoading
+                  ? null
+                  : () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+                onPressed: authViewModel.isLoading
+                    ? null
+                    : () async {
+                        final ok =
+                            await Provider.of<AuthViewModel>(ctx, listen: false)
+                                .deleteAccount();
+                        if (!mounted) return;
+                        if (ok) {
+                          // On success, AuthViewModel.logout() already navigates via profile logout flow
+                          // Here, just show a confirmation and rely on navigation stack reset
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Account deleted',
+                                  style: TextStyle(color: Colors.black)),
+                              backgroundColor: Colors.white,
+                            ),
+                          );
+                          Navigator.of(ctx).pop();
+                          // Ensure we are on login screen
+                          Navigator.of(context)
+                              .pushNamedAndRemoveUntil('/login', (r) => false);
+                        } else {
+                          Navigator.of(ctx).pop();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                Provider.of<AuthViewModel>(context,
+                                            listen: false)
+                                        .error ??
+                                    'Failed to delete account',
+                                style: const TextStyle(color: Colors.black),
+                              ),
+                              backgroundColor: Colors.white,
+                            ),
+                          );
+                        }
+                      },
+                child: authViewModel.isLoading
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Delete',
+                        style: TextStyle(color: Color(0xFFEF4444)))),
+          ],
+        );
+      },
+    );
   }
 }
 

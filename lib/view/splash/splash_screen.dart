@@ -22,8 +22,9 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _initialize() async {
+    final start = DateTime.now();
     try {
-      // Quick micro delay to allow first frame
+      // Ensure first frame then proceed
       await Future.delayed(const Duration(milliseconds: 200));
       if (!mounted) return;
 
@@ -35,6 +36,12 @@ class _SplashScreenState extends State<SplashScreen> {
       // Mark initialized (no longer tracked with a field)
 
       if (!onboardingComplete) {
+        // Ensure minimum splash time of 2s
+        final elapsed = DateTime.now().difference(start);
+        final remaining = const Duration(seconds: 2) - elapsed;
+        if (remaining.inMilliseconds > 0) {
+          await Future.delayed(remaining);
+        }
         Navigator.of(context).pushReplacementNamed(AppRoutes.onboarding);
         return;
       }
@@ -44,11 +51,21 @@ class _SplashScreenState extends State<SplashScreen> {
         final auth = Provider.of<AuthViewModel>(context, listen: false);
         final ok = await auth.login(savedUsername, savedPassword);
         if (ok && mounted) {
+          final elapsed = DateTime.now().difference(start);
+          final remaining = const Duration(seconds: 2) - elapsed;
+          if (remaining.inMilliseconds > 0) {
+            await Future.delayed(remaining);
+          }
           Navigator.of(context).pushReplacementNamed(AppRoutes.homeInternal);
           return;
         }
         // If auto login fails, fall back to login screen
         if (mounted) {
+          final elapsed = DateTime.now().difference(start);
+          final remaining = const Duration(seconds: 2) - elapsed;
+          if (remaining.inMilliseconds > 0) {
+            await Future.delayed(remaining);
+          }
           Navigator.of(context).pushReplacementNamed(AppRoutes.login);
           return;
         }
@@ -56,8 +73,15 @@ class _SplashScreenState extends State<SplashScreen> {
 
       // No saved credentials; rely on stored login flag
       final isLoggedIn = prefs.getBool('loggedin') ?? false;
-      Navigator.of(context).pushReplacementNamed(
-          isLoggedIn ? AppRoutes.homeInternal : AppRoutes.login);
+      {
+        final elapsed = DateTime.now().difference(start);
+        final remaining = const Duration(seconds: 2) - elapsed;
+        if (remaining.inMilliseconds > 0) {
+          await Future.delayed(remaining);
+        }
+        Navigator.of(context).pushReplacementNamed(
+            isLoggedIn ? AppRoutes.homeInternal : AppRoutes.login);
+      }
     } catch (e) {
       print('Error during initialization: $e');
       if (!mounted) return;

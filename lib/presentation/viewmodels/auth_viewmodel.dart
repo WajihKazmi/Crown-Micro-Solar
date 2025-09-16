@@ -368,4 +368,28 @@ class AuthViewModel extends ChangeNotifier {
       return false;
     }
   }
+
+  // Delete account flow: calls API and logs out on success
+  Future<bool> deleteAccount() async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final ok = await _accountRepository.deleteAccount();
+      if (ok) {
+        // Ensure user is fully logged out locally after deletion
+        await logout();
+      } else {
+        _isLoading = false;
+        _error = 'Delete account failed';
+        notifyListeners();
+      }
+      return ok;
+    } catch (e) {
+      _isLoading = false;
+      _error = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
 }
