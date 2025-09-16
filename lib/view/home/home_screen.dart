@@ -36,6 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late PlantViewModel _plantViewModel;
   late DashboardViewModel _dashboardViewModel;
   late RealtimeDataService _realtimeDataService;
+  late final DevicesScreen _devicesScreenWidget;
 
   @override
   void initState() {
@@ -43,6 +44,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _plantViewModel = getIt<PlantViewModel>();
     _dashboardViewModel = getIt<DashboardViewModel>();
     _realtimeDataService = getIt<RealtimeDataService>();
+    _devicesScreenWidget =
+        const DevicesScreen(key: PageStorageKey('devices_screen_body'));
     _realtimeDataService.start();
     _plantViewModel.loadPlants().then((_) async {
       if (_plantViewModel.plants.isNotEmpty) {
@@ -57,6 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onTabTapped(int index) {
+    if (index == _currentIndex) return; // Avoid redundant rebuilds
     setState(() => _currentIndex = index);
     if (index == 2) _plantViewModel.loadPlants();
   }
@@ -286,7 +290,7 @@ class _HomeScreenState extends State<HomeScreen> {
               )
             : null,
         body: _currentIndex == 2
-            ? DevicesScreen(key: const PageStorageKey('devices_screen_body'))
+            ? _devicesScreenWidget
             : CustomScrollView(
                 slivers: [
                   SliverAppBar(

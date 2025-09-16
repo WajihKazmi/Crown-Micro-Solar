@@ -32,6 +32,8 @@ class _SplashScreenState extends State<SplashScreen> {
       final onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
       final savedUsername = prefs.getString('Username');
       final savedPassword = prefs.getString('pass');
+      final isLoggedIn = prefs.getBool('loggedin') ?? false;
+      final token = prefs.getString('token');
 
       // Mark initialized (no longer tracked with a field)
 
@@ -46,42 +48,40 @@ class _SplashScreenState extends State<SplashScreen> {
         return;
       }
 
-      // Onboarding done; enforce robust session: ALWAYS try auto re-login with saved credentials
+      // If we have an active session (token + loggedin), go straight to home.
+      // Do NOT block on re-login; this preserves session across minimize/offline restarts.
+      if (isLoggedIn && token != null && token.isNotEmpty) {
+        final elapsed = DateTime.now().difference(start);
+        final remaining = const Duration(seconds: 2) - elapsed;
+        if (remaining.inMilliseconds > 0) {
+          await Future.delayed(remaining);
+        }
+        Navigator.of(context).pushReplacementNamed(AppRoutes.homeInternal);
+        return;
+      }
+
+      // Otherwise, attempt auto-login if credentials are saved
       if (savedUsername != null && savedPassword != null) {
         final auth = Provider.of<AuthViewModel>(context, listen: false);
         final ok = await auth.login(savedUsername, savedPassword);
-        if (ok && mounted) {
-          final elapsed = DateTime.now().difference(start);
-          final remaining = const Duration(seconds: 2) - elapsed;
-          if (remaining.inMilliseconds > 0) {
-            await Future.delayed(remaining);
-          }
-          Navigator.of(context).pushReplacementNamed(AppRoutes.homeInternal);
-          return;
-        }
-        // If auto login fails, fall back to login screen
-        if (mounted) {
-          final elapsed = DateTime.now().difference(start);
-          final remaining = const Duration(seconds: 2) - elapsed;
-          if (remaining.inMilliseconds > 0) {
-            await Future.delayed(remaining);
-          }
-          Navigator.of(context).pushReplacementNamed(AppRoutes.login);
-          return;
-        }
-      }
-
-      // No saved credentials; rely on stored login flag
-      final isLoggedIn = prefs.getBool('loggedin') ?? false;
-      {
         final elapsed = DateTime.now().difference(start);
         final remaining = const Duration(seconds: 2) - elapsed;
         if (remaining.inMilliseconds > 0) {
           await Future.delayed(remaining);
         }
         Navigator.of(context).pushReplacementNamed(
-            isLoggedIn ? AppRoutes.homeInternal : AppRoutes.login);
+            ok ? AppRoutes.homeInternal : AppRoutes.login);
+        return;
       }
+
+      // Fallback: route based on loggedin flag (even if token missing, allow app to handle gracefully)
+      final elapsed = DateTime.now().difference(start);
+      final remaining = const Duration(seconds: 2) - elapsed;
+      if (remaining.inMilliseconds > 0) {
+        await Future.delayed(remaining);
+      }
+      Navigator.of(context).pushReplacementNamed(
+          isLoggedIn ? AppRoutes.homeInternal : AppRoutes.login);
     } catch (e) {
       print('Error during initialization: $e');
       if (!mounted) return;

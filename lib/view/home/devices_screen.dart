@@ -36,7 +36,13 @@ class _DevicesScreenState extends State<DevicesScreen>
     _deviceVM = getIt<DeviceViewModel>();
     _plantVM = getIt<PlantViewModel>();
     _deviceVM.addListener(_onVMChange);
-    _loadDevices();
+    // If data already loaded in the shared ViewModel, don't reload on re-nav
+    if (_deviceVM.allDevices.isNotEmpty || _deviceVM.collectors.isNotEmpty) {
+      _loading = false;
+      _initialLoadDone = true;
+    } else {
+      _loadDevices();
+    }
   }
 
   @override
@@ -60,13 +66,20 @@ class _DevicesScreenState extends State<DevicesScreen>
       final now = DateTime.now();
       if (_lastLoadTime == null ||
           now.difference(_lastLoadTime!).inMinutes > 5) {
-        _loadDevices();
+        _loadDevices(force: true);
       }
     }
   }
 
-  Future<void> _loadDevices() async {
+  Future<void> _loadDevices({bool force = false}) async {
     if (!mounted) return;
+    if (!force &&
+        (_deviceVM.allDevices.isNotEmpty || _deviceVM.collectors.isNotEmpty)) {
+      _loading = false;
+      _initialLoadDone = true;
+      setState(() {});
+      return;
+    }
     _lastLoadTime = DateTime.now();
     setState(() {
       _loading = true;
