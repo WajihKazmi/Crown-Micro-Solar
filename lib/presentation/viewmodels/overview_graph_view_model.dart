@@ -371,28 +371,77 @@ class OverviewGraphViewModel extends ChangeNotifier {
     final labels = List.generate(daysInMonth, (i) => '${i + 1}');
     final data = <double>[];
 
-    for (int day = 1; day <= daysInMonth; day++) {
-      final dateStr = _fmtDate(DateTime(_anchor.year, _anchor.month, day));
-      if (_selectedDevice != null) {
-        // For a single device, compute per day from the daily rows
-        final hourly = await _deviceDailyForDate(
-          device: _selectedDevice!,
-          metric: _metric,
-          date: dateStr,
+    // Prefer aggregated API for plant-level Output Power
+    bool usedAggregated = false;
+    if (_selectedDevice == null && _metric == GraphMetric.outputPower) {
+      try {
+        final summary = await _energyRepo.getMonthlyEnergy(
+          plantId,
+          _anchor.year.toString(),
+          _anchor.month.toString(),
         );
-        final agg = _aggregationForMetric(_metric) == _Agg.sum
-            ? hourly.fold(0.0, (a, b) => a + b)
-            : (hourly.isEmpty
-                ? 0.0
-                : hourly.reduce((a, b) => a + b) / hourly.length);
-        data.add(agg);
-      } else {
-        if (_metric == GraphMetric.outputPower) {
-          final summary = await _energyRepo.getDailyEnergy(plantId, dateStr);
-          data.add(summary.totalEnergy);
-        } else {
-          final hourly = await _aggregateDevicesDaily(
-            plantId: plantId,
+        final points = summary.hourlyData; // reused field as generic list
+        if (points.isNotEmpty) {
+          // Build per-day values using energy first, fallback to power
+          for (int i = 0; i < points.length; i++) {
+            final p = points[i];
+            final v = (p.energy != 0) ? p.energy : p.power;
+            data.add(v);
+          }
+          // Adjust labels if API returned fewer/more points
+          if (data.length != labels.length) {
+            labels
+              ..clear()
+              ..addAll(List.generate(data.length, (i) => '${i + 1}'));
+          }
+          usedAggregated = true;
+        }
+      } catch (_) {
+        usedAggregated = false;
+      }
+    }
+
+    if (!usedAggregated) {
+      for (int day = 1; day <= daysInMonth; day++) {
+        final dateStr = _fmtDate(DateTime(_anchor.year, _anchor.month, day));
+        if (_selectedDevice != null) {
+          // Try device-level month-per-day resolver first
+          try {
+            final logical = _metricToLogical[_metric]!;
+            final res = await _deviceRepo.resolveMetricMonthPerDay(
+              logicalMetric: logical,
+              sn: _selectedDevice!.sn,
+              pn: _selectedDevice!.pn,
+              devcode: _selectedDevice!.devcode,
+              devaddr: _selectedDevice!.devaddr,
+              yearMonth:
+                  '${_anchor.year.toString().padLeft(4, '0')}-${_anchor.month.toString().padLeft(2, '0')}',
+            );
+            if (res.series.isNotEmpty) {
+              // Map series day i to value
+              // Ensure data only built once from resolver
+              if (data.isEmpty) {
+                final tmp = List<double>.filled(daysInMonth, 0);
+                for (final p in res.series) {
+                  final ts = p['ts']?.toString();
+                  final val = p['val'];
+                  if (ts != null && val is num) {
+                    final dt = DateTime.tryParse(ts);
+                    if (dt != null && dt.month == _anchor.month) {
+                      final idx = dt.day - 1;
+                      if (idx >= 0 && idx < tmp.length)
+                        tmp[idx] = val.toDouble();
+                    }
+                  }
+                }
+                data.addAll(tmp);
+                continue; // proceed to next day loop iteration via outer control
+              }
+            }
+          } catch (_) {}
+          // Fallback: compute per day from daily rows
+          final hourly = await _deviceDailyForDate(
+            device: _selectedDevice!,
             metric: _metric,
             date: dateStr,
           );
@@ -402,6 +451,23 @@ class OverviewGraphViewModel extends ChangeNotifier {
                   ? 0.0
                   : hourly.reduce((a, b) => a + b) / hourly.length);
           data.add(agg);
+        } else {
+          if (_metric == GraphMetric.outputPower) {
+            final summary = await _energyRepo.getDailyEnergy(plantId, dateStr);
+            data.add(summary.totalEnergy);
+          } else {
+            final hourly = await _aggregateDevicesDaily(
+              plantId: plantId,
+              metric: _metric,
+              date: dateStr,
+            );
+            final agg = _aggregationForMetric(_metric) == _Agg.sum
+                ? hourly.fold(0.0, (a, b) => a + b)
+                : (hourly.isEmpty
+                    ? 0.0
+                    : hourly.reduce((a, b) => a + b) / hourly.length);
+            data.add(agg);
+          }
         }
       }
     }
@@ -440,39 +506,72 @@ class OverviewGraphViewModel extends ChangeNotifier {
       'Dec'
     ];
     final data = <double>[];
-    for (int m = 1; m <= 12; m++) {
-      if (_selectedDevice != null) {
-        // For a single device, approximate month by summing/averaging a mid-month day
-        final midDay = DateTime(_anchor.year, m, 15);
-        final dateStr = _fmtDate(midDay);
-        final hourly = await _deviceDailyForDate(
-          device: _selectedDevice!,
-          metric: _metric,
-          date: dateStr,
-        );
-        final agg = _aggregationForMetric(_metric) == _Agg.sum
-            ? hourly.fold(0.0, (a, b) => a + b)
-            : (hourly.isEmpty
-                ? 0.0
-                : hourly.reduce((a, b) => a + b) / hourly.length);
-        data.add(agg);
-      } else {
-        if (_metric == GraphMetric.outputPower) {
-          // Sum of daily totals in month
-          double monthSum = 0.0;
-          final daysInMonth = DateTime(_anchor.year, m + 1, 0).day;
-          for (int d = 1; d <= daysInMonth; d++) {
-            final dateStr = _fmtDate(DateTime(_anchor.year, m, d));
-            final summary = await _energyRepo.getDailyEnergy(plantId, dateStr);
-            monthSum += summary.totalEnergy;
+    bool usedAggregated = false;
+    if (_selectedDevice == null && _metric == GraphMetric.outputPower) {
+      try {
+        final summary =
+            await _energyRepo.getYearlyEnergy(plantId, _anchor.year.toString());
+        final points = summary.hourlyData; // reused field as generic list
+        if (points.isNotEmpty) {
+          for (final p in points) {
+            final v = (p.energy != 0) ? p.energy : p.power;
+            data.add(v);
           }
-          data.add(monthSum);
-        } else {
-          // Representative sampling: take mid-month day aggregate
+          // Ensure exactly 12 points
+          if (data.length != 12) {
+            // pad or trim to 12
+            if (data.length < 12) {
+              data.addAll(List<double>.filled(12 - data.length, 0));
+            } else {
+              data.removeRange(12, data.length);
+            }
+          }
+          usedAggregated = true;
+        }
+      } catch (_) {
+        usedAggregated = false;
+      }
+    }
+
+    if (!usedAggregated) {
+      for (int m = 1; m <= 12; m++) {
+        if (_selectedDevice != null) {
+          // Try device-level year-per-month resolver first
+          try {
+            final logical = _metricToLogical[_metric]!;
+            final res = await _deviceRepo.resolveMetricYearPerMonth(
+              logicalMetric: logical,
+              sn: _selectedDevice!.sn,
+              pn: _selectedDevice!.pn,
+              devcode: _selectedDevice!.devcode,
+              devaddr: _selectedDevice!.devaddr,
+              year: _anchor.year.toString(),
+            );
+            if (res.series.isNotEmpty) {
+              if (data.isEmpty) {
+                final tmp = List<double>.filled(12, 0);
+                for (final p in res.series) {
+                  final ts = p['ts']?.toString();
+                  final val = p['val'];
+                  if (ts != null && val is num) {
+                    final dt = DateTime.tryParse(ts);
+                    if (dt != null && dt.year == _anchor.year) {
+                      final idx = dt.month - 1;
+                      if (idx >= 0 && idx < tmp.length)
+                        tmp[idx] = val.toDouble();
+                    }
+                  }
+                }
+                data.addAll(tmp);
+                continue;
+              }
+            }
+          } catch (_) {}
+          // Fallback: approximate month via mid-month day
           final midDay = DateTime(_anchor.year, m, 15);
           final dateStr = _fmtDate(midDay);
-          final hourly = await _aggregateDevicesDaily(
-            plantId: plantId,
+          final hourly = await _deviceDailyForDate(
+            device: _selectedDevice!,
             metric: _metric,
             date: dateStr,
           );
@@ -482,6 +581,34 @@ class OverviewGraphViewModel extends ChangeNotifier {
                   ? 0.0
                   : hourly.reduce((a, b) => a + b) / hourly.length);
           data.add(agg);
+        } else {
+          if (_metric == GraphMetric.outputPower) {
+            // Sum of daily totals in month
+            double monthSum = 0.0;
+            final daysInMonth = DateTime(_anchor.year, m + 1, 0).day;
+            for (int d = 1; d <= daysInMonth; d++) {
+              final dateStr = _fmtDate(DateTime(_anchor.year, m, d));
+              final summary =
+                  await _energyRepo.getDailyEnergy(plantId, dateStr);
+              monthSum += summary.totalEnergy;
+            }
+            data.add(monthSum);
+          } else {
+            // Representative sampling: take mid-month day aggregate
+            final midDay = DateTime(_anchor.year, m, 15);
+            final dateStr = _fmtDate(midDay);
+            final hourly = await _aggregateDevicesDaily(
+              plantId: plantId,
+              metric: _metric,
+              date: dateStr,
+            );
+            final agg = _aggregationForMetric(_metric) == _Agg.sum
+                ? hourly.fold(0.0, (a, b) => a + b)
+                : (hourly.isEmpty
+                    ? 0.0
+                    : hourly.reduce((a, b) => a + b) / hourly.length);
+            data.add(agg);
+          }
         }
       }
     }

@@ -113,29 +113,45 @@ class EnergyRepository {
   }
 
   Future<EnergySummary> getMonthlyEnergy(
-      String deviceId, String year, String month) async {
-    final response = await _apiClient.get(
-      '${ApiEndpoints.getMonthlyGeneration}&deviceId=$deviceId&year=$year&month=$month',
-    );
-    final data = json.decode(response.body);
+      String plantId, String year, String month) async {
+    try {
+      final response = await _apiClient.get(
+        '${ApiEndpoints.getMonthlyGeneration}?plantId=$plantId&year=$year&month=$month',
+      );
+      final data = json.decode(response.body);
 
-    if (data['success'] == true && data['data'] != null) {
-      return EnergySummary.fromJson(data['data']);
+      if (data['success'] == true && data['data'] != null) {
+        return EnergySummary.fromJson(data['data']);
+      }
+    } catch (_) {
+      // fall through to DESS fallback
     }
-    throw Exception('Failed to get monthly energy data');
+    // Fallback to legacy DESS aggregated endpoint
+    return await _getPlantEnergyMonthPerDayDess(
+      plantId: plantId,
+      year: year,
+      month: month,
+    );
   }
 
-  Future<EnergySummary> getYearlyEnergy(String deviceId, String year) async {
-    final response = await _apiClient.get(
-      '${ApiEndpoints.getYearlyGeneration}&deviceId=$deviceId&year=$year',
-    );
-    final data = json.decode(response.body);
+  Future<EnergySummary> getYearlyEnergy(String plantId, String year) async {
+    try {
+      final response = await _apiClient.get(
+        '${ApiEndpoints.getYearlyGeneration}?plantId=$plantId&year=$year',
+      );
+      final data = json.decode(response.body);
 
-    if (data['success'] == true && data['data'] != null) {
-      print('Yearly energy data: ${data['data']}');
-      return EnergySummary.fromJson(data['data']);
+      if (data['success'] == true && data['data'] != null) {
+        return EnergySummary.fromJson(data['data']);
+      }
+    } catch (_) {
+      // fall through to DESS fallback
     }
-    throw Exception('Failed to get yearly energy data');
+    // Fallback to legacy DESS aggregated endpoint
+    return await _getPlantEnergyYearPerMonthDess(
+      plantId: plantId,
+      year: year,
+    );
   }
 
   Future<List<EnergyData>> getRealTimeData(String deviceId) async {
@@ -175,5 +191,173 @@ class EnergyRepository {
       return EnergySummary.fromJson(dataJson['dat']);
     }
     throw Exception('Failed to get profit statistic');
+  }
+
+  // --- DESS aggregated fallbacks ---
+  Future<EnergySummary> _getPlantEnergyMonthPerDayDess({
+    required String plantId,
+    required String year,
+    required String month,
+  }) async {
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+
+    final ym = '${year.padLeft(4, '0')}-${month.padLeft(2, '0')}';
+    final action =
+        '&action=queryPlantEnergyMonthPerDay&plantid=$plantId&date=$ym';
+    const postaction =
+        '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url =
+        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
+    final resp = await _apiClient.signedPost(url);
+    final dataJson = json.decode(resp.body);
+    final baseDate = DateTime(int.parse(year), int.parse(month), 1);
+    final daysInMonth = DateTime(baseDate.year, baseDate.month + 1, 0).day;
+    final points = <EnergyData>[];
+    if (dataJson['dat'] != null) {
+      final dat = dataJson['dat'];
+      final List items =
+          (dat['energy'] as List?) ?? (dat['detail'] as List?) ?? [];
+      for (int i = 0; i < items.length; i++) {
+        final it = items[i];
+        try {
+          final tsRaw = it['ts']?.toString();
+          final val = double.tryParse(it['val']?.toString() ?? '0') ?? 0.0;
+          DateTime ts;
+          if (tsRaw != null) {
+            ts = DateTime.tryParse(tsRaw) ??
+                DateTime(baseDate.year, baseDate.month, i + 1);
+          } else {
+            ts = DateTime(baseDate.year, baseDate.month, i + 1);
+          }
+          points.add(EnergyData(
+            deviceId: plantId,
+            timestamp: ts,
+            power: 0,
+            energy: val,
+            voltage: 0,
+            current: 0,
+            temperature: 0,
+            additionalData: const {},
+          ));
+        } catch (_) {}
+      }
+    }
+    // Pad to full month length with zeros
+    while (points.length < daysInMonth) {
+      final d = points.length + 1;
+      points.add(EnergyData(
+        deviceId: plantId,
+        timestamp: DateTime(baseDate.year, baseDate.month, d),
+        power: 0,
+        energy: 0,
+        voltage: 0,
+        current: 0,
+        temperature: 0,
+        additionalData: const {},
+      ));
+    }
+    double total = 0;
+    double peak = 0;
+    for (final p in points) {
+      total += p.energy;
+      if (p.energy > peak) peak = p.energy;
+    }
+    return EnergySummary(
+      deviceId: plantId,
+      date: baseDate,
+      totalEnergy: total,
+      peakPower: peak,
+      averagePower: points.isEmpty ? 0 : total / points.length,
+      hourlyData: points,
+    );
+  }
+
+  Future<EnergySummary> _getPlantEnergyYearPerMonthDess({
+    required String plantId,
+    required String year,
+  }) async {
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+
+    final action =
+        '&action=queryPlantEnergyYearPerMonth&plantid=$plantId&date=$year';
+    const postaction =
+        '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url =
+        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
+    final resp = await _apiClient.signedPost(url);
+    final dataJson = json.decode(resp.body);
+    final baseDate = DateTime(int.parse(year), 1, 1);
+    final points = <EnergyData>[];
+    if (dataJson['dat'] != null) {
+      final dat = dataJson['dat'];
+      final List items =
+          (dat['energy'] as List?) ?? (dat['detail'] as List?) ?? [];
+      for (int i = 0; i < items.length; i++) {
+        final it = items[i];
+        try {
+          final tsRaw = it['ts']?.toString();
+          final val = double.tryParse(it['val']?.toString() ?? '0') ?? 0.0;
+          DateTime ts;
+          if (tsRaw != null) {
+            ts = DateTime.tryParse(tsRaw) ?? DateTime(baseDate.year, i + 1, 1);
+          } else {
+            ts = DateTime(baseDate.year, i + 1, 1);
+          }
+          points.add(EnergyData(
+            deviceId: plantId,
+            timestamp: ts,
+            power: 0,
+            energy: val,
+            voltage: 0,
+            current: 0,
+            temperature: 0,
+            additionalData: const {},
+          ));
+        } catch (_) {}
+      }
+    }
+    // Ensure 12 months
+    while (points.length < 12) {
+      final m = points.length + 1;
+      points.add(EnergyData(
+        deviceId: plantId,
+        timestamp: DateTime(baseDate.year, m, 1),
+        power: 0,
+        energy: 0,
+        voltage: 0,
+        current: 0,
+        temperature: 0,
+        additionalData: const {},
+      ));
+    }
+    if (points.length > 12) {
+      points.removeRange(12, points.length);
+    }
+    double total = 0;
+    double peak = 0;
+    for (final p in points) {
+      total += p.energy;
+      if (p.energy > peak) peak = p.energy;
+    }
+    return EnergySummary(
+      deviceId: plantId,
+      date: baseDate,
+      totalEnergy: total,
+      peakPower: peak,
+      averagePower: points.isEmpty ? 0 : total / points.length,
+      hourlyData: points,
+    );
   }
 }

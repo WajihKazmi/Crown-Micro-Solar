@@ -610,6 +610,189 @@ class DeviceRepository {
     );
   }
 
+  // Resolve a metric aggregated per-day for a month using SP endpoint.
+  Future<MetricResolutionResult> resolveMetricMonthPerDay({
+    required String logicalMetric,
+    required String sn,
+    required String pn,
+    required int devcode,
+    required int devaddr,
+    required String yearMonth, // 'YYYY-MM'
+  }) async {
+    // Capability quick check
+    if (!deviceSupportsParameter(devcode, logicalMetric)) {
+      return const MetricResolutionResult(
+        logicalMetric: '',
+        apiParameter: null,
+        source: 'unsupported',
+        latestValue: null,
+        pointCount: 0,
+        timestamp: null,
+        series: [],
+      );
+    }
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+    const postaction =
+        '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+    final validSn = sn.isNotEmpty ? sn : 'DEFAULT_SN';
+
+    final candidates = _parameterCandidates(logicalMetric, devcode);
+    for (final apiParameter in candidates) {
+      final action =
+          '&action=querySPDeviceKeyParameterMonthPerDay&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&i18n=en_US&parameter=$apiParameter&chartStatus=false&date=$yearMonth';
+      final data = salt + secret + token + action + postaction;
+      final sign = sha1.convert(utf8.encode(data)).toString();
+      final url =
+          'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+      try {
+        final response = await _apiClient.signedPost(url);
+        final js = json.decode(response.body);
+        if (js['err'] == 0) {
+          final dat = js['dat'];
+          List list = const [];
+          if (dat is Map) {
+            list = dat['perday'] ??
+                dat['permonth'] ??
+                dat['parameter'] ??
+                dat['row'] ??
+                const [];
+          }
+          final series = <Map<String, dynamic>>[];
+          double? latest;
+          String? ts;
+          for (final e in list) {
+            if (e is Map) {
+              final v = e['val'];
+              final d = v is num ? v.toDouble() : double.tryParse('${v}');
+              final t = e['ts']?.toString();
+              if (d != null) {
+                latest = d;
+                ts = t;
+                series.add({'ts': t ?? '', 'val': d});
+              }
+            }
+          }
+          if (series.isNotEmpty) {
+            return MetricResolutionResult(
+              logicalMetric: logicalMetric,
+              apiParameter: apiParameter,
+              source: 'key_param_month_per_day',
+              latestValue: latest,
+              pointCount: series.length,
+              timestamp: ts,
+              series: series,
+            );
+          }
+        }
+      } catch (_) {
+        // try next candidate
+      }
+    }
+    return const MetricResolutionResult(
+      logicalMetric: '',
+      apiParameter: null,
+      source: 'none',
+      latestValue: null,
+      pointCount: 0,
+      timestamp: null,
+      series: [],
+    );
+  }
+
+  // Resolve a metric aggregated per-month for a year using SP endpoint.
+  Future<MetricResolutionResult> resolveMetricYearPerMonth({
+    required String logicalMetric,
+    required String sn,
+    required String pn,
+    required int devcode,
+    required int devaddr,
+    required String year, // 'YYYY'
+  }) async {
+    if (!deviceSupportsParameter(devcode, logicalMetric)) {
+      return const MetricResolutionResult(
+        logicalMetric: '',
+        apiParameter: null,
+        source: 'unsupported',
+        latestValue: null,
+        pointCount: 0,
+        timestamp: null,
+        series: [],
+      );
+    }
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+    const postaction =
+        '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+    final validSn = sn.isNotEmpty ? sn : 'DEFAULT_SN';
+
+    final candidates = _parameterCandidates(logicalMetric, devcode);
+    for (final apiParameter in candidates) {
+      final action =
+          '&action=querySPDeviceKeyParameterYearPerMonth&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&i18n=en_US&parameter=$apiParameter&chartStatus=false&date=$year';
+      final data = salt + secret + token + action + postaction;
+      final sign = sha1.convert(utf8.encode(data)).toString();
+      final url =
+          'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+      try {
+        final response = await _apiClient.signedPost(url);
+        final js = json.decode(response.body);
+        if (js['err'] == 0) {
+          final dat = js['dat'];
+          List list = const [];
+          if (dat is Map) {
+            list = dat['permonth'] ??
+                dat['peryear'] ??
+                dat['parameter'] ??
+                dat['row'] ??
+                const [];
+          }
+          final series = <Map<String, dynamic>>[];
+          double? latest;
+          String? ts;
+          for (final e in list) {
+            if (e is Map) {
+              final v = e['val'];
+              final d = v is num ? v.toDouble() : double.tryParse('${v}');
+              final t = e['ts']?.toString();
+              if (d != null) {
+                latest = d;
+                ts = t;
+                series.add({'ts': t ?? '', 'val': d});
+              }
+            }
+          }
+          if (series.isNotEmpty) {
+            return MetricResolutionResult(
+              logicalMetric: logicalMetric,
+              apiParameter: apiParameter,
+              source: 'key_param_year_per_month',
+              latestValue: latest,
+              pointCount: series.length,
+              timestamp: ts,
+              series: series,
+            );
+          }
+        }
+      } catch (_) {
+        // try next candidate
+      }
+    }
+    return const MetricResolutionResult(
+      logicalMetric: '',
+      apiParameter: null,
+      source: 'none',
+      latestValue: null,
+      pointCount: 0,
+      timestamp: null,
+      series: [],
+    );
+  }
+
   // Main method to fetch devices and collectors for a plant (matching old app)
   Future<Map<String, dynamic>> getDevicesAndCollectors(String plantId) async {
     const salt = '12345678';
