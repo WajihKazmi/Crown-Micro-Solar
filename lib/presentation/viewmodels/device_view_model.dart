@@ -85,6 +85,64 @@ class DeviceViewModel extends ChangeNotifier {
     }
   }
 
+  // Device settings: query control fields (queryDeviceCtrlField)
+  Future<Map<String, dynamic>?> fetchDeviceControlFields({
+    required String sn,
+    required String pn,
+    required int devcode,
+    required int devaddr,
+  }) async {
+    try {
+      final dat = await _deviceRepository.getDeviceRealTimeData(
+          pn, sn, devcode, devaddr);
+      return Map<String, dynamic>.from(dat);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Device settings: write control field value and return API response
+  Future<Map<String, dynamic>> setDeviceControlField({
+    required String sn,
+    required String pn,
+    required int devcode,
+    required int devaddr,
+    required String fieldId,
+    required String value,
+  }) async {
+    return await _deviceRepository.setDeviceControlField(
+      pn: pn,
+      sn: sn,
+      devcode: devcode,
+      devaddr: devaddr,
+      fieldId: fieldId,
+      value: value,
+    );
+  }
+
+  Future<String?> fetchSingleControlValue({
+    required String sn,
+    required String pn,
+    required int devcode,
+    required int devaddr,
+    required String fieldId,
+  }) async {
+    final res = await _deviceRepository.querySingleDeviceCtrlValue(
+      pn: pn,
+      sn: sn,
+      devcode: devcode,
+      devaddr: devaddr,
+      fieldId: fieldId,
+    );
+    if (res['err'] == 0) {
+      final dat = res['dat'];
+      if (dat is Map && dat['val'] != null) {
+        return dat['val'].toString();
+      }
+    }
+    return null;
+  }
+
   // Load devices with filters (matching old app functionality)
   Future<void> loadDevicesWithFilters(String plantId,
       {String status = '0101', String deviceType = '0101'}) async {

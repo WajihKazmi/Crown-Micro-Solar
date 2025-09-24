@@ -20,6 +20,7 @@ import 'package:crown_micro_solar/presentation/repositories/device_repository.da
 // Use the unified alarm notification screen (same as home) for consistent loading logic
 import 'package:crown_micro_solar/view/home/alarm_notification_screen.dart';
 import 'package:video_player/video_player.dart';
+import 'package:crown_micro_solar/view/home/device_settings_legacy_screen.dart';
 
 class DeviceDetailScreen extends StatefulWidget {
   final Device device;
@@ -1099,11 +1100,18 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                   },
                 ),
                 const SizedBox(width: 8),
-                // Settings icon - navigates to collector settings/details for now
+                // Settings icon - open Device Settings
                 _SquareIconButton(
                   icon: Icons.settings,
                   tooltip: 'Settings',
-                  onTap: null,
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            DeviceSettingsLegacyScreen(device: widget.device),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -1930,23 +1938,45 @@ class _LineChart extends StatelessWidget {
         ),
         titlesData: FlTitlesData(
           leftTitles: AxisTitles(
-            sideTitles: const SideTitles(showTitles: false),
-            // Minimal, tidy Y-axis label showing the metric unit
-            axisNameWidget: Padding(
-              padding: const EdgeInsets.only(left: 2, right: 2),
-              child: RotatedBox(
-                quarterTurns: 3,
-                child: Text(
-                  state.unit,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: Colors.black54,
-                    fontWeight: FontWeight.w500,
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 42,
+              getTitlesWidget: (value, meta) {
+                final range = (maxY - minY).abs();
+                final tick1 = minY;
+                final tick2 = minY + range / 2.0;
+                final tick3 = maxY;
+                bool near(double a, double b) => (a - b).abs() <= range * 0.02;
+
+                if (!(near(value, tick1) ||
+                    near(value, tick2) ||
+                    near(value, tick3))) {
+                  return const SizedBox.shrink();
+                }
+
+                String unit = state.unit;
+                double disp = value;
+                if (unit.toLowerCase() == 'w' && maxY >= 1000) {
+                  disp = value / 1000.0;
+                  unit = 'kW';
+                }
+                String numStr;
+                final abs = disp.abs();
+                if (abs >= 100)
+                  numStr = disp.toStringAsFixed(0);
+                else if (abs >= 10)
+                  numStr = disp.toStringAsFixed(1);
+                else
+                  numStr = disp.toStringAsFixed(2);
+                return Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Text(
+                    '$numStr $unit',
+                    style: const TextStyle(fontSize: 10, color: Colors.black54),
                   ),
-                ),
-              ),
+                );
+              },
             ),
-            axisNameSize: 18,
           ),
           rightTitles: const AxisTitles(
             sideTitles: SideTitles(showTitles: false),

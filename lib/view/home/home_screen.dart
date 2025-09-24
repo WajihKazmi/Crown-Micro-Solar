@@ -1239,22 +1239,43 @@ class _LineChart extends StatelessWidget {
         ),
         titlesData: FlTitlesData(
           leftTitles: AxisTitles(
-            sideTitles: const SideTitles(showTitles: false),
-            axisNameWidget: Padding(
-              padding: const EdgeInsets.only(left: 2, right: 2),
-              child: RotatedBox(
-                quarterTurns: 3,
-                child: Text(
-                  state.unit,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: Colors.black54,
-                    fontWeight: FontWeight.w500,
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 42,
+              getTitlesWidget: (value, meta) {
+                final range = (maxY - minY).abs();
+                final tick1 = minY;
+                final tick2 = minY + range / 2.0;
+                final tick3 = maxY;
+                bool near(double a, double b) => (a - b).abs() <= range * 0.02;
+                if (!(near(value, tick1) ||
+                    near(value, tick2) ||
+                    near(value, tick3))) {
+                  return const SizedBox.shrink();
+                }
+                String unit = state.unit;
+                double disp = value;
+                if (unit.toLowerCase() == 'w' && maxY >= 1000) {
+                  disp = value / 1000.0;
+                  unit = 'kW';
+                }
+                String numStr;
+                final abs = disp.abs();
+                if (abs >= 100)
+                  numStr = disp.toStringAsFixed(0);
+                else if (abs >= 10)
+                  numStr = disp.toStringAsFixed(1);
+                else
+                  numStr = disp.toStringAsFixed(2);
+                return Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Text(
+                    '$numStr $unit',
+                    style: const TextStyle(fontSize: 10, color: Colors.black54),
                   ),
-                ),
-              ),
+                );
+              },
             ),
-            axisNameSize: 18,
           ),
           rightTitles: const AxisTitles(
             sideTitles: SideTitles(showTitles: false),

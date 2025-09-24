@@ -1502,6 +1502,88 @@ class DeviceRepository {
     }
   }
 
+  // Write/update a device control field value. Tries multiple action/param variants for compatibility.
+  Future<Map<String, dynamic>> setDeviceControlField({
+    required String pn,
+    required String sn,
+    required int devcode,
+    required int devaddr,
+    required String fieldId,
+    required String value,
+  }) async {
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+    const postaction =
+        '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+
+    if (token.isEmpty || secret.isEmpty) {
+      throw Exception('Authentication required');
+    }
+
+    final validSn = sn.isNotEmpty ? sn : 'DEFAULT_SN';
+    final attempts = <String>[
+      // Common variants observed in similar DESS endpoints
+      '&action=operateDeviceCtrlField&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&id=$fieldId&val=$value',
+      '&action=operateDeviceCtrlField&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&fieldid=$fieldId&value=$value',
+      '&action=setDeviceCtrlField&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&id=$fieldId&value=$value',
+    ];
+
+    Map<String, dynamic>? last;
+    for (final action in attempts) {
+      try {
+        final data = salt + secret + token + action + postaction;
+        final sign = sha1.convert(utf8.encode(data)).toString();
+        final url =
+            'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+        final resp = await _apiClient.signedPost(url);
+        final js = json.decode(resp.body);
+        last = js is Map ? Map<String, dynamic>.from(js) : {'err': -1};
+        if (last['err'] == 0) return last;
+      } catch (e) {
+        last = {'err': -1, 'desc': e.toString()};
+      }
+    }
+    return last ?? {'err': -1, 'desc': 'No valid write endpoint matched'};
+  }
+
+  // Query a single control field current value (mirror old app DevicecTRLvalueQuery)
+  Future<Map<String, dynamic>> querySingleDeviceCtrlValue({
+    required String pn,
+    required String sn,
+    required int devcode,
+    required int devaddr,
+    required String fieldId,
+  }) async {
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+    if (token.isEmpty || secret.isEmpty) {
+      return {'err': -1, 'desc': 'Auth missing'};
+    }
+    final postaction =
+        '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+    final validSn = sn.isNotEmpty ? sn : 'DEFAULT_SN';
+    final action =
+        '&action=queryDeviceCtrlValue&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&id=$fieldId&i18n=en_US';
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url =
+        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+    try {
+      final resp = await _apiClient.signedPost(url);
+      final js = json.decode(resp.body);
+      if (js is Map) {
+        return Map<String, dynamic>.from(js);
+      }
+      return {'err': -2, 'desc': 'Invalid response'};
+    } catch (e) {
+      return {'err': -3, 'desc': e.toString()};
+    }
+  }
+
   // --- Energy Flow (webQueryDeviceEnergyFlowEs) --- //
   Future<DeviceEnergyFlowModel?> fetchDeviceEnergyFlow({
     required String sn,
