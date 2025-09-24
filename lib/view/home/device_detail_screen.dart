@@ -16,7 +16,7 @@ import 'package:crown_micro_solar/presentation/viewmodels/overview_graph_view_mo
 import 'package:crown_micro_solar/presentation/viewmodels/metric_aggregator_view_model.dart';
 import 'package:crown_micro_solar/presentation/repositories/device_repository.dart';
 import 'package:crown_micro_solar/presentation/repositories/device_repository.dart'
-    show DeviceEnergyFlowModel; // ensure model available
+    show DeviceEnergyFlowModel, DeviceEnergyFlowItem; // ensure model available
 // Use the unified alarm notification screen (same as home) for consistent loading logic
 import 'package:crown_micro_solar/view/home/alarm_notification_screen.dart';
 import 'package:video_player/video_player.dart';
@@ -40,6 +40,10 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   Timer? _refreshTimer;
   bool _isFetching = false;
   String? _lastFlowKey;
+  final Map<String, String> _selectedParByCategory =
+      {}; // pv|battery|load|grid -> selected par label
+  final Map<String, String> _latestPagingValues =
+      {}; // UI Label -> formatted value
 
   String _computeFlowKey(DeviceEnergyFlowModel? flow) {
     if (flow == null) return 'empty';
@@ -106,10 +110,21 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
           'BATTERY_SOC',
           'LOAD_POWER',
           'GRID_POWER',
+          'GRID_FREQUENCY',
         ], date: date),
+        repo.fetchDeviceDataOneDayPaging(
+          sn: widget.device.sn,
+          pn: widget.device.pn,
+          devcode: widget.device.devcode,
+          devaddr: widget.device.devaddr,
+          date: date,
+          page: 0,
+          pageSize: 200,
+        ),
       ]);
       final live = futures[0] as DeviceLiveSignalModel?;
       final flow = futures[1] as DeviceEnergyFlowModel?;
+      final paging = futures[3] as Map<String, dynamic>?;
       if (!mounted) return;
       final newKey = _computeFlowKey(flow);
       setState(() {
@@ -118,6 +133,9 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         _lastFlowKey = newKey;
         _loading = false;
         _hasData = true;
+        _latestPagingValues
+          ..clear()
+          ..addAll(_buildLatestFromPaging(paging));
       });
     } catch (e) {
       if (!mounted) return;
@@ -127,6 +145,117 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       });
     }
     _isFetching = false;
+  }
+
+  Map<String, String> _buildLatestFromPaging(Map<String, dynamic>? paging) {
+    final res = <String, String>{};
+    if (paging == null) return res;
+    try {
+      final dat = paging['dat'];
+      if (dat is! Map) return res;
+      final titles = (dat['title'] as List?)
+              ?.map((e) => (e as Map)['title']?.toString() ?? '')
+              .toList() ??
+          [];
+      final rows = (dat['row'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      if (titles.isEmpty || rows.isEmpty) return res;
+      final last = rows.last;
+      final field = (last['field'] as List?) ?? const [];
+
+      int idxOf(List<String> candidates) {
+        for (final cand in candidates) {
+          final idx = titles.indexWhere(
+              (t) => t.toLowerCase().trim() == cand.toLowerCase().trim());
+          if (idx != -1) return idx;
+        }
+        return -1;
+      }
+
+      num? toNum(dynamic x) => x is num ? x : num.tryParse(x?.toString() ?? '');
+
+      String fmtNum(num? v, String unit, {int prec1 = 1, int prec2 = 2}) {
+        if (v == null) return '--';
+        final d = v.toDouble();
+        String n;
+        final abs = d.abs();
+        if (unit == 'W' && abs >= 1000) {
+          return '${(d / 1000).toStringAsFixed(1)} kW';
+        }
+        if (abs >= 100)
+          n = d.toStringAsFixed(0);
+        else if (abs >= 10)
+          n = d.toStringAsFixed(prec1);
+        else
+          n = d.toStringAsFixed(prec2);
+        return unit.isNotEmpty ? '$n $unit' : n;
+      }
+
+      void setBy(List<String> candidates, String uiLabel, String unit,
+          {bool assumeKWForPower = true}) {
+        final idx = idxOf(candidates);
+        if (idx != -1 && idx < field.length) {
+          final raw = field[idx];
+          num? v = toNum(raw);
+          if (assumeKWForPower && unit == 'W' && v != null && v <= 50) {
+            res[uiLabel] = fmtNum(v * 1000, unit);
+            return;
+          }
+          res[uiLabel] = fmtNum(v, unit);
+        }
+      }
+
+      // PV
+      setBy(
+          ['PV1 Input Voltage', 'PV1 Input voltage'], 'PV1 Input Voltage', 'V');
+      setBy(['PV1 Charging Power', 'PV1 Input Power', 'PV1 Active Power'],
+          'PV1 Input Power (Watts)', 'W');
+      setBy(
+          ['PV2 Input Voltage', 'PV2 Input voltage'], 'PV2 Input Voltage', 'V');
+      setBy(['PV2 Charging power', 'PV2 Input Power', 'PV2 Active Power'],
+          'PV2 Input Power (Watts)', 'W');
+
+      // Battery
+      setBy(['Battery Voltage'], 'Battery Voltage', 'V');
+      setBy(['Battery Capacity'], 'Battery Capacity (%)', '%');
+      setBy(['Battery charging current'], 'Battery Charging Current (A)', 'A',
+          assumeKWForPower: false);
+      setBy([
+        'Battery discharging current'
+      ], 'Battery Discharging Current (A)', 'A', assumeKWForPower: false);
+      final btTypeIdx = idxOf(['Battery Type']);
+      if (btTypeIdx != -1 && btTypeIdx < field.length) {
+        res['Battery Type'] = (field[btTypeIdx]?.toString() ?? '--');
+      }
+
+      // Load
+      final loadStatusIdx = idxOf(['Load Status']);
+      if (loadStatusIdx != -1 && loadStatusIdx < field.length) {
+        res['Load Status'] = (field[loadStatusIdx]?.toString() ?? '--');
+      }
+      setBy(['AC Output Voltage', 'AC1 Output Voltage'], 'AC Output Voltage',
+          'V');
+      setBy(['AC Output Frequency', 'AC1 Output Frequency'],
+          'AC Output Frequency (Hz)', 'Hz');
+      setBy(['AC2 Output Voltage'], 'Second Output Voltage', 'V');
+      setBy(['AC2 Output Frequency'], 'Second Output Frequency (Hz)', 'Hz');
+      setBy([
+        'AC Output Active Power',
+        'Load Active Power',
+        'Output Active Power'
+      ], 'AC Output Active Power (W)', 'W');
+      setBy(['Output Load Percentage', 'Output Load %'],
+          'Output Load Percentage (%)', '%');
+
+      // Grid
+      setBy(['Grid Voltage'], 'Grid Voltage', 'V');
+      setBy(
+          ['Grid Frequency', 'AC Grid Frequency'], 'Grid Frequency (Hz)', 'Hz');
+      final acInputIdx = idxOf(['AC Input Range', 'AC input range']);
+      if (acInputIdx != -1 && acInputIdx < field.length) {
+        res['AC Input Range (APL/UPS)'] = field[acInputIdx]?.toString() ?? '--';
+      }
+    } catch (_) {}
+    return res;
   }
 
   String _fmtPowerW(double? w) {
@@ -355,8 +484,9 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     final pvVoltageMetric = _metricAggVM.metric('PV_INPUT_VOLTAGE');
     final batSocMetric = _metricAggVM.metric('BATTERY_SOC');
     final loadPowerMetric = _metricAggVM.metric('LOAD_POWER');
-    final gridPowerMetric = _metricAggVM.metric('GRID_POWER');
+    // final gridPowerMetric = _metricAggVM.metric('GRID_POWER'); // not used on card
     final acOutVoltageMetric = _metricAggVM.metric('AC2_OUTPUT_VOLTAGE');
+    final gridFreqMetric = _metricAggVM.metric('GRID_FREQUENCY');
 
     final pvVoltage = _energyFlow?.pvVoltage ?? pvVoltageMetric?.latestValue;
     final pvPower =
@@ -366,29 +496,79 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         loadPowerMetric?.latestValue ??
         _live?.outputPower;
     final gridVoltageVal = _energyFlow?.gridVoltage;
-    final gridPowerVal = _energyFlow?.gridPower ?? gridPowerMetric?.latestValue;
+    // Prefer voltage, otherwise frequency, and avoid showing power on card
+    final gridFreqVal = gridFreqMetric?.latestValue;
     final batteryVoltage = _energyFlow?.batteryVoltage;
     final batSoc = _energyFlow?.batterySoc ??
         batSocMetric?.latestValue ??
         _live?.batteryLevel;
 
+    String? _selectedValueFor(String category) {
+      final sel = _selectedParByCategory[category];
+      if (sel == null) return null;
+      String selL = sel.trim().toLowerCase();
+      DeviceEnergyFlowItem? it;
+      List<DeviceEnergyFlowItem> listFor(String c) {
+        switch (c) {
+          case 'pv':
+            return _energyFlow?.pvStatus ?? const [];
+          case 'battery':
+            return _energyFlow?.btStatus ?? const [];
+          case 'load':
+            return [...?_energyFlow?.bcStatus, ...?_energyFlow?.olStatus];
+          case 'grid':
+            return _energyFlow?.gdStatus ?? const [];
+        }
+        return const [];
+      }
+
+      final list = listFor(category);
+      it = list.firstWhere(
+        (e) => e.par.trim().toLowerCase() == selL,
+        orElse: () => DeviceEnergyFlowItem(par: '', value: null),
+      );
+      if (it.par.isEmpty) {
+        // try matching formatted label
+        it = list.firstWhere(
+          (e) => _formatLabel(e.par).trim().toLowerCase() == selL,
+          orElse: () => DeviceEnergyFlowItem(par: '', value: null),
+        );
+      }
+      if (it.par.isNotEmpty) {
+        return _formatValueWithUnit(it.value, it.unit);
+      }
+      // fallback to paging latest values by canonical UI label
+      final v = _latestPagingValues[sel];
+      if (v != null) return v;
+      return null;
+    }
+
     final rawCards = <Map<String, Object?>>[];
     if (pvVoltage != null || pvPower != null) {
+      final selected = _selectedValueFor('pv');
       rawCards.add({
         'title': 'PV',
-        'value': _fmtVoltageOrPower(pvVoltage ?? pvPower),
-        'subtitle':
-            pvVoltage != null && pvPower != null ? _fmtPowerW(pvPower) : null,
+        'value': selected ?? _fmtVoltageOrPower(pvVoltage ?? pvPower),
+        'subtitle': selected != null
+            ? _formatLabel(_selectedParByCategory['pv'] ?? '')
+            : (pvVoltage != null && pvPower != null
+                ? _fmtPowerW(pvPower)
+                : null),
         'icon': Icons.solar_power,
+        'key': 'pv',
       });
     }
     if (batteryVoltage != null || batSoc != null) {
+      final selected = _selectedValueFor('battery');
       rawCards.add({
         'title': 'Battery',
-        'value': batteryVoltage != null
-            ? _fmtVoltage(batteryVoltage)
-            : _fmtSoc(batSoc),
+        'value': selected ??
+            (batteryVoltage != null
+                ? _fmtVoltage(batteryVoltage)
+                : _fmtSoc(batSoc)),
         'subtitle': () {
+          if (selected != null)
+            return _formatLabel(_selectedParByCategory['battery'] ?? '');
           if (batteryVoltage != null && batSoc != null) return _fmtSoc(batSoc);
           final pw = _energyFlow?.batteryPower;
           if (batteryVoltage == null && pw != null && pw.abs() > 0) {
@@ -397,26 +577,43 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
           return null;
         }(),
         'icon': Icons.battery_full,
+        'key': 'battery',
       });
     }
     if (loadVoltage != null || loadPower != null) {
+      final selected = _selectedValueFor('load');
       rawCards.add({
         'title': 'Load',
-        'value': _fmtVoltageOrPower(loadVoltage ?? loadPower),
-        'subtitle': (loadVoltage != null && loadPower != null)
-            ? _fmtPowerW(loadPower)
-            : null,
+        'value': selected ?? _fmtVoltageOrPower(loadVoltage ?? loadPower),
+        'subtitle': selected != null
+            ? _formatLabel(_selectedParByCategory['load'] ?? '')
+            : ((loadVoltage != null && loadPower != null)
+                ? _fmtPowerW(loadPower)
+                : null),
         'icon': Icons.home,
+        'key': 'load',
       });
     }
-    if (gridVoltageVal != null || gridPowerVal != null) {
+    // Grid card: show Voltage; if missing, show Frequency (Hz). Do NOT show Watts.
+    final selectedGrid = _selectedValueFor('grid');
+    final gridValueStr = selectedGrid ??
+        (() {
+          if (gridVoltageVal != null) return _fmtVoltage(gridVoltageVal);
+          if (gridFreqVal != null)
+            return '${gridFreqVal.toStringAsFixed(1)} Hz';
+          return null;
+        })();
+    if (gridValueStr != null) {
       rawCards.add({
         'title': 'Grid',
-        'value': _fmtVoltageOrPower(gridVoltageVal ?? gridPowerVal),
-        'subtitle': (gridVoltageVal != null && gridPowerVal != null)
-            ? _fmtPowerW(gridPowerVal)
-            : null,
+        'value': gridValueStr,
+        'subtitle': selectedGrid != null
+            ? _formatLabel(_selectedParByCategory['grid'] ?? '')
+            : (gridVoltageVal != null && gridFreqVal != null
+                ? '${gridFreqVal.toStringAsFixed(1)} Hz'
+                : null),
         'icon': Icons.electrical_services,
+        'key': 'grid',
       });
     }
     if (rawCards.isEmpty) return const SizedBox();
@@ -429,95 +626,420 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       children: List.generate(rawCards.length, (i) {
         final c = rawCards[i];
         return Expanded(
-          child: Container(
-            height: cardHeight,
-            margin: EdgeInsets.only(right: i == rawCards.length - 1 ? 0 : 8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(.06),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            padding: const EdgeInsets.fromLTRB(
-              6,
-              12,
-              6,
-              6,
-            ), // more top, less bottom
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Builder(
-                  builder: (context) {
-                    final primary = Theme.of(context).colorScheme.primary;
-                    return Container(
-                      width: 30,
-                      height: 30,
-                      decoration: BoxDecoration(
-                        color: primary,
-                        borderRadius: BorderRadius.circular(8),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () {
+              final k = (c['key'] as String?) ?? '';
+              _showFlowDetails(k);
+            },
+            child: Container(
+              height: cardHeight,
+              margin: EdgeInsets.only(right: i == rawCards.length - 1 ? 0 : 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(.06),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.fromLTRB(
+                6,
+                12,
+                6,
+                6,
+              ), // more top, less bottom
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Builder(
+                    builder: (context) {
+                      final primary = Theme.of(context).colorScheme.primary;
+                      return Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: primary,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          c['icon'] as IconData,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    height: titleAreaHeight,
+                    child: Center(
+                      child: Text(
+                        c['title'] as String,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF4A6882),
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      child: Icon(
-                        c['icon'] as IconData,
-                        color: Colors.white,
-                        size: 16,
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 6),
-                SizedBox(
-                  height: titleAreaHeight,
-                  child: Center(
-                    child: Text(
-                      c['title'] as String,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF4A6882),
-                      ),
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                ),
-                const SizedBox(height: 3), // a bit more space before value
-                Text(
-                  c['value'] as String,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
+                  const SizedBox(height: 3), // a bit more space before value
+                  Text(
+                    c['value'] as String,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
-                SizedBox(
-                  height: subtitleHeight,
-                  child: (c['subtitle'] != null)
-                      ? Text(
-                          c['subtitle'] as String,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.black54,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        )
-                      : const SizedBox.shrink(),
-                ),
-              ],
+                  const SizedBox(height: 2),
+                  SizedBox(
+                    height: subtitleHeight,
+                    child: (c['subtitle'] != null)
+                        ? Text(
+                            c['subtitle'] as String,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black54,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ],
+              ),
             ),
           ),
         );
       }),
     );
+  }
+
+  void _showFlowDetails(String category) {
+    if (_energyFlow == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No details available')),
+      );
+      return;
+    }
+
+    String title = '';
+    List<DeviceEnergyFlowItem> items = const [];
+    IconData icon = Icons.info_outline;
+
+    switch (category) {
+      case 'pv':
+        title = 'PV Details';
+        // Order: PV1 Input Voltage, PV1 Charging Power, PV2 Input Voltage, PV2 Charging Power
+        final list = _energyFlow!.pvStatus;
+        DeviceEnergyFlowItem? byLabel(String label) => list.firstWhere(
+            (e) => e.par.trim().toLowerCase() == label.trim().toLowerCase(),
+            orElse: () => DeviceEnergyFlowItem(par: '', value: null));
+        final ordered = <DeviceEnergyFlowItem?>[
+          byLabel('PV1 Input Voltage'),
+          byLabel('PV1 Charging Power'),
+          byLabel('PV2 Input voltage'),
+          byLabel('PV2 Charging power'),
+        ]
+            .whereType<DeviceEnergyFlowItem>()
+            .where((e) => e.par.isNotEmpty)
+            .toList();
+        // Add any remaining PV fields after
+        final rest = list.where((e) => !ordered.any((o) => o.par == e.par));
+        items = [...ordered, ...rest];
+        icon = Icons.solar_power;
+        break;
+      case 'battery':
+        title = 'Battery Details';
+        // Order specific battery fields
+        final list = _energyFlow!.btStatus;
+        DeviceEnergyFlowItem? byLabel(String label) => list.firstWhere(
+            (e) => e.par.trim().toLowerCase() == label.trim().toLowerCase(),
+            orElse: () => DeviceEnergyFlowItem(par: '', value: null));
+        final ordered = <DeviceEnergyFlowItem?>[
+          byLabel('Battery Voltage'),
+          byLabel('Battery Capacity'),
+          byLabel('Battery charging current'),
+          byLabel('Battery discharging current'),
+          byLabel('Battery Type'),
+        ]
+            .whereType<DeviceEnergyFlowItem>()
+            .where((e) => e.par.isNotEmpty)
+            .toList();
+        final rest = list.where((e) => !ordered.any((o) => o.par == e.par));
+        items = [...ordered, ...rest];
+        icon = Icons.battery_full;
+        break;
+      case 'load':
+        title = 'Load Details';
+        final list = [..._energyFlow!.bcStatus, ..._energyFlow!.olStatus];
+        DeviceEnergyFlowItem? byLabel(String label) => list.firstWhere(
+            (e) => e.par.trim().toLowerCase() == label.trim().toLowerCase(),
+            orElse: () => DeviceEnergyFlowItem(par: '', value: null));
+        final ordered = <DeviceEnergyFlowItem?>[
+          byLabel('Load Status'),
+          byLabel('AC Output Voltage'),
+          byLabel('AC Output Frequency'),
+          byLabel('AC2 Output Voltage'),
+          byLabel('AC2 Output Frequency'),
+          byLabel('AC Output Active Power'),
+          byLabel('Output Load Percentage'),
+        ]
+            .whereType<DeviceEnergyFlowItem>()
+            .where((e) => e.par.isNotEmpty)
+            .toList();
+        final rest = list.where((e) => !ordered.any((o) => o.par == e.par));
+        items = [...ordered, ...rest];
+        icon = Icons.home;
+        break;
+      case 'grid':
+        title = 'Grid Details';
+        final list = _energyFlow!.gdStatus;
+        DeviceEnergyFlowItem? byLabel(String label) => list.firstWhere(
+            (e) => e.par.trim().toLowerCase() == label.trim().toLowerCase(),
+            orElse: () => DeviceEnergyFlowItem(par: '', value: null));
+        final ordered = <DeviceEnergyFlowItem?>[
+          byLabel('Grid Voltage'),
+          byLabel('Grid Frequency'),
+          byLabel('AC Input Range'), // APL/UPS
+        ]
+            .whereType<DeviceEnergyFlowItem>()
+            .where((e) => e.par.isNotEmpty)
+            .toList();
+        final rest = list.where((e) => !ordered.any((o) => o.par == e.par));
+        items = [...ordered, ...rest];
+        icon = Icons.electrical_services;
+        break;
+      default:
+        title = 'Details';
+        items = const [];
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return Dialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(icon, color: Colors.white, size: 18),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (items.isEmpty && _latestPagingValues.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Text('No data'),
+                    )
+                  else
+                    SizedBox(
+                      height: 300,
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: [
+                            for (final it in items)
+                              InkWell(
+                                onTap: () {
+                                  // set selected label for category and update card
+                                  _selectedParByCategory[category] = it.par;
+                                  Navigator.of(ctx).pop();
+                                  setState(() {});
+                                },
+                                child: _FlowDetailRow(
+                                  label: _formatLabel(it.par),
+                                  value:
+                                      _formatValueWithUnit(it.value, it.unit),
+                                  status: it.status,
+                                ),
+                              ),
+                            // Extras from paging for missing required labels
+                            ..._extraRowsForCategory(
+                                category,
+                                items.map((e) => _formatLabel(e.par)).toSet(),
+                                ctx),
+                          ],
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('Close'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _formatValueWithUnit(double? value, String? unit) {
+    if (value == null) return '--';
+    String u = (unit ?? '').trim();
+    double v = value;
+    // Keep original unit display; do not normalize here to avoid confusion
+    // Format decimals based on magnitude
+    String numStr;
+    final abs = v.abs();
+    if (abs >= 100) {
+      numStr = v.toStringAsFixed(0);
+    } else if (abs >= 10) {
+      numStr = v.toStringAsFixed(1);
+    } else {
+      numStr = v.toStringAsFixed(2);
+    }
+    return u.isNotEmpty ? '$numStr $u' : numStr;
+  }
+
+  String _formatLabel(String raw) {
+    if (raw.isEmpty) return raw;
+    String s = raw.trim();
+    s = s.replaceAll('_', ' ');
+    // Normalize spacing
+    s = s.replaceAll(RegExp(r'\s+'), ' ');
+    // Map known variants first
+    final low = s.toLowerCase();
+    if (low.contains('ac2 output'))
+      s = s.replaceFirst(RegExp(r'(?i)ac2 output'), 'Second Output');
+    if (low == 'pv1 input voltage') s = 'PV1 Input Voltage';
+    if (low == 'pv2 input voltage' || low == 'pv2 input voltage')
+      s = 'PV2 Input Voltage';
+    if (low == 'pv1 charging power') s = 'PV1 Input Power (Watts)';
+    if (low == 'pv2 charging power') s = 'PV2 Input Power (Watts)';
+    if (low == 'ac input range') s = 'AC Input Range (APL/UPS)';
+    if (low == 'battery capacity') s = 'Battery Capacity (%)';
+    if (low == 'battery charging current') s = 'Battery Charging Current (A)';
+    if (low == 'battery discharging current')
+      s = 'Battery Discharging Current (A)';
+    if (low == 'ac output active power') s = 'AC Output Active Power (W)';
+    if (low == 'output load percentage') s = 'Output Load Percentage (%)';
+    if (low == 'grid frequency') s = 'Grid Frequency (Hz)';
+    if (low == 'ac output frequency') s = 'AC Output Frequency (Hz)';
+
+    // Title case but preserve common acronyms and numbers
+    List<String> words = s.split(' ');
+    final preserve = {'PV', 'AC', 'DC', 'UPS', 'APL', 'SOC', 'Hz', 'W', 'kW'};
+    words = words.map((w) {
+      if (w.isEmpty) return w;
+      final core = w.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+      if (preserve.contains(core.toUpperCase())) return core.toUpperCase();
+      if (RegExp(r'^[0-9]+$').hasMatch(core)) return w; // leave numbers
+      return w[0].toUpperCase() + w.substring(1).toLowerCase();
+    }).toList();
+    return words.join(' ');
+  }
+
+  List<Widget> _extraRowsForCategory(
+      String category, Set<String> existingLabels, BuildContext ctx) {
+    // Define desired labels per category (canonical UI labels)
+    final desired = <String>[];
+    switch (category) {
+      case 'pv':
+        desired.addAll([
+          'PV1 Input Voltage',
+          'PV1 Input Power (Watts)',
+          'PV2 Input Voltage',
+          'PV2 Input Power (Watts)',
+        ]);
+        break;
+      case 'battery':
+        desired.addAll([
+          'Battery Voltage',
+          'Battery Capacity (%)',
+          'Battery Charging Current (A)',
+          'Battery Discharging Current (A)',
+          'Battery Type',
+        ]);
+        break;
+      case 'load':
+        desired.addAll([
+          'Load Status',
+          'AC Output Voltage',
+          'AC Output Frequency (Hz)',
+          'Second Output Voltage',
+          'Second Output Frequency (Hz)',
+          'AC Output Active Power (W)',
+          'Output Load Percentage (%)',
+        ]);
+        break;
+      case 'grid':
+        desired.addAll([
+          'Grid Voltage',
+          'Grid Frequency (Hz)',
+          'AC Input Range (APL/UPS)',
+        ]);
+        break;
+    }
+    String norm(String s) => s.trim().toLowerCase();
+    final have = existingLabels.map(norm).toSet();
+    final rows = <Widget>[];
+    for (final label in desired) {
+      if (have.contains(norm(label))) continue;
+      final v = _latestPagingValues[label];
+      if (v == null) continue;
+      rows.add(
+        InkWell(
+          onTap: () {
+            _selectedParByCategory[category] = label;
+            Navigator.of(ctx).pop();
+            setState(() {});
+          },
+          child: _FlowDetailRow(
+            label: label,
+            value: v,
+            status: 0,
+          ),
+        ),
+      );
+    }
+    return rows;
   }
 
   @override
@@ -575,6 +1097,13 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                       ),
                     );
                   },
+                ),
+                const SizedBox(width: 8),
+                // Settings icon - navigates to collector settings/details for now
+                _SquareIconButton(
+                  icon: Icons.settings,
+                  tooltip: 'Settings',
+                  onTap: null,
                 ),
               ],
             ),
@@ -889,15 +1418,63 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   }
 }
 
+class _FlowDetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final int? status;
+  const _FlowDetailRow({required this.label, required this.value, this.status});
+  @override
+  Widget build(BuildContext context) {
+    Color dotColor;
+    switch (status) {
+      case 1:
+        dotColor = Colors.green;
+        break;
+      case -1:
+        dotColor = Colors.red;
+        break;
+      default:
+        dotColor = Colors.grey;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: Color(0xFFEAEAEA))),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 13, color: Colors.black87),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SquareIconButton extends StatelessWidget {
   final IconData? icon;
   final String? customSvg;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final String? tooltip;
   const _SquareIconButton({
     this.icon,
     this.customSvg,
-    required this.onTap,
+    this.onTap,
     this.tooltip,
   });
   @override
@@ -1118,6 +1695,9 @@ class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
             case GraphPeriod.year:
               anchorLabel = vm.anchor.year.toString();
               break;
+            case GraphPeriod.total:
+              anchorLabel = 'Total';
+              break;
           }
           final state = vm.state;
           return Column(
@@ -1224,6 +1804,9 @@ class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
                           break;
                         case GraphPeriod.year:
                           canForward = vm.anchor.year < now.year;
+                          break;
+                        case GraphPeriod.total:
+                          canForward = false;
                           break;
                       }
                       return IconButton(
@@ -1346,8 +1929,24 @@ class _LineChart extends StatelessWidget {
               FlLine(color: Colors.black.withOpacity(.04), strokeWidth: 1),
         ),
         titlesData: FlTitlesData(
-          leftTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
+          leftTitles: AxisTitles(
+            sideTitles: const SideTitles(showTitles: false),
+            // Minimal, tidy Y-axis label showing the metric unit
+            axisNameWidget: Padding(
+              padding: const EdgeInsets.only(left: 2, right: 2),
+              child: RotatedBox(
+                quarterTurns: 3,
+                child: Text(
+                  state.unit,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Colors.black54,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+            axisNameSize: 18,
           ),
           rightTitles: const AxisTitles(
             sideTitles: SideTitles(showTitles: false),

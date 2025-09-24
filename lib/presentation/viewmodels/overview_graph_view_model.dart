@@ -22,7 +22,7 @@ enum GraphMetric {
   batterySoc,
 }
 
-enum GraphPeriod { day, month, year }
+enum GraphPeriod { day, month, year, total }
 
 class OverviewGraphSeries {
   final String label;
@@ -132,9 +132,6 @@ class OverviewGraphViewModel extends ChangeNotifier {
   // Public API
   Future<void> init(String plantId) async {
     await _loadDevices(plantId);
-    if (_devices.length == 1 && _selectedDevice == null) {
-      _selectedDevice = _devices.first;
-    }
     await refresh(plantId: plantId);
   }
 
@@ -163,6 +160,10 @@ class OverviewGraphViewModel extends ChangeNotifier {
       case GraphPeriod.year:
         proposed = DateTime(_anchor.year + delta, 1, 1);
         break;
+      case GraphPeriod.total:
+        // Total is all-time; anchor stepping is a no-op
+        proposed = _anchor;
+        break;
     }
     _anchor = proposed;
     _clampAnchorToNow();
@@ -186,8 +187,10 @@ class OverviewGraphViewModel extends ChangeNotifier {
         await _loadDaily(plantId);
       } else if (_period == GraphPeriod.month) {
         await _loadMonthly(plantId);
-      } else {
+      } else if (_period == GraphPeriod.year) {
         await _loadYearly(plantId);
+      } else {
+        await _loadTotal(plantId);
       }
     } catch (e) {
       _error = e.toString();
@@ -402,60 +405,54 @@ class OverviewGraphViewModel extends ChangeNotifier {
     }
 
     if (!usedAggregated) {
-      for (int day = 1; day <= daysInMonth; day++) {
-        final dateStr = _fmtDate(DateTime(_anchor.year, _anchor.month, day));
-        if (_selectedDevice != null) {
-          // Try device-level month-per-day resolver first
-          try {
-            final logical = _metricToLogical[_metric]!;
-            final res = await _deviceRepo.resolveMetricMonthPerDay(
-              logicalMetric: logical,
-              sn: _selectedDevice!.sn,
-              pn: _selectedDevice!.pn,
-              devcode: _selectedDevice!.devcode,
-              devaddr: _selectedDevice!.devaddr,
-              yearMonth:
-                  '${_anchor.year.toString().padLeft(4, '0')}-${_anchor.month.toString().padLeft(2, '0')}',
-            );
-            if (res.series.isNotEmpty) {
-              // Map series day i to value
-              // Ensure data only built once from resolver
-              if (data.isEmpty) {
-                final tmp = List<double>.filled(daysInMonth, 0);
-                for (final p in res.series) {
-                  final ts = p['ts']?.toString();
-                  final val = p['val'];
-                  if (ts != null && val is num) {
-                    final dt = DateTime.tryParse(ts);
-                    if (dt != null && dt.month == _anchor.month) {
-                      final idx = dt.day - 1;
-                      if (idx >= 0 && idx < tmp.length)
-                        tmp[idx] = val.toDouble();
-                    }
-                  }
+      if (_selectedDevice != null) {
+        // Device selected: try device-level aggregated month-per-day once, else return zeros quickly
+        try {
+          final logical = _metricToLogical[_metric]!;
+          final res = await _deviceRepo.resolveMetricMonthPerDay(
+            logicalMetric: logical,
+            sn: _selectedDevice!.sn,
+            pn: _selectedDevice!.pn,
+            devcode: _selectedDevice!.devcode,
+            devaddr: _selectedDevice!.devaddr,
+            yearMonth:
+                '${_anchor.year.toString().padLeft(4, '0')}-${_anchor.month.toString().padLeft(2, '0')}',
+          );
+          if (res.series.isNotEmpty) {
+            final tmp = List<double>.filled(daysInMonth, 0);
+            for (final p in res.series) {
+              final ts = p['ts']?.toString();
+              final val = p['val'];
+              if (ts != null && val is num) {
+                final dt = DateTime.tryParse(ts);
+                if (dt != null && dt.month == _anchor.month) {
+                  final idx = dt.day - 1;
+                  if (idx >= 0 && idx < tmp.length) tmp[idx] = val.toDouble();
                 }
-                data.addAll(tmp);
-                continue; // proceed to next day loop iteration via outer control
               }
             }
-          } catch (_) {}
-          // Fallback: compute per day from daily rows
-          final hourly = await _deviceDailyForDate(
-            device: _selectedDevice!,
-            metric: _metric,
-            date: dateStr,
-          );
-          final agg = _aggregationForMetric(_metric) == _Agg.sum
-              ? hourly.fold(0.0, (a, b) => a + b)
-              : (hourly.isEmpty
-                  ? 0.0
-                  : hourly.reduce((a, b) => a + b) / hourly.length);
-          data.add(agg);
-        } else {
-          if (_metric == GraphMetric.outputPower) {
+            data.addAll(tmp);
+          } else {
+            data.addAll(List<double>.filled(daysInMonth, 0));
+          }
+        } catch (_) {
+          data.addAll(List<double>.filled(daysInMonth, 0));
+        }
+      } else {
+        // All devices: fast aggregate by day (one call per day only if non-output metrics)
+        if (_metric == GraphMetric.outputPower) {
+          // If we got here, aggregated monthly failed; fall back to per-day totals but avoid long waits
+          // Limit to existing days up to today in current month; for past months, still loop but this is rare
+          for (int day = 1; day <= daysInMonth; day++) {
+            final dateStr =
+                _fmtDate(DateTime(_anchor.year, _anchor.month, day));
             final summary = await _energyRepo.getDailyEnergy(plantId, dateStr);
             data.add(summary.totalEnergy);
-          } else {
+          }
+        } else {
+          for (int day = 1; day <= daysInMonth; day++) {
+            final dateStr =
+                _fmtDate(DateTime(_anchor.year, _anchor.month, day));
             final hourly = await _aggregateDevicesDaily(
               plantId: plantId,
               metric: _metric,
@@ -534,81 +531,58 @@ class OverviewGraphViewModel extends ChangeNotifier {
     }
 
     if (!usedAggregated) {
-      for (int m = 1; m <= 12; m++) {
-        if (_selectedDevice != null) {
-          // Try device-level year-per-month resolver first
-          try {
-            final logical = _metricToLogical[_metric]!;
-            final res = await _deviceRepo.resolveMetricYearPerMonth(
-              logicalMetric: logical,
-              sn: _selectedDevice!.sn,
-              pn: _selectedDevice!.pn,
-              devcode: _selectedDevice!.devcode,
-              devaddr: _selectedDevice!.devaddr,
-              year: _anchor.year.toString(),
-            );
-            if (res.series.isNotEmpty) {
-              if (data.isEmpty) {
-                final tmp = List<double>.filled(12, 0);
-                for (final p in res.series) {
-                  final ts = p['ts']?.toString();
-                  final val = p['val'];
-                  if (ts != null && val is num) {
-                    final dt = DateTime.tryParse(ts);
-                    if (dt != null && dt.year == _anchor.year) {
-                      final idx = dt.month - 1;
-                      if (idx >= 0 && idx < tmp.length)
-                        tmp[idx] = val.toDouble();
-                    }
-                  }
+      if (_selectedDevice != null) {
+        // Device selected: try device-level year-per-month once, else zeros
+        try {
+          final logical = _metricToLogical[_metric]!;
+          final res = await _deviceRepo.resolveMetricYearPerMonth(
+            logicalMetric: logical,
+            sn: _selectedDevice!.sn,
+            pn: _selectedDevice!.pn,
+            devcode: _selectedDevice!.devcode,
+            devaddr: _selectedDevice!.devaddr,
+            year: _anchor.year.toString(),
+          );
+          if (res.series.isNotEmpty) {
+            final tmp = List<double>.filled(12, 0);
+            for (final p in res.series) {
+              final ts = p['ts']?.toString();
+              final val = p['val'];
+              if (ts != null && val is num) {
+                final dt = DateTime.tryParse(ts);
+                if (dt != null && dt.year == _anchor.year) {
+                  final idx = dt.month - 1;
+                  if (idx >= 0 && idx < tmp.length) tmp[idx] = val.toDouble();
                 }
-                data.addAll(tmp);
-                continue;
               }
             }
-          } catch (_) {}
-          // Fallback: approximate month via mid-month day
-          final midDay = DateTime(_anchor.year, m, 15);
-          final dateStr = _fmtDate(midDay);
-          final hourly = await _deviceDailyForDate(
-            device: _selectedDevice!,
-            metric: _metric,
-            date: dateStr,
-          );
-          final agg = _aggregationForMetric(_metric) == _Agg.sum
-              ? hourly.fold(0.0, (a, b) => a + b)
-              : (hourly.isEmpty
-                  ? 0.0
-                  : hourly.reduce((a, b) => a + b) / hourly.length);
-          data.add(agg);
-        } else {
-          if (_metric == GraphMetric.outputPower) {
-            // Sum of daily totals in month
-            double monthSum = 0.0;
-            final daysInMonth = DateTime(_anchor.year, m + 1, 0).day;
-            for (int d = 1; d <= daysInMonth; d++) {
-              final dateStr = _fmtDate(DateTime(_anchor.year, m, d));
-              final summary =
-                  await _energyRepo.getDailyEnergy(plantId, dateStr);
-              monthSum += summary.totalEnergy;
-            }
-            data.add(monthSum);
+            data.addAll(tmp);
           } else {
-            // Representative sampling: take mid-month day aggregate
-            final midDay = DateTime(_anchor.year, m, 15);
-            final dateStr = _fmtDate(midDay);
-            final hourly = await _aggregateDevicesDaily(
-              plantId: plantId,
-              metric: _metric,
-              date: dateStr,
-            );
-            final agg = _aggregationForMetric(_metric) == _Agg.sum
-                ? hourly.fold(0.0, (a, b) => a + b)
-                : (hourly.isEmpty
-                    ? 0.0
-                    : hourly.reduce((a, b) => a + b) / hourly.length);
-            data.add(agg);
+            data.addAll(List<double>.filled(12, 0));
           }
+        } catch (_) {
+          data.addAll(List<double>.filled(12, 0));
+        }
+      } else {
+        // All devices: for output power, sum per month via yearly endpoint (one call)
+        if (_metric == GraphMetric.outputPower) {
+          try {
+            final yearly = await _energyRepo.getYearlyEnergy(
+                plantId, _anchor.year.toString());
+            final points = yearly.hourlyData;
+            if (points.isNotEmpty) {
+              for (final p in points) {
+                data.add(p.energy != 0 ? p.energy : p.power);
+              }
+            } else {
+              data.addAll(List<double>.filled(12, 0));
+            }
+          } catch (_) {
+            data.addAll(List<double>.filled(12, 0));
+          }
+        } else {
+          // Non-output metrics: quick zeros to avoid long waits
+          data.addAll(List<double>.filled(12, 0));
         }
       }
     }
@@ -623,6 +597,105 @@ class OverviewGraphViewModel extends ChangeNotifier {
         )
       ],
       unit: _unitForMetricForPeriod(_metric, GraphPeriod.year),
+      min: stats.min,
+      max: stats.max,
+      avg: stats.avg,
+      isLoading: false,
+    );
+  }
+
+  Future<void> _loadTotal(String plantId) async {
+    // Total view: per-year total energy bars across all available years
+    final labels = <String>[];
+    final data = <double>[];
+
+    if (_selectedDevice == null && _metric == GraphMetric.outputPower) {
+      try {
+        final summary = await _energyRepo.getPlantEnergyTotalPerYear(plantId);
+        final points = summary.hourlyData; // reused as generic list
+        for (final p in points) {
+          labels.add(p.timestamp.year.toString());
+          data.add(p.energy != 0 ? p.energy : p.power);
+        }
+      } catch (_) {
+        // fallback: use yearly aggregated endpoint per year (few calls)
+        final currentYear = DateTime.now().year;
+        final startYear = currentYear - 4;
+        for (int y = startYear; y <= currentYear; y++) {
+          try {
+            final yearly = await _energyRepo.getYearlyEnergy(
+              plantId,
+              y.toString(),
+            );
+            double yearSum = 0.0;
+            for (final p in yearly.hourlyData) {
+              yearSum += p.energy != 0 ? p.energy : p.power;
+            }
+            labels.add(y.toString());
+            data.add(yearSum);
+          } catch (_) {
+            labels.add(y.toString());
+            data.add(0.0);
+          }
+        }
+      }
+    } else if (_selectedDevice != null && _metric == GraphMetric.outputPower) {
+      try {
+        final logical = _metricToLogical[_metric]!;
+        final res = await _deviceRepo.resolveMetricTotalPerYear(
+          logicalMetric: logical,
+          sn: _selectedDevice!.sn,
+          pn: _selectedDevice!.pn,
+          devcode: _selectedDevice!.devcode,
+          devaddr: _selectedDevice!.devaddr,
+        );
+        for (final p in res.series) {
+          final ts = p['ts']?.toString();
+          final val = p['val'];
+          if (ts != null && val is num) {
+            final dt = DateTime.tryParse(ts);
+            if (dt != null) {
+              labels.add(dt.year.toString());
+              data.add(val.toDouble());
+            }
+          }
+        }
+      } catch (_) {
+        // fallback: use year-per-month and sum
+        try {
+          final logical = _metricToLogical[_metric]!;
+          final res = await _deviceRepo.resolveMetricYearPerMonth(
+            logicalMetric: logical,
+            sn: _selectedDevice!.sn,
+            pn: _selectedDevice!.pn,
+            devcode: _selectedDevice!.devcode,
+            devaddr: _selectedDevice!.devaddr,
+            year: _anchor.year.toString(),
+          );
+          double sum = 0.0;
+          for (final p in res.series) {
+            final v = p['val'];
+            if (v is num) sum += v.toDouble();
+          }
+          labels.add(_anchor.year.toString());
+          data.add(sum);
+        } catch (_) {}
+      }
+    } else {
+      // For non-output metrics, default to empty total view
+    }
+
+    final stats = _stats(data);
+    _state = OverviewGraphState(
+      labels: labels,
+      series: [
+        OverviewGraphSeries(
+          label: _labelForMetric(_metric),
+          color: _colorForMetric(_metric),
+          data: data,
+        )
+      ],
+      unit: 'kWh',
       min: stats.min,
       max: stats.max,
       avg: stats.avg,
@@ -851,7 +924,9 @@ class OverviewGraphViewModel extends ChangeNotifier {
 
   String _unitForMetricForPeriod(GraphMetric m, GraphPeriod p) {
     if (m == GraphMetric.outputPower &&
-        (p == GraphPeriod.month || p == GraphPeriod.year)) {
+        (p == GraphPeriod.month ||
+            p == GraphPeriod.year ||
+            p == GraphPeriod.total)) {
       return 'kWh';
     }
     return _unitForMetric(m);
@@ -1050,38 +1125,6 @@ class OverviewGraphViewModel extends ChangeNotifier {
     await refresh(plantId: plantId);
   }
 
-  // Helper: get hourly values for a device and date
-  Future<List<double>> _deviceDailyForDate({
-    required DeviceRef device,
-    required GraphMetric metric,
-    required String date,
-  }) async {
-    final deviceVm = getIt<vm.DeviceViewModel>();
-    final param = _mapMetricToDeviceParameter(metric);
-    final data = await deviceVm.fetchDeviceKeyParameterOneDay(
-      sn: device.sn,
-      pn: device.pn,
-      devcode: device.devcode,
-      devaddr: device.devaddr,
-      parameter: param,
-      date: date,
-    );
-    final values = List<double>.filled(24, 0);
-    if (data != null && data.dat != null && data.dat!.row != null) {
-      for (final row in data.dat!.row!) {
-        final timeStr = row.time ?? '00:00';
-        final parts = timeStr.split(':');
-        final hour = parts.isNotEmpty ? int.tryParse(parts[0]) ?? 0 : 0;
-        if (hour < 0 || hour > 23) continue;
-        final v = (row.field != null && row.field!.isNotEmpty)
-            ? (double.tryParse(row.field!.first.toString()) ?? 0.0)
-            : 0.0;
-        values[hour] = v;
-      }
-    }
-    return values;
-  }
-
   // Ensure the anchor does not exceed "now" for the selected period
   void _clampAnchorToNow() {
     final now = DateTime.now();
@@ -1107,6 +1150,9 @@ class OverviewGraphViewModel extends ChangeNotifier {
           _anchor = currentYear;
         }
         break;
+      case GraphPeriod.total:
+        // no clamping needed
+        break;
     }
   }
 
@@ -1118,6 +1164,8 @@ class OverviewGraphViewModel extends ChangeNotifier {
         return a.year == b.year && a.month == b.month;
       case GraphPeriod.year:
         return a.year == b.year;
+      case GraphPeriod.total:
+        return true;
     }
   }
 }

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../routes/app_routes.dart';
 import '../../core/utils/app_buttons.dart';
-import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_text_fields.dart';
 import '../common/bordered_icon_button.dart';
 
@@ -53,7 +52,8 @@ class _ChangeUserIdScreenState extends State<ChangeUserIdScreen> {
         },
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 10.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 10.0),
             child: Form(
               key: _formKey,
               child: Column(
@@ -120,4 +120,4 @@ class _ChangeUserIdScreenState extends State<ChangeUserIdScreen> {
       ),
     );
   }
-} 
+}

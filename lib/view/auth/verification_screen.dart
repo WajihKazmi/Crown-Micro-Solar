@@ -2,7 +2,6 @@ import 'package:crown_micro_solar/core/utils/app_text_fields.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
 import '../../routes/app_routes.dart';
-import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_animations.dart';
 import '../../core/utils/app_buttons.dart'; // Import AppButtons
 import 'forgot_password_screen.dart'; // Import RecoveryMode enum
@@ -91,7 +90,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
   }
 
   void _verifyCode() async {
-    final enteredCode = _codeControllers.map((controller) => controller.text).join();
+    final enteredCode =
+        _codeControllers.map((controller) => controller.text).join();
     if (enteredCode.length == 4 && RegExp(r'^\d{4}').hasMatch(enteredCode)) {
       setState(() {
         _codeError = false;
@@ -107,14 +107,22 @@ class _VerificationScreenState extends State<VerificationScreen> {
         await Future.delayed(const Duration(seconds: 2));
         success = true;
       }
-      setState(() { _isLoading = false; });
+      setState(() {
+        _isLoading = false;
+      });
       if (success) {
         if (_recoveryMode == RecoveryMode.password) {
-          Navigator.of(context).pushReplacementNamed(AppRoutes.resetPassword);
+          Navigator.of(context).pushReplacementNamed(
+            AppRoutes.resetPassword,
+            arguments: {
+              'email': _email,
+            },
+          );
         } else if (_recoveryMode == RecoveryMode.userId) {
           Navigator.of(context).pushReplacementNamed(AppRoutes.changeUserId);
         } else if (_recoveryMode == RecoveryMode.registration) {
-          Navigator.of(context).pushReplacementNamed(AppRoutes.createAccount);
+          // Navigate directly to home screen after successful registration verification
+          Navigator.of(context).pushReplacementNamed(AppRoutes.homeInternal);
         } else {
           Navigator.of(context).pushReplacementNamed(AppRoutes.login);
         }
@@ -152,8 +160,41 @@ class _VerificationScreenState extends State<VerificationScreen> {
     }
   }
 
-  void _resendCode() {
-    // TODO: Implement resend code logic
+  void _resendCode() async {
+    // Only resend if we have an email
+    if (_email != null) {
+      final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
+
+      // Show loading state
+      setState(() {
+        _isLoading = true;
+      });
+
+      // Resend OTP using forgot password functionality
+      bool success = await authViewModel.forgotPassword(_email!);
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Verification code sent successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Failed to send verification code. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+
     startTimer(); // Restart the timer
     // Clear any existing combined error message when resending
     setState(() {
@@ -184,7 +225,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
         },
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 10.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 10.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [

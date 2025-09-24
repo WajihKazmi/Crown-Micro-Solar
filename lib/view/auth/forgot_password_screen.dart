@@ -63,7 +63,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       if (success) {
         Navigator.of(context).pushNamed(
           AppRoutes.verification,
-          arguments: _mode, // Pass the selected mode as an argument
+          arguments: {
+            'mode': _mode,
+            'email': email,
+          },
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(

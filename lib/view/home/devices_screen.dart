@@ -5,8 +5,6 @@ import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart'
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:crown_micro_solar/core/di/service_locator.dart';
 import 'package:crown_micro_solar/view/home/device_detail_screen.dart';
-import 'package:crown_micro_solar/core/services/report_download_service.dart';
-import 'package:intl/intl.dart';
 import 'collector_detail_screen.dart';
 
 /// Devices tab content to be embedded inside the parent Scaffold (no own Scaffold/AppBar)
@@ -282,11 +280,7 @@ class _DevicesScreenState extends State<DevicesScreen>
     if (hasCollectors) {
       for (final c in _deviceVM.collectors) {
         widgets.add(_buildCollectorCard(c));
-        final pn = c['pn']?.toString() ?? '';
-        if (_deviceVM.isCollectorExpanded(pn)) {
-          final subs = _deviceVM.getSubordinateDevices(pn);
-          widgets.addAll(subs.map((d) => _buildSubordinateDeviceCard(d)));
-        }
+        // Secondary (dropdown) cards removed; sub-devices shown in detail page
       }
     }
     if (hasStandalone) {
@@ -428,20 +422,33 @@ class _DevicesScreenState extends State<DevicesScreen>
     final signal = collector['signal'] != null
         ? double.tryParse(collector['signal'].toString())
         : null;
-    final isExpanded = _deviceVM.isCollectorExpanded(pn);
-    final subs = _deviceVM.getSubordinateDevices(pn);
-    final hasSubs = subs.isNotEmpty;
+    // Get model for SN/Plant/Type
+    Device? model;
+    try {
+      model =
+          _deviceVM.allDevices.firstWhere((d) => d.isCollector && d.pn == pn);
+    } catch (_) {}
+    final sn = model?.sn ?? '';
+    final plant = model?.plantId ?? '';
+    final dtype = model?.type ?? 'Datalogger';
     final statusText = _getDeviceStatusText(status);
     final statusColor = _getStatusColor(status);
     final theme = Theme.of(context);
     final surface = theme.colorScheme.surface;
     return GestureDetector(
         onTap: () {
-          if (pn.isEmpty) return;
-          Navigator.push(
+          if (model != null) {
+            Navigator.push(
               context,
               MaterialPageRoute(
-                  builder: (_) => CollectorDetailScreen(collector: collector)));
+                builder: (_) => DeviceDetailScreen(device: model!),
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('No device detail available')),
+            );
+          }
         },
         child: Container(
             margin: const EdgeInsets.only(bottom: 12),
@@ -460,18 +467,6 @@ class _DevicesScreenState extends State<DevicesScreen>
             child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Row(children: [
-                  if (hasSubs)
-                    GestureDetector(
-                      onTap: () => setState(
-                          () => _deviceVM.toggleCollectorExpansion(pn)),
-                      child: AnimatedRotation(
-                        turns: isExpanded ? 0.25 : 0.0,
-                        duration: const Duration(milliseconds: 250),
-                        child: Icon(Icons.keyboard_arrow_right,
-                            color: Colors.grey[600]),
-                      ),
-                    ),
-                  if (hasSubs) const SizedBox(width: 8),
                   Image.asset('assets/images/device1.png',
                       width: 56, height: 56),
                   const SizedBox(width: 16),
@@ -484,6 +479,12 @@ class _DevicesScreenState extends State<DevicesScreen>
                                   const TextStyle(fontWeight: FontWeight.bold)),
                           const SizedBox(height: 4),
                           Text('PN: $pn',
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black54)),
+                          const SizedBox(height: 4),
+                          Text('SN: $sn',
                               style: const TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
@@ -531,21 +532,42 @@ class _DevicesScreenState extends State<DevicesScreen>
                                       fontWeight: FontWeight.w500,
                                       color: _getSignalColor(signal)))
                             ])
-                          ]
+                          ],
+                          const SizedBox(height: 4),
+                          Text('PLANT: ${plant.isEmpty ? "null" : plant}',
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black54)),
+                          const SizedBox(height: 4),
+                          Text('DEVICE TYPE: $dtype',
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.bold)),
                         ]),
                   ),
                   IconButton(
-                    tooltip: 'Download full report',
+                    tooltip: 'Open Datalogger Details',
                     icon: const Icon(Icons.description_outlined,
                         color: Colors.black54),
-                    onPressed: () {
+                    onPressed: () async {
                       if (pn.isEmpty) {
                         ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                                 content: Text('Collector PN missing')));
                         return;
                       }
-                      _showCollectorFullReportDialog(pn);
+                      final subs = _deviceVM.getSubordinateDevices(pn);
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CollectorDetailScreen(
+                            collector: collector,
+                            prefetchedSubDevices: subs,
+                          ),
+                        ),
+                      );
                     },
                   )
                 ]))));
@@ -596,6 +618,12 @@ class _DevicesScreenState extends State<DevicesScreen>
                             fontWeight: FontWeight.w600,
                             color: Colors.black54)),
                     const SizedBox(height: 4),
+                    Text('SN: ${device.sn}',
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black54)),
+                    const SizedBox(height: 4),
                     Text('LOAD: ${device.load ?? 0}',
                         style: const TextStyle(
                             fontSize: 12,
@@ -638,7 +666,20 @@ class _DevicesScreenState extends State<DevicesScreen>
                                 fontWeight: FontWeight.w500,
                                 color: _getSignalColor(device.signal!)))
                       ])
-                    ]
+                    ],
+                    const SizedBox(height: 4),
+                    Text(
+                        'PLANT: ${device.plantId.isEmpty ? "null" : device.plantId}',
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black54)),
+                    const SizedBox(height: 4),
+                    Text('DEVICE TYPE: ${device.type}',
+                        style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.green,
+                            fontWeight: FontWeight.bold)),
                   ]),
             ),
             Icon(Icons.keyboard_double_arrow_right, color: Colors.grey[600])
@@ -651,293 +692,9 @@ class _DevicesScreenState extends State<DevicesScreen>
   // (Corrupted previous dialog implementation removed; see cleaned version below.)
 
   // New: Legacy-compatible full report dialog for a specific collector (by PN)
-  void _showCollectorFullReportDialog(String collectorPn) {
-    CollectorReportRange range = CollectorReportRange.daily;
-    DateTime anchorDate = DateTime.now();
+  // Removed full report dialog; not used and replaced with details navigation
 
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) {
-        return Dialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          child: Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: StatefulBuilder(builder: (context, setState) {
-              Widget rangeChip(CollectorReportRange r, String label) {
-                final selected = range == r;
-                return Expanded(
-                  child: InkWell(
-                    onTap: () => setState(() => range = r),
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      margin: const EdgeInsets.all(6),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: selected ? Colors.white : Colors.transparent,
-                        borderRadius: BorderRadius.circular(10),
-                        boxShadow: selected
-                            ? [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.06),
-                                  blurRadius: 6,
-                                  offset: const Offset(0, 2),
-                                )
-                              ]
-                            : null,
-                      ),
-                      child: Text(
-                        label,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: selected ? Colors.black : Colors.black54,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }
-
-              String formatDate(CollectorReportRange r, DateTime d) {
-                switch (r) {
-                  case CollectorReportRange.daily:
-                    return DateFormat('yyyy/MM/dd').format(d);
-                  case CollectorReportRange.monthly:
-                    return DateFormat('yyyy/MM').format(d);
-                  case CollectorReportRange.yearly:
-                    return DateFormat('yyyy').format(d);
-                }
-              }
-
-              Future<void> onDownload() async {
-                try {
-                  final service = ReportDownloadService();
-                  await service.downloadFullReportByCollector(
-                    collectorPn: collectorPn,
-                    range: range,
-                    anchorDate: anchorDate,
-                  );
-                  if (mounted) {
-                    Navigator.of(context).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Report download started')),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Failed to download: $e')),
-                    );
-                  }
-                }
-              }
-
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Download Full Report',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      rangeChip(CollectorReportRange.daily, 'Daily'),
-                      rangeChip(CollectorReportRange.monthly, 'Monthly'),
-                      rangeChip(CollectorReportRange.yearly, 'Yearly'),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  GestureDetector(
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: anchorDate,
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime.now(),
-                      );
-                      if (picked != null) setState(() => anchorDate = picked);
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 14),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFE0E0E0)),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.calendar_today,
-                              size: 18,
-                              color: Theme.of(context).colorScheme.primary),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              formatDate(range, anchorDate),
-                              style: const TextStyle(fontSize: 14),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('Cancel'),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor:
-                              Theme.of(context).colorScheme.primary,
-                          foregroundColor: Colors.white,
-                        ),
-                        onPressed: onDownload,
-                        child: const Text('Download'),
-                      ),
-                    ],
-                  ),
-                ],
-              );
-            }),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildSubordinateDeviceCard(Device device) {
-    final statusText = device.getStatusText();
-    final statusColor = _getStatusColor(device.status);
-    final isOnline = device.isOnline;
-
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => DeviceDetailScreen(device: device),
-          ),
-        ).then((_) => _loadDevices()); // Reload devices when returning
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              // Small Device Icon with Status
-              Stack(
-                children: [
-                  Image.asset(
-                    'assets/images/device_sub.png',
-                    width: 40,
-                    height: 40,
-                  ),
-                  if (isOnline)
-                    Positioned(
-                      top: 2,
-                      right: 2,
-                      child: Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: Colors.green,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 1),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(width: 12),
-
-              // Device Details
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'SN: ${device.sn}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        const Text(
-                          'STATUS: ',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black54,
-                          ),
-                        ),
-                        Text(
-                          statusText,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: statusColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'PLANT: ${device.plantId.isEmpty ? "null" : device.plantId}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black54,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'DEVICE TYPE: ${device.devcode}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.green,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Arrow Icon
-              Icon(
-                Icons.arrow_forward_ios,
-                color: Colors.grey[600],
-                size: 16,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  // Removed subordinate device card; secondary dropdown card is eliminated
 
   Color _getStatusColor(int status) {
     switch (status) {

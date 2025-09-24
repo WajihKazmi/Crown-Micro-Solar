@@ -317,7 +317,17 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   Future<bool> changePassword(String oldPassword, String newPassword) async {
-    return await _accountRepository.changePassword(oldPassword, newPassword);
+    final result =
+        await _accountRepository.changePassword(oldPassword, newPassword);
+    final ok = result['success'] == true;
+    if (!ok) {
+      _error = result['message']?.toString();
+      notifyListeners();
+    } else {
+      _error = null;
+      notifyListeners();
+    }
+    return ok;
   }
 
   Future<bool> forgotPassword(String email) async {
@@ -335,17 +345,48 @@ class AuthViewModel extends ChangeNotifier {
     required String password,
     required String sn,
   }) async {
-    return await _repository.register(
-      email: email,
-      mobileNo: mobileNo,
-      username: username,
-      password: password,
-      sn: sn,
-    );
+    try {
+      _error = null; // Clear previous errors
+      notifyListeners();
+
+      final result = await _accountRepository.register(
+        email: email,
+        mobileNo: mobileNo,
+        username: username,
+        password: password,
+        sn: sn,
+      );
+
+      if (result['success'] == true) {
+        return true;
+      } else {
+        _error = result['message'] ?? 'Registration failed. Please try again.';
+        notifyListeners();
+        return false;
+      }
+    } catch (e) {
+      _error = 'Registration error: ${e.toString()}';
+      notifyListeners();
+      return false;
+    }
   }
 
   Future<bool> verifyOtp(String email, String code) async {
     return await _accountRepository.verifyOtp(email, code);
+  }
+
+  Future<int?> getUserIdForEmail(String email) async {
+    try {
+      final idStr = await _accountRepository.forgotUserId(email);
+      if (idStr == null) return null;
+      return int.tryParse(idStr);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> updatePasswordWithUserId(int userId, String newPassword) async {
+    return await _accountRepository.updatePasswordForUserId(userId, newPassword);
   }
 
   // Add installer code flow
@@ -375,13 +416,14 @@ class AuthViewModel extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
-      final ok = await _accountRepository.deleteAccount();
+      final result = await _accountRepository.deleteAccount();
+      final ok = result['success'] == true;
       if (ok) {
         // Ensure user is fully logged out locally after deletion
         await logout();
       } else {
         _isLoading = false;
-        _error = 'Delete account failed';
+        _error = result['message']?.toString() ?? 'Delete account failed';
         notifyListeners();
       }
       return ok;

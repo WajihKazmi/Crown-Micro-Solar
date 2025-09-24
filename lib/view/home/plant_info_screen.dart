@@ -16,6 +16,23 @@ class PlantInfoScreen extends StatefulWidget {
 
 class _PlantInfoScreenState extends State<PlantInfoScreen> {
   late PlantInfoViewModel _viewModel;
+  bool _editing = false;
+  // Controllers for editable fields
+  final _nameCtrl = TextEditingController();
+  final _capacityCtrl = TextEditingController();
+  final _plannedPowerCtrl = TextEditingController();
+  final _companyCtrl = TextEditingController();
+  final _establishCtrl = TextEditingController();
+  final _countryCtrl = TextEditingController();
+  final _provinceCtrl = TextEditingController();
+  final _cityCtrl = TextEditingController();
+  final _districtCtrl = TextEditingController();
+  final _townCtrl = TextEditingController();
+  final _villageCtrl = TextEditingController();
+  final _timezoneCtrl = TextEditingController();
+  final _addressCtrl = TextEditingController();
+  final _latCtrl = TextEditingController();
+  final _lonCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -40,6 +57,28 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
           if (plant == null) {
             return const Center(child: Text('No plant data'));
           }
+
+          // Sync controllers when entering edit mode or on first build
+          void syncControllers() {
+            _nameCtrl.text = plant.name;
+            _capacityCtrl.text = plant.capacity.toStringAsFixed(2);
+            _plannedPowerCtrl.text =
+                (plant.plannedPower ?? 0).toStringAsFixed(2);
+            _companyCtrl.text = plant.company ?? '';
+            _establishCtrl.text = plant.establishmentDate ?? '';
+            _countryCtrl.text = plant.country ?? '';
+            _provinceCtrl.text = plant.province ?? '';
+            _cityCtrl.text = plant.city ?? '';
+            _districtCtrl.text = plant.district ?? '';
+            _townCtrl.text = plant.town ?? '';
+            _villageCtrl.text = plant.village ?? '';
+            _timezoneCtrl.text = plant.timezone ?? '';
+            _addressCtrl.text = plant.address ?? '';
+            _latCtrl.text = (plant.latitude ?? 0).toStringAsFixed(6);
+            _lonCtrl.text = (plant.longitude ?? 0).toStringAsFixed(6);
+          }
+
+          if (!_editing) syncControllers();
 
           return Stack(
             children: [
@@ -86,54 +125,86 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
                             // Extra gap below the image
                             const SizedBox(height: 8),
                             _GlassMorphismCard(
-                              title: gen.AppLocalizations.of(
-                                context,
-                              ).plant_information,
-                              children: [
-                                _infoRow('Plant Name', plant.name),
-                                _infoRow(
-                                  'Design Company',
-                                  plant.company ?? 'N/A',
-                                ),
-                                _infoRow(
-                                  'Installed Capacity',
-                                  '${plant.capacity.toStringAsFixed(2)} KW',
-                                ),
-                                _infoRow(
-                                  'Annual Planned Power',
-                                  plant.plannedPower != null
-                                      ? '${plant.plannedPower!.toStringAsFixed(2)} KW'
-                                      : 'N/A',
-                                ),
-                                _infoRow(
-                                  'Establishment Date',
-                                  _formatDate(plant.establishmentDate),
-                                ),
-                                _infoRow(
-                                  'Last Update',
-                                  _formatDateTime(plant.lastUpdate),
-                                ),
-                              ],
+                              title: gen.AppLocalizations.of(context)
+                                  .plant_information,
+                              children: _editing
+                                  ? [
+                                      _input('Plant Name', _nameCtrl),
+                                      _input('Design Company', _companyCtrl),
+                                      _input('Installed Capacity (KW)',
+                                          _capacityCtrl,
+                                          keyboard: TextInputType.number),
+                                      _input('Annual Planned Power (KW)',
+                                          _plannedPowerCtrl,
+                                          keyboard: TextInputType.number),
+                                      _dateInput(context, 'Establishment Date',
+                                          _establishCtrl),
+                                      _display('Last Update',
+                                          _formatDateTime(plant.lastUpdate)),
+                                    ]
+                                  : [
+                                      _infoRow('Plant Name', plant.name),
+                                      _infoRow('Design Company',
+                                          plant.company ?? 'N/A'),
+                                      _infoRow('Installed Capacity',
+                                          '${plant.capacity.toStringAsFixed(2)} KW'),
+                                      _infoRow(
+                                          'Annual Planned Power',
+                                          plant.plannedPower != null
+                                              ? '${plant.plannedPower!.toStringAsFixed(2)} KW'
+                                              : 'N/A'),
+                                      _infoRow('Establishment Date',
+                                          _formatDate(plant.establishmentDate)),
+                                      _infoRow('Last Update',
+                                          _formatDateTime(plant.lastUpdate)),
+                                    ],
                             ),
                             const SizedBox(height: 16),
                             _GlassMorphismCard(
-                              title: gen.AppLocalizations.of(
-                                context,
-                              ).location_details,
-                              children: [
-                                _infoRow('Country', plant.country ?? 'N/A'),
-                                _infoRow('Province', plant.province ?? 'N/A'),
-                                _infoRow('City', plant.city ?? 'N/A'),
-                                _infoRow('District', plant.district ?? 'N/A'),
-                                _infoRow('Town', plant.town ?? 'N/A'),
-                                _infoRow('Village', plant.village ?? 'N/A'),
-                                _infoRow('Time Zone', plant.timezone ?? 'N/A'),
-                                _infoRow('Address', plant.address ?? 'N/A'),
-                                _infoRow(
-                                  'Coordinates',
-                                  '${plant.latitude?.toStringAsFixed(6) ?? 'N/A'}, ${plant.longitude?.toStringAsFixed(6) ?? 'N/A'}',
-                                ),
-                              ],
+                              title: gen.AppLocalizations.of(context)
+                                  .location_details,
+                              children: _editing
+                                  ? [
+                                      _input('Country', _countryCtrl),
+                                      _input('Province', _provinceCtrl),
+                                      _input('City', _cityCtrl),
+                                      _input('District', _districtCtrl),
+                                      _input('Town', _townCtrl),
+                                      _input('Village', _villageCtrl),
+                                      _input('Time Zone', _timezoneCtrl),
+                                      _multiline('Address', _addressCtrl),
+                                      Row(children: [
+                                        Expanded(
+                                            child: _input('Latitude', _latCtrl,
+                                                keyboard: TextInputType
+                                                    .numberWithOptions(
+                                                        decimal: true))),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                            child: _input('Longitude', _lonCtrl,
+                                                keyboard: TextInputType
+                                                    .numberWithOptions(
+                                                        decimal: true))),
+                                      ]),
+                                    ]
+                                  : [
+                                      _infoRow(
+                                          'Country', plant.country ?? 'N/A'),
+                                      _infoRow(
+                                          'Province', plant.province ?? 'N/A'),
+                                      _infoRow('City', plant.city ?? 'N/A'),
+                                      _infoRow(
+                                          'District', plant.district ?? 'N/A'),
+                                      _infoRow('Town', plant.town ?? 'N/A'),
+                                      _infoRow(
+                                          'Village', plant.village ?? 'N/A'),
+                                      _infoRow(
+                                          'Time Zone', plant.timezone ?? 'N/A'),
+                                      _infoRow(
+                                          'Address', plant.address ?? 'N/A'),
+                                      _infoRow('Coordinates',
+                                          '${plant.latitude?.toStringAsFixed(6) ?? 'N/A'}, ${plant.longitude?.toStringAsFixed(6) ?? 'N/A'}'),
+                                    ],
                             ),
                             const SizedBox(height: 16),
                             _GlassMorphismCard(
@@ -176,52 +247,52 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
                 child: Column(
                   children: [
                     BorderedIconButton(
-                      icon: Icons.edit,
+                      icon: _editing ? Icons.close : Icons.edit,
                       onTap: () {
-                        final nameController = TextEditingController(
-                          text: plant.name,
-                        );
-                        showDialog(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text('Edit Plant'),
-                            content: TextField(
-                              controller: nameController,
-                              decoration: const InputDecoration(
-                                labelText: 'Plant Name',
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx),
-                                child: const Text('Cancel'),
-                              ),
-                              ElevatedButton(
-                                onPressed: () async {
-                                  final newName = nameController.text.trim();
-                                  if (newName.isEmpty) return;
-                                  Navigator.pop(ctx);
-                                  final ok = await _viewModel
-                                      .renameCurrentPlant(newName);
-                                  if (!mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        ok
-                                            ? 'Plant updated'
-                                            : 'Failed to update plant',
-                                      ),
-                                    ),
-                                  );
-                                },
-                                child: const Text('Save'),
-                              ),
-                            ],
-                          ),
-                        );
+                        setState(() {
+                          if (_editing) {
+                            // cancel edits by resyncing controllers
+                            syncControllers();
+                            _editing = false;
+                          } else {
+                            _editing = true;
+                          }
+                        });
                       },
                     ),
+                    const SizedBox(height: 12),
+                    if (_editing)
+                      BorderedIconButton(
+                        icon: Icons.save,
+                        onTap: () async {
+                          final ok = await _viewModel.updateCurrentPlant(
+                            name: _nameCtrl.text.trim(),
+                            capacity: _capacityCtrl.text.trim(),
+                            plannedPower: _plannedPowerCtrl.text.trim(),
+                            company: _companyCtrl.text.trim(),
+                            establishmentDate: _establishCtrl.text.trim(),
+                            country: _countryCtrl.text.trim(),
+                            province: _provinceCtrl.text.trim(),
+                            city: _cityCtrl.text.trim(),
+                            district: _districtCtrl.text.trim(),
+                            town: _townCtrl.text.trim(),
+                            village: _villageCtrl.text.trim(),
+                            timezone: _timezoneCtrl.text.trim(),
+                            address: _addressCtrl.text.trim(),
+                            latitude: _latCtrl.text.trim(),
+                            longitude: _lonCtrl.text.trim(),
+                          );
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(ok
+                                  ? 'Plant updated'
+                                  : 'Failed to update plant'),
+                            ),
+                          );
+                          if (ok) setState(() => _editing = false);
+                        },
+                      ),
                     const SizedBox(height: 12),
                     BorderedIconButton(
                       icon: Icons.delete,
@@ -247,8 +318,8 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
                                 ),
                                 onPressed: () async {
                                   Navigator.pop(ctx);
-                                  final ok = await _viewModel
-                                      .deleteCurrentPlant();
+                                  final ok =
+                                      await _viewModel.deleteCurrentPlant();
                                   if (!mounted) return;
                                   if (ok) {
                                     ScaffoldMessenger.of(context).showSnackBar(
@@ -279,6 +350,71 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
           );
         },
       ),
+    );
+  }
+
+  Widget _input(String label, TextEditingController c,
+      {TextInputType? keyboard}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: TextField(
+        controller: c,
+        keyboardType: keyboard,
+        decoration: InputDecoration(
+          labelText: label,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        ),
+      ),
+    );
+  }
+
+  Widget _multiline(String label, TextEditingController c) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: TextField(
+        controller: c,
+        maxLines: 3,
+        decoration: InputDecoration(
+          labelText: label,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        ),
+      ),
+    );
+  }
+
+  Widget _display(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        child: Text(value),
+      ),
+    );
+  }
+
+  Widget _dateInput(
+      BuildContext context, String label, TextEditingController c) {
+    return GestureDetector(
+      onTap: () async {
+        final now = DateTime.now();
+        final initial =
+            c.text.isNotEmpty ? DateTime.tryParse(c.text) ?? now : now;
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: initial,
+          firstDate: DateTime(2000),
+          lastDate: DateTime.now(),
+        );
+        if (picked != null) c.text = picked.toIso8601String();
+      },
+      child: AbsorbPointer(child: _input(label, c)),
     );
   }
 

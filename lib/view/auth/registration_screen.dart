@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 import '../../routes/app_routes.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/app_text_fields.dart';
 import '../../../core/utils/app_buttons.dart';
 import 'package:flutter/gestures.dart';
 import '../common/bordered_icon_button.dart';
 import 'package:provider/provider.dart';
 import '../../presentation/viewmodels/auth_viewmodel.dart';
-
-import 'forgot_password_screen.dart';
+import 'forgot_password_screen.dart'; // for RecoveryMode enum
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({Key? key}) : super(key: key);
@@ -29,6 +27,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final TextEditingController _snController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _isAgreed = false;
+  String? _selectedRole;
 
   @override
   void dispose() {
@@ -43,12 +42,23 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
   void _register() async {
     if (_formKey.currentState?.validate() ?? false) {
+      if (!_isAgreed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please agree to the Terms & Conditions'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
       final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
       final email = _emailController.text;
       final mobileNo = _mobileNoController.text;
       final username = _usernameController.text;
       final password = _passwordController.text;
       final sn = _snController.text;
+
       final success = await authViewModel.register(
         email: email,
         mobileNo: mobileNo,
@@ -56,17 +66,31 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         password: password,
         sn: sn,
       );
+
       if (success) {
-        Navigator.of(context).pushReplacementNamed(AppRoutes.verification,
-            arguments: RecoveryMode.registration);
+        // Show success message like old app
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('User Registered Successfully, Please Login'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        // Navigate to OTP verification if backend requires email verification
+        Navigator.of(context).pushReplacementNamed(
+          AppRoutes.verification,
+          arguments: {
+            'mode': RecoveryMode.registration,
+            'email': email,
+          },
+        );
       } else {
+        // Show specific error from viewmodel
+        final errorMessage =
+            authViewModel.error ?? 'Registration failed. Please try again.';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Registration failed. Please try again.',
-              style: const TextStyle(color: Colors.black),
-            ),
-            backgroundColor: Colors.white,
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
           ),
         );
       }
@@ -87,7 +111,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
-      resizeToAvoidBottomInset: false,
+      resizeToAvoidBottomInset: true,
       body: GestureDetector(
         onTap: () {
           FocusScope.of(context).unfocus();
@@ -209,7 +233,42 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           },
                         ),
                         const SizedBox(height: 15.0),
-                        Text('WiFi Module SN',
+                        Text('Role',
+                            style: theme.textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 5.0),
+                        DropdownButtonFormField<String>(
+                          value: _selectedRole,
+                          decoration: InputDecoration(
+                            hintText: 'Select your role',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                                value: 'User', child: Text('User')),
+                            DropdownMenuItem(
+                                value: 'Installer', child: Text('Installer')),
+                          ],
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedRole = value;
+                            });
+                          },
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please select your role';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 15.0),
+                        Text('WiFi Module PN',
                             style: theme.textTheme.titleMedium
                                 ?.copyWith(fontWeight: FontWeight.bold)),
                         const SizedBox(height: 5.0),
@@ -218,7 +277,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           hintText: 'e.g. W0011223344556',
                           validator: (value) {
                             if (value == null || value.isEmpty) {
-                              return 'Please enter the WiFi Module SN';
+                              return 'Please enter the WiFi Module PN';
                             }
                             return null;
                           },

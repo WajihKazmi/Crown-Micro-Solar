@@ -8,6 +8,7 @@ import 'package:crown_micro_solar/core/di/service_locator.dart';
 import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
 import 'package:crown_micro_solar/core/services/report_download_service.dart';
 import 'package:crown_micro_solar/presentation/repositories/device_repository.dart';
+import 'package:crown_micro_solar/presentation/repositories/energy_repository.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/auth_viewmodel.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart';
@@ -387,10 +388,18 @@ class _OverviewBody extends StatefulWidget {
 class _OverviewBodyState extends State<_OverviewBody> {
   GraphMetric _selectedMetric = GraphMetric.outputPower;
   GraphPeriod _selectedPeriod = GraphPeriod.day;
+  bool _showTotalGeneration = false; // toggle between Today and Total
   bool _initialized = false;
+  // Profit tracking variables (matching old app)
+  String _totalProfitAll = '0.00';
+  String _dateProfitAll = '0.00'; // Today's profit
+  String _currency = 'USD';
   // Metric resolution state (moved from parent)
   double? _resolvedCurrentPowerKw;
   bool _resolvingMetrics = false;
+  double?
+      _fallbackDailyKwh; // computed via EnergyRepository if realtime is zero
+  bool _computingDaily = false;
   // Removed aggregate Load/Grid/Battery cards per request (only in device detail)
 
   Future<void> _resolveCurrentPower(String plantId) async {
@@ -416,7 +425,65 @@ class _OverviewBodyState extends State<_OverviewBody> {
     }
   }
 
+  Future<void> _fetchProfitStatistics() async {
+    try {
+      final energyRepo = getIt<EnergyRepository>();
+
+      // Fetch total profits (all time)
+      final totalProfits =
+          await energyRepo.queryPlantsProfitStatistic(Date: 'all');
+
+      // Fetch today's profits
+      final today = DateTime.now();
+      final todayFormatted =
+          '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      final todayProfits =
+          await energyRepo.queryPlantsProfitStatistic(Date: todayFormatted);
+
+      if (mounted) {
+        setState(() {
+          if (totalProfits != null) {
+            _totalProfitAll = totalProfits.profit;
+            _currency = totalProfits.currency.isNotEmpty
+                ? totalProfits.currency
+                : 'USD';
+          }
+          if (todayProfits != null) {
+            _dateProfitAll = todayProfits.profit;
+          }
+        });
+      }
+    } catch (e) {
+      print('Error fetching profit statistics: $e');
+    }
+  }
+
   // Aggregate card resolver removed.
+
+  Future<void> _computeDailyEnergyFallback(List plants) async {
+    if (_computingDaily) return;
+    // Only compute if UI sum is zero and plants exist
+    if (plants.isEmpty) return;
+    _computingDaily = true;
+    try {
+      final repo = getIt<EnergyRepository>();
+      final today = DateTime.now();
+      final dateStr =
+          '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      double sum = 0.0;
+      for (final p in plants) {
+        final id = p.id?.toString() ?? '';
+        if (id.isEmpty) continue;
+        try {
+          final s = await repo.getDailyEnergy(id, dateStr);
+          sum += s.totalEnergy;
+        } catch (_) {}
+      }
+      if (mounted) setState(() => _fallbackDailyKwh = sum);
+    } finally {
+      _computingDaily = false;
+    }
+  }
 
   String _formatDate(DateTime d) {
     const months = [
@@ -481,6 +548,7 @@ class _OverviewBodyState extends State<_OverviewBody> {
           Future.microtask(() async {
             await graphVM.init(firstId);
             await _resolveCurrentPower(firstId);
+            await _fetchProfitStatistics();
           });
         }
         if (plantViewModel.isLoading || dashboardViewModel.isLoading) {
@@ -501,6 +569,13 @@ class _OverviewBodyState extends State<_OverviewBody> {
         for (final p in plants) {
           final dg = p.dailyGeneration;
           if (dg.isFinite) totalDailyGenerationKwh += dg;
+        }
+        if (totalDailyGenerationKwh == 0 && _fallbackDailyKwh == null) {
+          // kick off fallback computation async
+          _computeDailyEnergyFallback(plants);
+        }
+        if (totalDailyGenerationKwh == 0 && (_fallbackDailyKwh ?? 0) > 0) {
+          totalDailyGenerationKwh = _fallbackDailyKwh!;
         }
         // Installed capacity should match Plant Info's Installed Capacity (first plant)
         final installedCapacity =
@@ -590,12 +665,29 @@ class _OverviewBodyState extends State<_OverviewBody> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        _InfoCard(
-                                          icon: 'assets/icons/home/thunder.svg',
-                                          label: 'Total Output Power',
-                                          value: totalDailyGenerationKwh
-                                              .toStringAsFixed(1),
-                                          unit: 'KWH',
+                                        GestureDetector(
+                                          onTap: () => setState(() =>
+                                              _showTotalGeneration =
+                                                  !_showTotalGeneration),
+                                          child: _InfoCard(
+                                            icon:
+                                                'assets/icons/home/thunder.svg',
+                                            label: _showTotalGeneration
+                                                ? 'Total Power Generation'
+                                                : "Today's Power Generation",
+                                            value: (_showTotalGeneration
+                                                    ? plants.fold<double>(
+                                                        0.0,
+                                                        (a, p) =>
+                                                            a +
+                                                            (p.yearlyGeneration
+                                                                    .isFinite
+                                                                ? p.yearlyGeneration
+                                                                : 0.0))
+                                                    : totalDailyGenerationKwh)
+                                                .toStringAsFixed(1),
+                                            unit: 'KWH',
+                                          ),
                                         ),
                                         const SizedBox(
                                           height: 18,
@@ -706,24 +798,65 @@ class _OverviewBodyState extends State<_OverviewBody> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _SummaryCard(
-                      icon: 'assets/icons/home/totalPlants.svg',
-                      label: 'Total Plant',
-                      value: totalPlants.toString(),
+                    Expanded(
+                      child: _SummaryCard(
+                        icon: 'assets/icons/home/totalPlants.svg',
+                        label: 'Total Plant',
+                        value: totalPlants.toString(),
+                      ),
                     ),
-                    _SummaryCard(
-                      icon: 'assets/icons/home/totalDevices.svg',
-                      label: 'Total Device',
-                      value: dashboardViewModel.isLoading
-                          ? '-'
-                          : dashboardViewModel.totalDevices.toString(),
+                    Expanded(
+                      child: _SummaryCard(
+                        icon: 'assets/icons/home/totalDevices.svg',
+                        label: 'Total Device',
+                        value: dashboardViewModel.isLoading
+                            ? '-'
+                            : dashboardViewModel.totalDevices.toString(),
+                      ),
                     ),
-                    _SummaryCard(
-                      icon: 'assets/icons/home/totalAlarms.svg',
-                      label: 'Total Alarm',
-                      value: dashboardViewModel.isLoading
-                          ? '-'
-                          : dashboardViewModel.totalAlarms.toString(),
+                    Expanded(
+                      child: _SummaryCard(
+                        icon: 'assets/icons/home/totalAlarms.svg',
+                        label: 'Total Alarm',
+                        value: dashboardViewModel.isLoading
+                            ? '-'
+                            : dashboardViewModel.totalAlarms.toString(),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const AlarmNotificationScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Profit cards row - added below the main 3 cards
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 25),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: _SummaryCard(
+                        icon: 'assets/icons/home/thunder.svg',
+                        label: 'Profit Today',
+                        value: _dateProfitAll,
+                        unit: _currency,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _SummaryCard(
+                        icon: 'assets/icons/home/thunder.svg',
+                        label: 'Total Profit',
+                        value: _totalProfitAll,
+                        unit: _currency,
+                      ),
                     ),
                   ],
                 ),
@@ -738,91 +871,7 @@ class _OverviewBodyState extends State<_OverviewBody> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Parameter dropdown (full width)
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Colors.black12,
-                            blurRadius: 4,
-                            offset: Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                          ),
-                          value: _selectedMetric.name,
-                          isExpanded: true,
-                          icon: const Icon(Icons.keyboard_arrow_down),
-                          items: [
-                            DropdownMenuItem(
-                              value: GraphMetric.outputPower.name,
-                              child: Text(
-                                gen.AppLocalizations.of(
-                                  context,
-                                ).output_power,
-                              ),
-                            ),
-                            DropdownMenuItem(
-                              value: GraphMetric.loadPower.name,
-                              child: const Text('Load Power'),
-                            ),
-                            DropdownMenuItem(
-                              value: GraphMetric.gridPower.name,
-                              child: const Text('Grid Power'),
-                            ),
-                            DropdownMenuItem(
-                              value: GraphMetric.gridVoltage.name,
-                              child: const Text('Grid Voltage'),
-                            ),
-                            DropdownMenuItem(
-                              value: GraphMetric.gridFrequency.name,
-                              child: const Text('Grid Frequency'),
-                            ),
-                            DropdownMenuItem(
-                              value: GraphMetric.pvInputVoltage.name,
-                              child: const Text('PV Input Voltage'),
-                            ),
-                            DropdownMenuItem(
-                              value: GraphMetric.pvInputCurrent.name,
-                              child: const Text('PV Input Current'),
-                            ),
-                            DropdownMenuItem(
-                              value: GraphMetric.acOutputVoltage.name,
-                              child: const Text('AC Output Voltage'),
-                            ),
-                            DropdownMenuItem(
-                              value: GraphMetric.acOutputCurrent.name,
-                              child: const Text('AC Output Current'),
-                            ),
-                            DropdownMenuItem(
-                              value: GraphMetric.batterySoc.name,
-                              child: const Text('Battery SOC'),
-                            ),
-                          ],
-                          onChanged: (value) async {
-                            if (value == null) return;
-                            final plantId = plantViewModel.plants.isNotEmpty
-                                ? plantViewModel.plants.first.id
-                                : null;
-                            if (plantId == null) return;
-                            setState(() {
-                              _selectedMetric = GraphMetric.values
-                                  .firstWhere((e) => e.name == value);
-                            });
-                            await graphVM.setMetric(
-                              _selectedMetric,
-                              plantId: plantId,
-                            );
-                          },
-                        ),
-                      ),
-                    ),
+                    // Removed Output Power dropdown per requirements
                     const SizedBox(height: 12),
                     // Device selection dropdown
                     Container(
@@ -952,6 +1001,20 @@ class _OverviewBodyState extends State<_OverviewBody> {
                             );
                           },
                         ),
+                        ChoiceChip(
+                          label: const Text('Total'),
+                          selected: _selectedPeriod == GraphPeriod.total,
+                          onSelected: (s) async {
+                            if (!s) return;
+                            final plantId = plantViewModel.plants.isNotEmpty
+                                ? plantViewModel.plants.first.id
+                                : null;
+                            if (plantId == null) return;
+                            setState(() => _selectedPeriod = GraphPeriod.total);
+                            await graphVM.setPeriod(GraphPeriod.total,
+                                plantId: plantId);
+                          },
+                        ),
                       ],
                     ),
                   ],
@@ -981,7 +1044,9 @@ class _OverviewBodyState extends State<_OverviewBody> {
                           ? _formatDate(graphVM.anchor)
                           : _selectedPeriod == GraphPeriod.month
                               ? _formatMonth(graphVM.anchor)
-                              : graphVM.anchor.year.toString(),
+                              : _selectedPeriod == GraphPeriod.year
+                                  ? graphVM.anchor.year.toString()
+                                  : 'All Time',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
@@ -1026,6 +1091,9 @@ class _OverviewBodyState extends State<_OverviewBody> {
                               1,
                             );
                             canGoNext = anchorYear.isBefore(thisYear);
+                            break;
+                          case GraphPeriod.total:
+                            canGoNext = false;
                             break;
                         }
                         return IconButton(
@@ -1138,7 +1206,7 @@ class _LineChart extends StatelessWidget {
     final bool isDaily = state.labels.length == 24 &&
         (state.labels.first.contains(':') || state.labels.last.contains(':'));
 
-    final double minY = state.min;
+    final double minY = 0; // start Y-axis at zero for clarity
     final double maxY = state.max == state.min ? state.min + 1 : state.max;
     // range not needed with hidden left axis
     // Choose up to 5 horizontal ticks (min + 3 intervals + max)
@@ -1170,8 +1238,23 @@ class _LineChart extends StatelessWidget {
               FlLine(color: Colors.black.withOpacity(.04), strokeWidth: 1),
         ),
         titlesData: FlTitlesData(
-          leftTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
+          leftTitles: AxisTitles(
+            sideTitles: const SideTitles(showTitles: false),
+            axisNameWidget: Padding(
+              padding: const EdgeInsets.only(left: 2, right: 2),
+              child: RotatedBox(
+                quarterTurns: 3,
+                child: Text(
+                  state.unit,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Colors.black54,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+            axisNameSize: 18,
           ),
           rightTitles: const AxisTitles(
             sideTitles: SideTitles(showTitles: false),
@@ -1202,7 +1285,16 @@ class _LineChart extends StatelessWidget {
                   final len = state.labels.length;
                   if (len == 0) return const SizedBox.shrink();
                   final idx = value.round();
-                  if (len == 12) {
+                  // Detect yearly-month view (12 months)
+                  final isYearMonths = len == 12;
+                  // Detect total-year view: all labels are 4-digit years
+                  final isTotalYears = len > 1 &&
+                      state.labels.every((l) =>
+                          RegExp(r'^\d{4} ? ?').hasMatch(l) ||
+                          RegExp(r'^\d{4} ?$').hasMatch(l) ||
+                          RegExp(r'^\d{4}  $').hasMatch(l) ||
+                          RegExp(r'^\d{4}$').hasMatch(l));
+                  if (isYearMonths) {
                     // Year view (12 months)
                     if (idx == 0) {
                       text = state.labels.first; // Jan
@@ -1210,6 +1302,17 @@ class _LineChart extends StatelessWidget {
                     } else if (idx == 5)
                       text = state.labels[5]; // Jun
                     else if (idx == 11) text = state.labels.last; // Dec
+                  } else if (isTotalYears) {
+                    // Total view (per-year). Show first, middle, last
+                    final lastIdx = len - 1;
+                    if (idx == 0) {
+                      text = state.labels.first;
+                      isFirst = true;
+                    } else if (idx == (len ~/ 2)) {
+                      text = state.labels[len ~/ 2];
+                    } else if (idx == lastIdx) {
+                      text = state.labels.last;
+                    }
                   } else {
                     // Month view (days)
                     final lastIdx = len - 1;
@@ -1337,9 +1440,8 @@ class _LineChart extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: Padding(
-        // ensure labels don't touch borders and keep consistent insets
-        // reduce bottom padding to balance top/bottom whitespace
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+        // align with device detail chart card padding
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
         child: chart,
       ),
     );
@@ -1471,16 +1573,22 @@ class _SummaryCard extends StatelessWidget {
   final String icon;
   final String label;
   final String value;
+  final String? unit;
+  final VoidCallback? onTap;
 
   const _SummaryCard({
     required this.icon,
     required this.label,
     required this.value,
+    this.unit,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 10),
         padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1502,7 +1610,6 @@ class _SummaryCard extends StatelessWidget {
               icon,
               width: 28,
               height: 28,
-              // Let the original SVG color show; if you need tinting, use theme-friendly assets
             ),
             const SizedBox(height: 8),
             Text(
@@ -1513,13 +1620,28 @@ class _SummaryCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              value,
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-                color: Theme.of(context).colorScheme.onSurface,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+                if (unit != null) ...[
+                  const SizedBox(width: 4),
+                  Text(
+                    unit!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ],
         ),

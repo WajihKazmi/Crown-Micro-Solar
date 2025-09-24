@@ -4,6 +4,8 @@ import '../../core/utils/app_buttons.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/app_text_fields.dart';
 import '../common/bordered_icon_button.dart';
+import 'package:provider/provider.dart';
+import '../../presentation/viewmodels/auth_viewmodel.dart';
 
 class ResetPasswordScreen extends StatefulWidget {
   const ResetPasswordScreen({Key? key}) : super(key: key);
@@ -16,6 +18,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _newPasswordController = TextEditingController();
   final TextEditingController _confirmPasswordController = TextEditingController();
+  String? _email;
+  bool _submitting = false;
 
   @override
   void dispose() {
@@ -24,14 +28,52 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     super.dispose();
   }
 
-  void _resetPassword() {
-    if (_formKey.currentState?.validate() ?? false) {
-      // TODO: Implement password reset logic
-      Navigator.of(context).pushReplacementNamed(AppRoutes.login);
-    } else {
-      // If validation fails, clear the text fields
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map && args['email'] is String) {
+        _email = args['email'] as String;
+      }
+    });
+  }
+
+  Future<void> _resetPassword() async {
+    if (!(_formKey.currentState?.validate() ?? false)) {
       _newPasswordController.clear();
       _confirmPasswordController.clear();
+      return;
+    }
+    if (_email == null || _email!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Missing email for reset')),
+      );
+      return;
+    }
+    setState(() => _submitting = true);
+    try {
+      final auth = Provider.of<AuthViewModel>(context, listen: false);
+      final userId = await auth.getUserIdForEmail(_email!);
+      if (userId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No user found for this email')),
+        );
+        return;
+      }
+      final ok = await auth.updatePasswordWithUserId(userId, _newPasswordController.text);
+      if (ok) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Your password is updated successfully.'), backgroundColor: Colors.green),
+        );
+        Navigator.of(context).pushReplacementNamed(AppRoutes.login);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to update password.')), 
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
@@ -130,7 +172,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                       // Reset Now Button
                       AppButtons.primaryButton(
                         context: context,
-                        onTap: _resetPassword,
+                        onTap: _submitting ? null : _resetPassword,
                         text: 'Reset Now',
                         isFilled: true,
                         horizontalPadding: 0,

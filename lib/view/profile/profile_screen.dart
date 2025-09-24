@@ -749,7 +749,8 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
       );
     } else {
       setState(() {
-        _error = gen.AppLocalizations.of(context).password_change_failed;
+        _error = authViewModel.error ??
+            gen.AppLocalizations.of(context).password_change_failed;
       });
     }
   }

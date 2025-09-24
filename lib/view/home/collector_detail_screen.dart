@@ -1,12 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:app_settings/app_settings.dart';
+import 'package:crown_micro_solar/core/di/service_locator.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
+import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
+import 'package:crown_micro_solar/view/home/device_detail_screen.dart';
 
 import 'wifi_module_webview.dart';
 
 class CollectorDetailScreen extends StatelessWidget {
   final Map<String, dynamic> collector;
+  final List<Device>? prefetchedSubDevices;
 
-  const CollectorDetailScreen({super.key, required this.collector});
+  const CollectorDetailScreen({
+    super.key,
+    required this.collector,
+    this.prefetchedSubDevices,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -16,6 +25,11 @@ class CollectorDetailScreen extends StatelessWidget {
     final signal = double.tryParse(collector['signal']?.toString() ?? '0') ?? 0;
     final firmware =
         (collector['fireware'] ?? collector['firmware'])?.toString() ?? '';
+    final deviceVM = getIt<DeviceViewModel>();
+    final List<Device> subDevices =
+        (prefetchedSubDevices != null && prefetchedSubDevices!.isNotEmpty)
+            ? prefetchedSubDevices!
+            : deviceVM.getSubordinateDevices(pn);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -31,7 +45,7 @@ class CollectorDetailScreen extends StatelessWidget {
           SizedBox(width: 8),
         ],
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -102,9 +116,23 @@ class CollectorDetailScreen extends StatelessWidget {
               ],
             ),
 
-            const Spacer(),
+            if (subDevices.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'Devices under this equipment',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black54,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...subDevices.map((d) => _buildSubordinateDeviceCard(context, d)),
+            ],
 
-            // Wi‑Fi Configuration button
+            const SizedBox(height: 16),
+
+            // Wi‑Fi Configuration button (placed after content)
             OutlinedButton(
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: Colors.red),
@@ -119,7 +147,128 @@ class CollectorDetailScreen extends StatelessWidget {
                     TextStyle(color: Colors.black, fontWeight: FontWeight.w600),
               ),
             ),
+            const SizedBox(height: 16),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubordinateDeviceCard(BuildContext context, Device device) {
+    final statusText = device.getStatusText();
+    final statusColor = _signalStatusColor(device.status);
+    final isOnline = device.isOnline;
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => DeviceDetailScreen(device: device),
+          ),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Stack(
+                children: [
+                  Image.asset(
+                    'assets/images/device_sub.png',
+                    width: 40,
+                    height: 40,
+                  ),
+                  if (isOnline)
+                    Positioned(
+                      top: 2,
+                      right: 2,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: Colors.green,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'SN: ${device.sn}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Text(
+                          'STATUS: ',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black54,
+                          ),
+                        ),
+                        Text(
+                          statusText,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: statusColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'PLANT: ${device.plantId.isEmpty ? "null" : device.plantId}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black54,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'DEVICE TYPE: ${device.devcode}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.green,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.arrow_forward_ios,
+                color: Colors.grey[600],
+                size: 16,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -178,6 +327,22 @@ class CollectorDetailScreen extends StatelessWidget {
     if (s <= 20) return Colors.red;
     if (s <= 60) return Colors.orange;
     return Colors.green;
+  }
+
+  Color _signalStatusColor(int status) {
+    switch (status) {
+      case 0:
+        return Colors.green;
+      case 1:
+        return Colors.red;
+      case 2:
+      case 3:
+      case 4:
+      case 5:
+        return Colors.orange;
+      default:
+        return Colors.grey;
+    }
   }
 
   Widget _signalDots(double s) {
