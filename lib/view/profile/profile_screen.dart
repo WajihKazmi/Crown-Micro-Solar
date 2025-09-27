@@ -182,9 +182,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     const lightGrey = Color(0xFFF3F4F6);
     final green = const Color(0xFF22C55E);
     final red = Theme.of(context).colorScheme.primary;
-    if (userInfo == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    // Do not block the profile screen if user info isn't loaded; use placeholders
+    final displayName = userInfo?.usr ?? 'User';
+    final displayEmail = userInfo?.email ?? '-';
     return SingleChildScrollView(
       child: Column(
         children: [
@@ -211,11 +211,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(userInfo.usr,
+                        Text(displayName,
                             style: theme.textTheme.titleMedium
                                 ?.copyWith(fontWeight: FontWeight.bold)),
                         const SizedBox(height: 4),
-                        Text('Email: ${userInfo.email}',
+                        Text('Email: $displayEmail',
                             style: theme.textTheme.bodyMedium?.copyWith(
                                 color: theme.colorScheme.onSurface
                                     .withOpacity(0.6))),

@@ -15,6 +15,7 @@ import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart'
 import 'package:crown_micro_solar/presentation/viewmodels/dashboard_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/overview_graph_view_model.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/alarm_view_model.dart';
 import '../common/bordered_icon_button.dart';
 import '../profile/profile_screen.dart';
 import 'app_bottom_nav_bar.dart';
@@ -38,6 +39,8 @@ class _HomeScreenState extends State<HomeScreen> {
   late DashboardViewModel _dashboardViewModel;
   late RealtimeDataService _realtimeDataService;
   late final DevicesScreen _devicesScreenWidget;
+  late AlarmViewModel _alarmViewModel;
+  late DeviceViewModel _deviceViewModel;
 
   @override
   void initState() {
@@ -45,15 +48,18 @@ class _HomeScreenState extends State<HomeScreen> {
     _plantViewModel = getIt<PlantViewModel>();
     _dashboardViewModel = getIt<DashboardViewModel>();
     _realtimeDataService = getIt<RealtimeDataService>();
+    _deviceViewModel = getIt<DeviceViewModel>();
     _devicesScreenWidget =
         const DevicesScreen(key: PageStorageKey('devices_screen_body'));
     _realtimeDataService.start();
+    _alarmViewModel = getIt<AlarmViewModel>();
     _plantViewModel.loadPlants().then((_) async {
       if (_plantViewModel.plants.isNotEmpty) {
         final firstPlantId = _plantViewModel.plants.first.id;
         try {
-          final deviceVM = getIt<DeviceViewModel>();
-          await deviceVM.loadDevicesAndCollectors(firstPlantId);
+          await _deviceViewModel.loadDevicesAndCollectors(firstPlantId);
+          // Preload alarms to enable overview totals fallback like legacy
+          await _alarmViewModel.loadAlarms(firstPlantId);
         } catch (_) {}
       }
     });
@@ -209,8 +215,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 key: PageStorageKey('plant_${firstPlant.id}'),
               )
             : Center(
-                child: CircularProgressIndicator(),
-                key: PageStorageKey('plant_loading'),
+                key: const PageStorageKey('plant_loading'),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.info_outline, color: Colors.grey),
+                    const SizedBox(height: 8),
+                    const Text('No plants loaded yet'),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      onPressed: () => _plantViewModel.loadPlants(),
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
               );
       case 2:
         // For devices tab, use a wrapper to ensure correct constraints
@@ -227,31 +245,30 @@ class _HomeScreenState extends State<HomeScreen> {
     final authViewModel = Provider.of<AuthViewModel>(context);
     final userInfo = authViewModel.userInfo;
     // Initialize deviceViewModel once for reuse
-    final deviceViewModel = getIt<DeviceViewModel>();
 
     return MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: _plantViewModel),
         ChangeNotifierProvider.value(value: _dashboardViewModel),
         ChangeNotifierProvider.value(value: _realtimeDataService),
-        ChangeNotifierProvider.value(value: deviceViewModel),
+        ChangeNotifierProvider.value(value: _deviceViewModel),
         ChangeNotifierProvider(create: (_) => OverviewGraphViewModel()),
+        ChangeNotifierProvider.value(value: _alarmViewModel),
       ],
       child: Scaffold(
         key: PageStorageKey('home_scaffold_$_currentIndex'),
         extendBody: true,
-        drawer: userInfo == null
-            ? const Drawer(child: Center(child: CircularProgressIndicator()))
-            : AppDrawer(
-                username: userInfo.usr,
-                email: userInfo.email,
-                onProfileTap: () {
-                  Navigator.pop(context);
-                  setState(() => _currentIndex = 3);
-                },
-                onLogout: _onLogout,
-                onNavigate: _onDrawerNavigate,
-              ),
+        // Always render the drawer so logout/profile remain accessible even if APIs fail
+        drawer: AppDrawer(
+          username: userInfo?.usr ?? 'User',
+          email: userInfo?.email ?? '-',
+          onProfileTap: () {
+            Navigator.pop(context);
+            setState(() => _currentIndex = 3);
+          },
+          onLogout: _onLogout,
+          onNavigate: _onDrawerNavigate,
+        ),
         appBar: _currentIndex == 2
             ? AppBar(
                 backgroundColor: Theme.of(context).colorScheme.surface,
@@ -549,17 +566,26 @@ class _OverviewBodyState extends State<_OverviewBody> {
             await graphVM.init(firstId);
             await _resolveCurrentPower(firstId);
             await _fetchProfitStatistics();
+            // Ensure dashboard aggregates run after plants arrive
+            await dashboardViewModel.loadDashboardData();
           });
         }
-        if (plantViewModel.isLoading || dashboardViewModel.isLoading) {
-          return const Center(child: CircularProgressIndicator());
+        // Proactively kick off loads ASAP if plants known but some values not yet computed
+        if (plantViewModel.plants.isNotEmpty) {
+          final firstId = plantViewModel.plants.first.id;
+          // Fire-and-forget parallel loads to reduce perceived delay
+          if (_resolvedCurrentPowerKw == null && !_resolvingMetrics) {
+            Future.microtask(() => _resolveCurrentPower(firstId));
+          }
+          if ((_fallbackDailyKwh == null || _fallbackDailyKwh == 0) &&
+              !_computingDaily) {
+            Future.microtask(
+                () => _computeDailyEnergyFallback(plantViewModel.plants));
+          }
         }
-        if (plantViewModel.error != null) {
-          return Center(child: Text('Error: ${plantViewModel.error}'));
-        }
-        if (dashboardViewModel.error != null) {
-          return Center(child: Text('Error: ${dashboardViewModel.error}'));
-        }
+        // Do not block the UI with a full-screen spinner or error; render placeholders instead.
+        // We intentionally avoid early returns here so the rest of the overview remains usable
+        // even if data is still loading or failed.
         // Use real-time data if available
         final plants = realtimeService.plants.isNotEmpty
             ? realtimeService.plants
@@ -809,18 +835,29 @@ class _OverviewBodyState extends State<_OverviewBody> {
                       child: _SummaryCard(
                         icon: 'assets/icons/home/totalDevices.svg',
                         label: 'Total Device',
-                        value: dashboardViewModel.isLoading
-                            ? '-'
-                            : dashboardViewModel.totalDevices.toString(),
+                        value: (() {
+                          final dv = deviceVM.totalDeviceCount;
+                          final dd = dashboardViewModel.totalDevices;
+                          if (dv > 0) return dv.toString();
+                          if (dd > 0) return dd.toString();
+                          return '-';
+                        })(),
                       ),
                     ),
                     Expanded(
                       child: _SummaryCard(
                         icon: 'assets/icons/home/totalAlarms.svg',
                         label: 'Total Alarm',
-                        value: dashboardViewModel.isLoading
-                            ? '-'
-                            : dashboardViewModel.totalAlarms.toString(),
+                        value: (() {
+                          final av = Provider.of<AlarmViewModel>(context,
+                                  listen: false)
+                              .warnings
+                              .length;
+                          final da = dashboardViewModel.totalAlarms;
+                          if (av > 0) return av.toString();
+                          if (da > 0) return da.toString();
+                          return '-';
+                        })(),
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(

@@ -37,24 +37,26 @@ class DashboardViewModel extends ChangeNotifier {
       final plants = await _plantRepository.getPlants();
       _totalPlants = plants.length;
 
-      // Aggregate device and alarm counts from all plants
+      // Aggregate device and alarm counts from all plants in parallel
       int deviceCount = 0;
       int alarmCount = 0;
 
-      for (final plant in plants) {
+      final futures = plants.map((plant) async {
         try {
-          // Get devices for this plant
-          final devices = await _deviceRepository.getDevices(plant.id);
+          // Fetch devices and alarms concurrently for this plant
+          final res = await Future.wait([
+            _deviceRepository.getDevices(plant.id),
+            _alarmRepository.getAlarms(plant.id),
+          ]);
+          final devices = res[0] as List;
+          final alarms = res[1] as List;
           deviceCount += devices.length;
-
-          // Get alarms for this plant
-          final alarms = await _alarmRepository.getAlarms(plant.id);
           alarmCount += alarms.length;
         } catch (e) {
-          // Continue with other plants if one fails
           print('Error loading data for plant ${plant.id}: $e');
         }
-      }
+      }).toList();
+      await Future.wait(futures);
 
       _totalDevices = deviceCount;
       _totalAlarms = alarmCount;

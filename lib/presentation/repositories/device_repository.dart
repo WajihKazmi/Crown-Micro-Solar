@@ -639,7 +639,12 @@ class DeviceRepository {
         '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
     final validSn = sn.isNotEmpty ? sn : 'DEFAULT_SN';
 
-    final candidates = _parameterCandidates(logicalMetric, devcode);
+    // Try energy-style parameters first (common on devices for aggregated charts),
+    // then fall back to standard power/voltage/current parameters.
+    final candidates = [
+      ..._aggregatedEnergyCandidates(logicalMetric, devcode, mode: 'perday'),
+      ..._parameterCandidates(logicalMetric, devcode),
+    ].toSet().toList();
     for (final apiParameter in candidates) {
       final action =
           '&action=querySPDeviceKeyParameterMonthPerDay&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&i18n=en_US&parameter=$apiParameter&chartStatus=false&date=$yearMonth';
@@ -730,7 +735,10 @@ class DeviceRepository {
         '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
     final validSn = sn.isNotEmpty ? sn : 'DEFAULT_SN';
 
-    final candidates = _parameterCandidates(logicalMetric, devcode);
+    final candidates = [
+      ..._aggregatedEnergyCandidates(logicalMetric, devcode, mode: 'permonth'),
+      ..._parameterCandidates(logicalMetric, devcode),
+    ].toSet().toList();
     for (final apiParameter in candidates) {
       final action =
           '&action=querySPDeviceKeyParameterYearPerMonth&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&i18n=en_US&parameter=$apiParameter&chartStatus=false&date=$year';
@@ -1183,21 +1191,28 @@ class DeviceRepository {
     final token = prefs.getString('token') ?? '';
     final secret = prefs.getString('Secret') ?? '';
 
-    final action =
-        '&action=queryDeviceCtrlField&pn=$pn&sn=$sn&devcode=$devcode&devaddr=$devaddr&i18n=en_US';
-    final data = salt + secret + token + action;
-    final sign = sha1.convert(utf8.encode(data)).toString();
-    final url =
-        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action';
-
-    final response = await _apiClient.signedPost(url);
-    final dataJson = json.decode(response.body);
-
-    if (dataJson['err'] == 0 && dataJson['dat'] != null) {
-      return dataJson['dat'];
+    final validSn = sn.isNotEmpty ? sn : 'DEFAULT_SN';
+    // Try both dessmonitor and shinemonitor hosts as in legacy app
+    final actions = <String>[
+      '&action=queryDeviceCtrlField&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&i18n=en_US',
+    ];
+    final hosts = <String>[
+      'http://api.dessmonitor.com/public/',
+      'http://web.shinemonitor.com/public/',
+    ];
+    for (final action in actions) {
+      final data = salt + secret + token + action;
+      final sign = sha1.convert(utf8.encode(data)).toString();
+      for (final host in hosts) {
+        final url = '$host?sign=$sign&salt=$salt&token=$token$action';
+        final response = await _apiClient.signedPost(url);
+        final dataJson = json.decode(response.body);
+        if (dataJson['err'] == 0 && dataJson['dat'] != null) {
+          return dataJson['dat'];
+        }
+      }
     }
-
-    throw Exception('Failed to get device real-time data: ${dataJson['desc']}');
+    throw Exception('Failed to get device real-time data');
   }
 
   // Fetch device daily data
@@ -1523,25 +1538,46 @@ class DeviceRepository {
     }
 
     final validSn = sn.isNotEmpty ? sn : 'DEFAULT_SN';
+    print(
+        'DeviceRepository.setDeviceControlField pn=$pn sn=$validSn devcode=$devcode devaddr=$devaddr fieldId=$fieldId value=$value');
+    // Try multiple action/param variants (id vs par, val vs value, ES endpoints)
     final attempts = <String>[
-      // Common variants observed in similar DESS endpoints
+      // dessmonitor variants
       '&action=operateDeviceCtrlField&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&id=$fieldId&val=$value',
-      '&action=operateDeviceCtrlField&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&fieldid=$fieldId&value=$value',
+      '&action=operateDeviceCtrlField&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&id=$fieldId&value=$value',
       '&action=setDeviceCtrlField&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&id=$fieldId&value=$value',
+      '&action=operateDeviceCtrlField&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&par=$fieldId&val=$value',
+      '&action=operateDeviceCtrlField&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&par=$fieldId&value=$value',
+      '&action=webOperateDeviceCtrlFieldEs&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&id=$fieldId&val=$value',
+      '&action=webOperateDeviceCtrlFieldEs&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&par=$fieldId&val=$value',
+      '&action=webOperateDeviceCtrlField&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&id=$fieldId&val=$value',
+      '&action=webOperateDeviceCtrlField&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&par=$fieldId&val=$value',
+      // shinemonitor (legacy) ctrlDevice
+      '&action=ctrlDevice&pn=$pn&sn=$validSn&devaddr=$devaddr&devcode=$devcode&id=$fieldId&val=$value&i18n=en_US',
     ];
 
     Map<String, dynamic>? last;
+    final hosts = <String>[
+      'http://api.dessmonitor.com/public/',
+      'http://web.shinemonitor.com/public/',
+    ];
     for (final action in attempts) {
       try {
         final data = salt + secret + token + action + postaction;
         final sign = sha1.convert(utf8.encode(data)).toString();
-        final url =
-            'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
-        final resp = await _apiClient.signedPost(url);
-        final js = json.decode(resp.body);
-        last = js is Map ? Map<String, dynamic>.from(js) : {'err': -1};
-        if (last['err'] == 0) return last;
+        for (final host in hosts) {
+          final url =
+              '$host?sign=$sign&salt=$salt&token=$token$action$postaction';
+          print('DeviceRepository: WRITE -> $url');
+          final resp = await _apiClient.signedPost(url);
+          print(
+              'DeviceRepository: WRITE resp(${resp.statusCode}) ${resp.body}');
+          final js = json.decode(resp.body);
+          last = js is Map ? Map<String, dynamic>.from(js) : {'err': -1};
+          if (last['err'] == 0) return last;
+        }
       } catch (e) {
+        print('DeviceRepository: WRITE exception: $e');
         last = {'err': -1, 'desc': e.toString()};
       }
     }
@@ -1566,22 +1602,39 @@ class DeviceRepository {
     final postaction =
         '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
     final validSn = sn.isNotEmpty ? sn : 'DEFAULT_SN';
-    final action =
-        '&action=queryDeviceCtrlValue&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&id=$fieldId&i18n=en_US';
-    final data = salt + secret + token + action + postaction;
-    final sign = sha1.convert(utf8.encode(data)).toString();
-    final url =
-        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
-    try {
-      final resp = await _apiClient.signedPost(url);
-      final js = json.decode(resp.body);
-      if (js is Map) {
-        return Map<String, dynamic>.from(js);
+    // Try both id and par for compatibility
+    final actions = <String>[
+      '&action=queryDeviceCtrlValue&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&id=$fieldId&i18n=en_US',
+      '&action=queryDeviceCtrlValue&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&par=$fieldId&i18n=en_US',
+    ];
+    Map<String, dynamic>? last;
+    final hosts = <String>[
+      'http://api.dessmonitor.com/public/',
+      'http://web.shinemonitor.com/public/',
+    ];
+    for (final action in actions) {
+      final data = salt + secret + token + action + postaction;
+      final sign = sha1.convert(utf8.encode(data)).toString();
+      for (final host in hosts) {
+        final url =
+            '$host?sign=$sign&salt=$salt&token=$token$action$postaction';
+        try {
+          print('DeviceRepository: QUERY SINGLE -> $url');
+          final resp = await _apiClient.signedPost(url);
+          print(
+              'DeviceRepository: QUERY SINGLE resp(${resp.statusCode}) ${resp.body}');
+          final js = json.decode(resp.body);
+          if (js is Map) {
+            last = Map<String, dynamic>.from(js);
+            if (last['err'] == 0) return last;
+          }
+        } catch (e) {
+          print('DeviceRepository: QUERY SINGLE exception: $e');
+          last = {'err': -3, 'desc': e.toString()};
+        }
       }
-      return {'err': -2, 'desc': 'Invalid response'};
-    } catch (e) {
-      return {'err': -3, 'desc': e.toString()};
     }
+    return last ?? {'err': -2, 'desc': 'Invalid response'};
   }
 
   // --- Energy Flow (webQueryDeviceEnergyFlowEs) --- //
@@ -2071,6 +2124,70 @@ class DeviceRepository {
     final seen = <String>{};
     final unique = <String>[];
     for (final p in base) {
+      if (p.isEmpty) continue;
+      if (seen.add(p)) unique.add(p);
+    }
+    return unique;
+  }
+
+  // Additional energy-oriented parameter candidates for aggregated endpoints
+  // mode: 'perday' (month-per-day) or 'permonth' (year-per-month)
+  List<String> _aggregatedEnergyCandidates(String logicalMetric, int devcode,
+      {required String mode}) {
+    final isPerDay = mode == 'perday';
+    final isPerMonth = mode == 'permonth';
+    final upper = logicalMetric.toUpperCase();
+    final list = <String>[];
+
+    // Heuristics based on device types (storage/inverter), but keep broad to cover variants
+    final isStorage = devcode >= 2400 && devcode < 2500;
+    final isInverter = devcode >= 500 && devcode < 1000;
+
+    // For output power graphs, aggregated views usually expect energy counters
+    if (upper.contains('OUTPUT_POWER') || upper.contains('PV_OUTPUT_POWER')) {
+      if (isPerDay) {
+        list.addAll([
+          'E_DAY',
+          'DAY_ENERGY',
+          'ENERGY_TODAY',
+          'DAILY_ENERGY',
+          'DAY_GENERATION',
+          'GEN_TODAY',
+          'TODAY_ENERGY',
+          'PV_GENERATION',
+          'PV_ENERGY_TODAY',
+        ]);
+        if (isStorage || isInverter) {
+          list.addAll(['E_TODAY', 'ENERGY_DAY']);
+        }
+      }
+      if (isPerMonth) {
+        list.addAll([
+          'E_MONTH',
+          'MONTH_ENERGY',
+          'ENERGY_MONTH',
+          'MONTHLY_ENERGY',
+          'MONTH_GENERATION',
+          'GEN_MONTH',
+          'PV_GENERATION_MONTH',
+        ]);
+      }
+    }
+
+    // For load/grid, some devices expose monthly/daily energy counters too
+    if (upper.contains('LOAD_POWER')) {
+      if (isPerDay) list.addAll(['LOAD_ENERGY_DAY', 'LOAD_E_DAY']);
+      if (isPerMonth) list.addAll(['LOAD_ENERGY_MONTH', 'LOAD_E_MONTH']);
+    }
+    if (upper.contains('GRID_POWER')) {
+      if (isPerDay) list.addAll(['GRID_ENERGY_DAY', 'GRID_E_DAY']);
+      if (isPerMonth) list.addAll(['GRID_ENERGY_MONTH', 'GRID_E_MONTH']);
+    }
+
+    // Ensure uniqueness and non-empty
+    final seen = <String>{};
+    final unique = <String>[];
+    for (final p in list) {
       if (p.isEmpty) continue;
       if (seen.add(p)) unique.add(p);
     }

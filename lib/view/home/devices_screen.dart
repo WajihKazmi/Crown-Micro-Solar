@@ -422,31 +422,40 @@ class _DevicesScreenState extends State<DevicesScreen>
     final signal = collector['signal'] != null
         ? double.tryParse(collector['signal'].toString())
         : null;
-    // Get model for SN/Plant/Type
-    Device? model;
-    try {
-      model =
-          _deviceVM.allDevices.firstWhere((d) => d.isCollector && d.pn == pn);
-    } catch (_) {}
-    final sn = model?.sn ?? '';
-    final plant = model?.plantId ?? '';
-    final dtype = model?.type ?? 'Datalogger';
+    // Use subordinate devices (if any) to display a representative SN and plant/type context
+    final subDevices = _deviceVM.getSubordinateDevices(pn);
+    final Device? firstSub = subDevices.isNotEmpty ? subDevices.first : null;
+    final sn = firstSub?.sn ?? '';
+    final plant = firstSub?.plantId ?? '';
+    final dtype = firstSub?.type ?? 'Datalogger';
     final statusText = _getDeviceStatusText(status);
     final statusColor = _getStatusColor(status);
     final theme = Theme.of(context);
     final surface = theme.colorScheme.surface;
     return GestureDetector(
-        onTap: () {
-          if (model != null) {
-            Navigator.push(
+        onTap: () async {
+          // If exactly one subordinate device, open its detail directly; else open collector details
+          if (subDevices.length == 1) {
+            await Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => DeviceDetailScreen(device: model!),
+                builder: (_) => DeviceDetailScreen(device: firstSub!),
+              ),
+            );
+          } else if (subDevices.isNotEmpty) {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => CollectorDetailScreen(
+                  collector: collector,
+                  prefetchedSubDevices: subDevices,
+                ),
               ),
             );
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('No device detail available')),
+              const SnackBar(
+                  content: Text('No devices found under this datalogger')),
             );
           }
         },
@@ -484,7 +493,7 @@ class _DevicesScreenState extends State<DevicesScreen>
                                   fontWeight: FontWeight.w600,
                                   color: Colors.black54)),
                           const SizedBox(height: 4),
-                          Text('SN: $sn',
+                          Text('SN: ${sn.isEmpty ? '—' : sn}',
                               style: const TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,

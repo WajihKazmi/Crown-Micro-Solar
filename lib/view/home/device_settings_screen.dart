@@ -110,26 +110,98 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
 
   // Determine high-level category card
   String _settingsCategory(Map f) {
-    final n = (f['__label']?.toString() ?? '').toLowerCase();
-    if (n.contains('battery')) return 'Battery Settings';
-    if (n.contains('system') ||
-        n.contains('fault') ||
-        n.contains('restore') ||
-        n.contains('default') ||
-        n.contains('factory')) {
-      return 'System Settings';
-    }
-    if (n.contains('time') || n.contains('charge') || n.contains('discharge'))
-      return 'Basic Settings';
-    if (n.contains('voltage') ||
-        n.contains('capacity') ||
-        n.contains('frequency') ||
-        n.contains('current') ||
-        n.contains('range') ||
-        n.contains('work mode') ||
-        n.contains('eco')) {
-      return 'Standard Settings';
-    }
+    // Build a searchable text from label + name + id for broader matching
+    final label = (f['__label']?.toString() ?? '').toLowerCase();
+    final name = (f['name']?.toString() ?? '').toLowerCase();
+    final id = (f['id']?.toString() ?? '').toLowerCase();
+    final text = ('$label $name $id').trim();
+
+    bool hasAny(Iterable<String> keys) =>
+        keys.any((k) => k.isNotEmpty && text.contains(k));
+
+    // Battery Settings
+    const batteryKeys = [
+      'battery',
+      'batt',
+      'bms',
+      'soc',
+      'capacity',
+      'equal',
+      'float',
+      'bulk',
+      'absorb',
+      'charge current',
+      'discharge current',
+      'battery type',
+      'cell',
+      'pack',
+      'soh'
+    ];
+    if (hasAny(batteryKeys)) return 'Battery Settings';
+
+    // System Settings
+    const systemKeys = [
+      'system',
+      'language',
+      'date',
+      'time',
+      'rtc',
+      'address',
+      'addr',
+      'backlight',
+      'lcd',
+      'display',
+      'buzzer',
+      'alarm',
+      'restore',
+      'default',
+      'factory',
+      'password',
+      'pwd',
+      'comm',
+      'modbus',
+      'wifi',
+      'network',
+      'ethernet'
+    ];
+    if (hasAny(systemKeys)) return 'System Settings';
+
+    // Basic Settings (time windows and simple schedules)
+    const basicKeys = [
+      'time', 'start', 'end', 'schedule', 'period', 'window', 'slot', 'tou',
+      // Often paired with charge/discharge context
+      'charge time', 'discharge time', 'grid charge time', 'pv charge time',
+      'min reserve', 'reserve capacity'
+    ];
+    if (hasAny(basicKeys)) return 'Basic Settings';
+
+    // Standard Settings (operating modes, electrical parameters)
+    const standardKeys = [
+      'voltage',
+      'current',
+      'frequency',
+      'power',
+      'range',
+      'threshold',
+      'cut off',
+      'cutoff',
+      'turn off',
+      'turn-on',
+      'turn on',
+      'work mode',
+      'operation mode',
+      'run mode',
+      'output mode',
+      'grid mode',
+      'priority',
+      'eco',
+      'ups',
+      'ac input range',
+      'pv only',
+      'grid only'
+    ];
+    if (hasAny(standardKeys)) return 'Standard Settings';
+
     return 'Other Settings';
   }
 
@@ -157,6 +229,11 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
               title: cat,
               count: byCat[cat]!.length,
               onTap: () async {
+                // Special handling: System Settings should show only the Restore to Default dialog.
+                if (cat == 'System Settings') {
+                  await _showRestoreToDefaultDialog(context);
+                  return;
+                }
                 await Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => _CategoryDetailScreen(
                     device: widget.device,
@@ -170,17 +247,142 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
       ],
     );
   }
+
+  Future<void> _showRestoreToDefaultDialog(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => AlertDialog(
+        title: const Text('System Settings'),
+        content: const Text(
+            'Restore to Default Settings?\nThis will restore the settings to default.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Yes')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    // Attempt to write the restore field using known id and value variants.
+    try {
+      final vm = getIt<DeviceViewModel>();
+      final device = widget.device;
+      // Find the field id from loaded fields if available; fallback to known id
+      String fieldId = 'sys_set_default';
+      for (final f in _fields) {
+        final id = f['id']?.toString() ?? '';
+        final label = (f['__label']?.toString() ?? f['name']?.toString() ?? '')
+            .toLowerCase();
+        if (id == 'sys_set_default' ||
+            (label.contains('restore') && label.contains('default'))) {
+          fieldId = id.isNotEmpty ? id : 'sys_set_default';
+          break;
+        }
+      }
+      Future<Map<String, dynamic>> _send(String v) => vm.setDeviceControlField(
+            sn: device.sn,
+            pn: device.pn,
+            devcode: device.devcode,
+            devaddr: device.devaddr,
+            fieldId: fieldId,
+            value: v,
+          );
+      final tries = ['1', '69', '49', 'true'];
+      Map<String, dynamic>? last;
+      for (final t in tries) {
+        last = await _send(t);
+        if ((last['err'] ?? 1) == 0) {
+          // Success
+          _showSmallSnack(context,
+              success: true, message: 'Restored to default');
+          await _load();
+          return;
+        }
+      }
+      _showSmallSnack(context,
+          success: false,
+          message: (last?['desc']?.toString() ?? 'Restore failed'));
+    } catch (e) {
+      _showSmallSnack(context, success: false, message: 'Restore failed: $e');
+    }
+  }
 }
 
-class _SettingTile extends StatelessWidget {
+class _SettingTile extends StatefulWidget {
   final Map<String, dynamic> field;
   final VoidCallback onChanged;
   const _SettingTile({required this.field, required this.onChanged});
 
   @override
+  State<_SettingTile> createState() => _SettingTileState();
+}
+
+class _SettingTileState extends State<_SettingTile> {
+  String _currentDisplay = '';
+  bool _fetching = false;
+
+  Map<String, dynamic> get field => widget.field;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentDisplay = field['__displayVal']?.toString() ?? '';
+    // Fetch fresh current value from backend like legacy screen does
+    _ensureFreshCurrentValue();
+  }
+
+  Future<void> _ensureFreshCurrentValue() async {
+    // Try only if we have an id we can query
+    final id = (field['id'] ?? field['par'] ?? field['key'] ?? field['name'])
+            ?.toString() ??
+        '';
+    if (id.isEmpty) return;
+    if (_fetching) return;
+    setState(() => _fetching = true);
+    try {
+      // Find device via ancestor state
+      final root =
+          context.findAncestorStateOfType<_DeviceSettingsScreenState>();
+      final cat = context.findAncestorStateOfType<_CategoryDetailScreenState>();
+      final device = cat?.widget.device ?? root?.widget.device;
+      if (device == null) return;
+      final vm = getIt<DeviceViewModel>();
+      final fetched = await vm.fetchSingleControlValue(
+        sn: device.sn,
+        pn: device.pn,
+        devcode: device.devcode,
+        devaddr: device.devaddr,
+        fieldId: id,
+      );
+      if (!mounted) return;
+      if (fetched != null && fetched.isNotEmpty) {
+        // Update field raw values and recompute display like legacy
+        field['val'] = fetched;
+        field['value'] = fetched;
+        field['current'] = fetched;
+        field['cur'] = fetched;
+        field['curVal'] = fetched;
+        field['curval'] = fetched;
+        field['set'] = fetched;
+        field['now'] = fetched;
+        field['__displayVal'] = _currentDisplayValue(field);
+        setState(
+            () => _currentDisplay = field['__displayVal']?.toString() ?? '');
+      }
+    } catch (_) {
+      // ignore fetch errors, keep existing
+    } finally {
+      if (mounted) setState(() => _fetching = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final name = field['__label']?.toString() ?? '—';
-    final current = field['__displayVal']?.toString() ?? '';
     final options = (field['item'] as List?)?.whereType<Map>().toList() ?? [];
     final hasOptions = options.isNotEmpty;
     final hasRange = field['min'] != null || field['max'] != null;
@@ -194,7 +396,7 @@ class _SettingTile extends StatelessWidget {
           await _toggleBoolean(context, field, !boolValue!);
         } else if (hasOptions) {
           await _showOptions(context);
-        } else if (hasRange || current.isNotEmpty) {
+        } else if (hasRange || _currentDisplay.isNotEmpty) {
           await _showNumberEditor(context);
         }
       },
@@ -214,28 +416,25 @@ class _SettingTile extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name,
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 4),
-                  Text(
-                    isBoolean
-                        ? (boolValue! ? 'On' : 'Off')
-                        : (current.isEmpty ? 'Tap to edit' : current),
-                    style: const TextStyle(color: Colors.black54),
-                  ),
-                ],
-              ),
+              child: Text(name,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
             ),
             if (isBoolean)
               Switch(
                 value: boolValue!,
                 onChanged: (v) async => await _toggleBoolean(context, field, v),
               )
-            else
+            else ...[
+              if (_currentDisplay.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: Text(
+                    _currentDisplay,
+                    style: const TextStyle(color: Colors.black54),
+                  ),
+                ),
               const Icon(Icons.chevron_right),
+            ]
           ],
         ),
       ),
@@ -287,7 +486,9 @@ class _SettingTile extends StatelessWidget {
       }
     }
     final rawItems = (field['item'] as List?)?.whereType<Map>().toList() ?? [];
-    var items = rawItems.map((e) {
+    // Determine effective unit for this field (infer if backend unit is missing/misleading)
+    final effectiveUnit = _inferUnitForField(field);
+    List<Map<String, dynamic>> items = rawItems.map<Map<String, dynamic>>((e) {
       final keyTxt = e['key']?.toString();
       final alt = e['name']?.toString();
       final val = e['val'];
@@ -300,9 +501,35 @@ class _SettingTile extends StatelessWidget {
         text = val.toString();
       }
       text = _normalizeOptionLabel(text,
-          fieldName: name, rawValue: val?.toString());
-      return {'text': text, 'val': val};
+          fieldName: name, rawValue: val?.toString(), unit: effectiveUnit);
+      // Prefer sending 'key' when present (legacy behavior), otherwise 'val'
+      final write = ((keyTxt != null && keyTxt.isNotEmpty)
+          ? keyTxt
+          : (val?.toString() ?? ''));
+      return <String, dynamic>{
+        'text': text,
+        'val': val?.toString(),
+        'key': keyTxt,
+        'write': write
+      };
     }).toList();
+    // Deduplicate by label to avoid double labels; prefer preserving currently-selected value
+    if (items.isNotEmpty) {
+      final Map<String, Map<String, dynamic>> byText = {};
+      for (final it in items) {
+        final t = (it['text'] ?? '').toString();
+        if (t.isEmpty) continue;
+        if (!byText.containsKey(t)) {
+          byText[t] = it;
+        } else {
+          final curStr = currentVal?.toString();
+          if (curStr != null && it['val']?.toString() == curStr) {
+            byText[t] = it;
+          }
+        }
+      }
+      items = byText.values.toList();
+    }
     // Battery Type: remove any option that has no proper name (pure numeric or previous custom/vendor placeholder)
     final lname = name.toLowerCase();
     if (lname.contains('battery') && lname.contains('type')) {
@@ -332,8 +559,7 @@ class _SettingTile extends StatelessWidget {
     if (lname.contains('capacity') ||
         lname.contains('cut off') ||
         lname.contains('turn off')) {
-      final allPercent = items.isNotEmpty &&
-          items.every((e) => (e['text'] ?? '').toString().trim().endsWith('%'));
+      final allPercent = effectiveUnit == '%';
       if (allPercent) {
         items.sort((a, b) {
           final ax =
@@ -353,6 +579,23 @@ class _SettingTile extends StatelessWidget {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('No options available')));
       return;
+    }
+    // Try to determine a selected value even when backend returns a label instead of code
+    String? groupValCandidate = currentVal;
+    if (groupValCandidate == null ||
+        !items.any((e) => (e['val']?.toString() ?? '') == groupValCandidate)) {
+      final normalizedCurrent = _normalizeOptionLabel(
+        (currentVal ?? '').toString(),
+        fieldName: name,
+        rawValue: currentVal,
+      ).toLowerCase();
+      for (final it in items) {
+        final itLabel = (it['text'] ?? '').toString().toLowerCase();
+        if (itLabel.isNotEmpty && itLabel == normalizedCurrent) {
+          groupValCandidate = it['val']?.toString();
+          break;
+        }
+      }
     }
     final selected = await showModalBottomSheet(
       context: context,
@@ -391,9 +634,11 @@ class _SettingTile extends StatelessWidget {
                         itemBuilder: (_, i) {
                           final opt = items[i];
                           final optValStr = opt['val']?.toString();
-                          final isSel = currentVal == optValStr;
+                          final isSel =
+                              (groupValCandidate ?? currentVal) == optValStr;
                           return InkWell(
-                            onTap: () => Navigator.pop(context, opt['val']),
+                            onTap: () => Navigator.pop(
+                                context, opt['write'] ?? opt['val']),
                             child: Padding(
                               padding:
                                   const EdgeInsets.symmetric(horizontal: 4),
@@ -401,9 +646,10 @@ class _SettingTile extends StatelessWidget {
                                 children: [
                                   Radio<String>(
                                     value: optValStr ?? '',
-                                    groupValue: currentVal,
-                                    onChanged: (_) =>
-                                        Navigator.pop(context, opt['val']),
+                                    groupValue:
+                                        (groupValCandidate ?? currentVal) ?? '',
+                                    onChanged: (_) => Navigator.pop(
+                                        context, opt['write'] ?? opt['val']),
                                   ),
                                   const SizedBox(width: 4),
                                   Expanded(
@@ -429,10 +675,13 @@ class _SettingTile extends StatelessWidget {
   }
 
   Future<void> _showNumberEditor(BuildContext context) async {
-    final name = field['name']?.toString() ?? '';
-    final ctrl = TextEditingController(text: field['val']?.toString() ?? '');
+    final name =
+        field['__label']?.toString() ?? field['name']?.toString() ?? '';
+    final ctrl = TextEditingController(
+        text: _extractCurrentRawValue(field) ?? field['val']?.toString() ?? '');
     final min = field['min'];
     final max = field['max'];
+    final unit = _inferUnitForField(field);
     final entered = await showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -441,9 +690,15 @@ class _SettingTile extends StatelessWidget {
           controller: ctrl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
-            labelText: min != null || max != null
-                ? 'Value (${min ?? '-'} ~ ${max ?? '-'})'
-                : 'Value',
+            labelText: () {
+              final range = (min != null || max != null)
+                  ? ' (${min ?? '-'} ~ ${max ?? '-'})'
+                  : '';
+              final u = (unit != null && unit.isNotEmpty && unit != '%')
+                  ? ' [$unit]'
+                  : '';
+              return 'Value$range$u';
+            }(),
           ),
         ),
         actions: [
@@ -460,7 +715,25 @@ class _SettingTile extends StatelessWidget {
       ),
     );
     if (entered != null && (entered as String).isNotEmpty) {
-      await _writeValue(context, entered);
+      // Validate numeric and clamp to min/max if provided
+      final raw = entered.trim();
+      final numVal = double.tryParse(raw);
+      if (numVal == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please enter a valid number')));
+        return;
+      }
+      double finalVal = numVal;
+      if (min != null) {
+        final dmin = double.tryParse(min.toString());
+        if (dmin != null && finalVal < dmin) finalVal = dmin;
+      }
+      if (max != null) {
+        final dmax = double.tryParse(max.toString());
+        if (dmax != null && finalVal > dmax) finalVal = dmax;
+      }
+      // Send as trimmed string; keep decimals if any
+      await _writeValue(context, finalVal.toString());
     }
   }
 
@@ -474,8 +747,22 @@ class _SettingTile extends StatelessWidget {
         context.findAncestorStateOfType<_DeviceSettingsScreenState>();
     if (element == null) return;
     final device = element.widget.device;
-    final id = field['id']?.toString() ?? field['name']?.toString() ?? '';
+    // Resolve the field id across multiple possible keys from API variants
+    final id = (field['id'] ??
+                field['par'] ??
+                field['key'] ??
+                field['name'] ??
+                field['param'] ??
+                field['code'] ??
+                field['par_no'])
+            ?.toString() ??
+        '';
     if (id.isEmpty) return;
+    print('DeviceSettings: write id=$id value=$value for pn=' +
+        device.pn +
+        ' sn=' +
+        device.sn +
+        ' devcode=${device.devcode} devaddr=${device.devaddr}');
     final res = await vm.setDeviceControlField(
       sn: device.sn,
       pn: device.pn,
@@ -486,16 +773,70 @@ class _SettingTile extends StatelessWidget {
     );
     if (!element.mounted) return;
     if (res['err'] == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saved')),
-      );
+      _showSmallSnack(context,
+          success: true,
+          message: (res['desc']?.toString().isNotEmpty ?? false)
+              ? res['desc'].toString()
+              : 'Updated');
       print('DeviceSettings: write success field=$id value=$value');
+      // Update local field map immediately so UI reflects change without waiting for reload
+      try {
+        field['val'] = value;
+        field['value'] = value;
+        field['current'] = value;
+        field['cur'] = value;
+        field['curVal'] = value;
+        field['curval'] = value;
+        field['set'] = value;
+        field['now'] = value;
+        field['__displayVal'] = _currentDisplayValue(field);
+      } catch (_) {}
+      // Verify from backend to ensure persistence reflects
+      try {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        final fresh = await vm.fetchSingleControlValue(
+          sn: device.sn,
+          pn: device.pn,
+          devcode: device.devcode,
+          devaddr: device.devaddr,
+          fieldId: id,
+        );
+        if (fresh != null && fresh.isNotEmpty) {
+          field['val'] = fresh;
+          field['value'] = fresh;
+          field['current'] = fresh;
+          field['cur'] = fresh;
+          field['curVal'] = fresh;
+          field['curval'] = fresh;
+          field['set'] = fresh;
+          field['now'] = fresh;
+          field['__displayVal'] = _currentDisplayValue(field);
+          print('DeviceSettings: verified remote value for ' +
+              id +
+              ' -> ' +
+              fresh);
+        }
+      } catch (e) {
+        print('DeviceSettings: verification fetch failed for ' +
+            id +
+            ' : ' +
+            e.toString());
+      }
       await element._load();
-      onChanged();
+      // Update local trailing value as well
+      try {
+        setState(() {
+          _currentDisplay =
+              field['__displayVal']?.toString() ?? _currentDisplay;
+        });
+      } catch (_) {}
+      widget.onChanged();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed: ${res['desc'] ?? 'Unknown error'}')),
-      );
+      _showSmallSnack(context,
+          success: false,
+          message: (res['desc']?.toString().isNotEmpty ?? false)
+              ? res['desc'].toString()
+              : 'Unknown error');
       print(
           'DeviceSettings: write FAILED field=$id value=$value error=${res['desc']}');
     }
@@ -506,27 +847,137 @@ class _SettingTile extends StatelessWidget {
         .map((o) => (o['key'] ?? o['name'] ?? '').toString().toLowerCase())
         .toList();
     final values = options.map((o) => o['val']?.toString()).toSet();
-    if (values.length == 2 && values.contains('0') && values.contains('1'))
-      return true;
+    if (values.length == 2 && values.containsAll({'0', '1'})) return true;
+    if (values.length == 2 && values.containsAll({'48', '49'})) return true;
+    if (values.length == 2 && values.containsAll({'68', '69'})) return true;
     if (texts.any((t) => t.contains('on')) &&
         texts.any((t) => t.contains('off'))) return true;
+    if (texts.any((t) => t.contains('enable')) &&
+        texts.any((t) => t.contains('disable'))) return true;
     return false;
   }
 
   bool _currentBoolValue(Map field, List<Map> options) {
-    final v = field['val']?.toString();
-    if (v == '1') return true;
-    if (v == '0') return false;
-    // fallback: first option false, second true
+    final v = (_extractCurrentRawValue(field) ?? field['val']?.toString())
+            ?.trim()
+            .toLowerCase() ??
+        '';
+    // Direct numeric encodings (legacy): 69=Enabled, 68=Disabled
+    if (v == '1' || v == '49' || v == '69') return true;
+    if (v == '0' || v == '48' || v == '68') return false;
+    // Textual encodings
+    if (v == 'on' || v == 'enable' || v == 'enabled' || v == 'true')
+      return true;
+    if (v == 'off' || v == 'disable' || v == 'disabled' || v == 'false')
+      return false;
+
+    // Try infer from option labels
+    // Normalize options type for safe access
+    final List<Map<String, dynamic>> opts =
+        options.map((o) => Map<String, dynamic>.from(o)).toList();
+    String labelForVal(String? val) {
+      final Map<String, dynamic> match = opts.firstWhere(
+          (o) => (o['val']?.toString() ?? '').toLowerCase() == (val ?? ''),
+          orElse: () => <String, dynamic>{});
+      final t = (match['key'] ?? match['name'] ?? '').toString().toLowerCase();
+      return t;
+    }
+
+    final lbl = labelForVal(v);
+    if (lbl.contains('on') ||
+        lbl.contains('enable') ||
+        lbl.contains('enabled')) {
+      return true;
+    }
+    if (lbl.contains('off') ||
+        lbl.contains('disable') ||
+        lbl.contains('disabled')) {
+      return false;
+    }
+
+    // Fallback: assume second option means true if there are exactly two options
     if (options.length == 2) {
-      return options.indexWhere((o) => o['val']?.toString() == v) == 1;
+      final idx = options.indexWhere((o) => o['val']?.toString() == v);
+      return idx == 1;
     }
     return false;
   }
 
   Future<void> _toggleBoolean(
       BuildContext context, Map field, bool newVal) async {
-    final newValue = newVal ? '1' : '0';
+    // Determine the correct value to send based on available options for this field
+    final List<Map<String, dynamic>> options =
+        ((field['item'] as List?)?.whereType<Map>().toList() ?? [])
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+    String resolveBoolVal(bool v) {
+      if (options.length == 2) {
+        // Prefer mapping by label text first
+        Map<String, dynamic>? onOpt;
+        Map<String, dynamic>? offOpt;
+        for (final Map<String, dynamic> o in options) {
+          final t = (o['key'] ?? o['name'] ?? '').toString().toLowerCase();
+          if (t.contains('on') ||
+              t.contains('enable') ||
+              t.contains('enabled')) {
+            onOpt ??= o;
+          } else if (t.contains('off') ||
+              t.contains('disable') ||
+              t.contains('disabled')) {
+            offOpt ??= o;
+          }
+        }
+        if (onOpt != null && offOpt != null) {
+          String codeFor(Map<String, dynamic> o) {
+            final k = o['key']?.toString();
+            final val = o['val']?.toString();
+            return (k != null && k.isNotEmpty) ? k : (val ?? '');
+          }
+
+          return v ? codeFor(onOpt) : codeFor(offOpt);
+        }
+        // Next, map by known numeric pairs
+        final vals = options.map((o) => o['val']?.toString()).toSet();
+        bool hasAll(Set<String> s) => s.every(vals.contains);
+        if (hasAll({'0', '1'})) return v ? '1' : '0';
+        if (hasAll({'48', '49'})) return v ? '49' : '48';
+        if (hasAll({'68', '69'})) return v ? '69' : '68';
+        // Fallback: assume order off/on
+        final chosen = v ? options[1] : options[0];
+        final k = chosen['key']?.toString();
+        final val = chosen['val']?.toString();
+        return (k != null && k.isNotEmpty) ? k : (val ?? '');
+      }
+      // No options: try known enum mapping by field label first
+      final fieldLabel = (field['__label']?.toString() ?? '').toLowerCase();
+      final enumMap = _knownEnumMapForField(fieldLabel);
+      if (enumMap.isNotEmpty) {
+        // Build inverse map from label->code
+        final Map<String, String> inv = {};
+        enumMap.forEach((code, label) {
+          inv[label.toLowerCase()] = code;
+        });
+        // Preferred labels in order
+        final onLabels = ['enabled', 'on'];
+        final offLabels = ['disabled', 'off'];
+        if (v) {
+          for (final l in onLabels) {
+            final code = inv[l];
+            if (code != null) return code;
+          }
+        } else {
+          for (final l in offLabels) {
+            final code = inv[l];
+            if (code != null) return code;
+          }
+        }
+      }
+      // Fallback default to 0/1 if nothing else applies
+      return v ? '1' : '0';
+    }
+
+    final newValue = resolveBoolVal(newVal);
+    print('DeviceSettings: toggle boolean -> sending $newValue');
     await _writeValue(context, newValue);
   }
 }
@@ -591,11 +1042,12 @@ String _beautifyLabel(String raw) {
 
 // Compute current display string (for enumerations prefer option textual key)
 String _currentDisplayValue(Map f) {
-  final val = f['val'];
-  if (val == null) return '';
+  final raw = _extractCurrentRawValue(f) ?? f['val']?.toString();
+  if (raw == null) return '';
+  final unit = _inferUnitForField(f);
   if (f['item'] is List) {
     for (final opt in (f['item'] as List).whereType<Map>()) {
-      if (opt['val']?.toString() == val.toString()) {
+      if (opt['val']?.toString() == raw.toString()) {
         final keyTxt = opt['key']?.toString();
         final alt = opt['name']?.toString();
         String chosen = '';
@@ -604,19 +1056,25 @@ String _currentDisplayValue(Map f) {
         } else if (keyTxt != null && keyTxt.isNotEmpty) {
           chosen = keyTxt;
         } else {
-          chosen = val.toString();
+          chosen = raw.toString();
         }
         return _normalizeOptionLabel(chosen,
-            fieldName: f['__label']?.toString(), rawValue: val.toString());
+            fieldName: f['__label']?.toString(),
+            rawValue: raw.toString(),
+            unit: unit);
       }
     }
   }
-  return val.toString();
+  // Fallback to normalized raw value (map 0/1 to Off/On when appropriate)
+  return _normalizeOptionLabel(raw.toString(),
+      fieldName: f['__label']?.toString(),
+      rawValue: raw.toString(),
+      unit: unit);
 }
 
 // --- Option label normalization helpers ---
 String _normalizeOptionLabel(String text,
-    {String? fieldName, String? rawValue}) {
+    {String? fieldName, String? rawValue, String? unit}) {
   String t = text.trim();
   if (t.isEmpty) return t;
   final lowerField = (fieldName ?? '').toLowerCase();
@@ -661,9 +1119,12 @@ String _normalizeOptionLabel(String text,
       final mapped = map[t] ?? map[rawValue ?? ''];
       if (mapped != null) t = mapped;
     } else {
-      if (t == '0')
+      // Generic boolean encodings observed in old app and API
+      if (t == '0' || t == '48' || t == '68') {
         t = 'Off';
-      else if (t == '1') t = 'On';
+      } else if (t == '1' || t == '49' || t == '69') {
+        t = 'On';
+      }
     }
   }
 
@@ -673,16 +1134,19 @@ String _normalizeOptionLabel(String text,
     if (_looksMeaningful(inner)) t = inner;
   }
 
-  // Special formatting: pure 2-3 digit numbers that plausibly represent percent (e.g. 35, 035, 100)
-  if (RegExp(r'^0?\d{2,3}$').hasMatch(t)) {
-    final digits = t.replaceAll(RegExp(r'[^0-9]'), '');
-    final intVal = int.tryParse(digits);
-    if (intVal != null && intVal <= 100) {
-      // Avoid converting known enum code numbers (e.g. 48,49 battery type) by checking field context
-      final isBatteryType =
-          lowerField.contains('battery') && lowerField.contains('type');
-      if (!isBatteryType) {
-        t = '$intVal%';
+  // Units formatting:
+  // 1) Only render % when unit is explicitly '%'.
+  if (unit != null && unit.trim() == '%') {
+    final n = int.tryParse(t);
+    if (n != null) return '$n%';
+  }
+  // 2) Append common physical units for pure numbers (avoid enums/codes).
+  if (RegExp(r'^-?\d+(?:\.\d+)?$').hasMatch(t)) {
+    final u = unit?.trim();
+    if (u != null && u.isNotEmpty && u != '%') {
+      const inlineUnits = {'V', 'A', 'Hz', 'W', 'kW', 'kWh', 'Wh'};
+      if (inlineUnits.contains(u)) {
+        return '$t $u';
       }
     }
   }
@@ -713,6 +1177,28 @@ Map<String, String> _knownEnumMapForField(String fieldNameLower) {
     return const {
       '48': 'Off',
       '49': 'On',
+    };
+  }
+  // Backlight / LCD brightness toggle (various firmwares use 68/69 or 0/1)
+  if (fieldNameLower.contains('backlight') || fieldNameLower.contains('lcd')) {
+    return const {
+      '0': 'Disabled',
+      '1': 'Enabled',
+      '48': 'Disabled',
+      '49': 'Enabled',
+      '68': 'Disabled',
+      '69': 'Enabled',
+    };
+  }
+  // Buzzer / Alarm toggle
+  if (fieldNameLower.contains('buzzer') || fieldNameLower.contains('alarm')) {
+    return const {
+      '0': 'Disabled',
+      '1': 'Enabled',
+      '48': 'Disabled',
+      '49': 'Enabled',
+      '68': 'Disabled',
+      '69': 'Enabled',
     };
   }
   // Work / Operation Mode
@@ -775,11 +1261,82 @@ Map<String, String> _knownEnumMapForField(String fieldNameLower) {
       '1': 'Enabled',
       '48': 'Disabled', // alternate numeric codes observed
       '49': 'Enabled',
-      '67': 'Disabled',
-      '68': 'Enabled',
+      '68': 'Disabled', // legacy toggle variant
+      '69': 'Enabled',
     };
   }
   return const {};
+}
+
+// Infer a more accurate unit based on field name and values when backend unit is missing or misleading.
+String? _inferUnitForField(Map f) {
+  final backendUnit = f['unit']?.toString();
+  final u = backendUnit?.trim();
+  final name =
+      (f['__label']?.toString() ?? f['name']?.toString() ?? '').toLowerCase();
+  // If backend explicitly sets a sensible unit, keep it (except bare '%').
+  if (u != null && u.isNotEmpty && u != '%') return u;
+  // Heuristics by field name
+  if (name.contains('voltage') ||
+      name.contains('volt') ||
+      name.contains('vdc') ||
+      name.contains('vac')) return 'V';
+  if (name.contains('frequency') ||
+      name.contains('freq') ||
+      name.contains('hz')) return 'Hz';
+  if (name.contains('current') || name.contains('amp')) return 'A';
+  if (name.contains('power') || name.contains('watt')) return 'W';
+  if (name.contains('energy') || name.contains('kwh') || name.contains('wh'))
+    return 'kWh';
+  if (name.contains('capacity') ||
+      name.contains('soc') ||
+      name.contains('percentage') ||
+      name.contains('brightness')) return '%';
+  // Look at values: if all look like 0..100 and name suggests percentage-ish, return '%'
+  final items = (f['item'] as List?)?.whereType<Map>().toList() ?? [];
+  if (items.isNotEmpty) {
+    final vals = items.map((e) => (e['val'] ?? '').toString()).toList();
+    final nums = vals.map((v) => int.tryParse(v)).whereType<int>().toList();
+    final allPct = nums.isNotEmpty && nums.every((n) => n >= 0 && n <= 100);
+    if (allPct &&
+        (name.contains('capacity') ||
+            name.contains('soc') ||
+            name.contains('brightness'))) {
+      return '%';
+    }
+  }
+  return u; // could be null or '%'
+}
+
+// Unified small snackbar for success/error messages
+void _showSmallSnack(BuildContext context,
+    {required bool success, required String message}) {
+  final Color bg = success ? Colors.green.shade600 : Colors.red.shade600;
+  final IconData icon = success ? Icons.check_circle : Icons.error;
+  final String prefix = success ? 'Success' : 'Error';
+  final String text = '$prefix: $message';
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.hideCurrentSnackBar();
+  messenger.showSnackBar(SnackBar(
+    content: Row(
+      children: [
+        Icon(icon, color: Colors.white, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    ),
+    backgroundColor: bg,
+    behavior: SnackBarBehavior.floating,
+    margin: const EdgeInsets.all(12),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    duration: const Duration(seconds: 2),
+  ));
 }
 
 class _CategoryCard extends StatelessWidget {
@@ -838,14 +1395,214 @@ class _CategoryDetailScreen extends StatefulWidget {
 }
 
 class _CategoryDetailScreenState extends State<_CategoryDetailScreen> {
+  List<Map<String, dynamic>> _fields = [];
+  // Explicit whitelist for Battery Settings (match by id, fallback by label when id varies)
+  static const Set<String> _batteryIds = {
+    'bat_battery_type',
+    'bat_charging_bulk_voltage',
+    'bat_charging_float_voltage',
+    'bat_max_charging_current',
+    'bat_maximum_battery_discharge_current',
+    'bat_ac_charging_current',
+    'bat_charging_source',
+    'bat_battery_equalization',
+    'bat_activate_battery_equalization',
+    'bat_equalization_time_out',
+    'bat_equalization_time',
+    'bat_equalization_period',
+    'bat_equalization_voltage',
+    'bat_battery_recharge_capacity',
+    'bat_battery_redischarge_capacity',
+    'bat_battery_under_capacity',
+  };
+  static const List<String> _batteryLabelWhitelist = [
+    // Ordered to match the UI provided
+    'battery type',
+    'bulk charging voltage',
+    'float charging voltage',
+    'maximum charging current',
+    'maximum battery discharge current',
+    'maximum ac charging current',
+    'charging source priority',
+    'battery equalization',
+    'real-time activate battery equalization',
+    'battery equalization time-out',
+    'battery equalization time',
+    'equalization period',
+    'equalization voltage',
+    'back to grid capacity',
+    'back to discharge capacity',
+    'battery cut-off capacity',
+  ];
+  @override
+  void initState() {
+    super.initState();
+    // Initialize with provided fields, then fetch fresh state from backend
+    _fields = widget.fields.map((e) => Map<String, dynamic>.from(e)).toList();
+    _reloadCategoryFields();
+  }
+
+  Future<void> _reloadCategoryFields() async {
+    try {
+      final vm = getIt<DeviceViewModel>();
+      final dat = await vm.fetchDeviceControlFields(
+        sn: widget.device.sn,
+        pn: widget.device.pn,
+        devcode: widget.device.devcode,
+        devaddr: widget.device.devaddr,
+      );
+      if (dat == null) return;
+      final list = (dat['field'] as List?)?.whereType<Map>().toList() ?? [];
+      final parsed = <Map<String, dynamic>>[];
+      for (final raw in list) {
+        final f = Map<String, dynamic>.from(raw);
+        f['__label'] = _fieldLabel(f);
+        f['__displayVal'] = _currentDisplayValue(f);
+        // Re-derive category locally using same heuristics as parent
+        final label = (f['__label']?.toString() ?? '').toLowerCase();
+        final name = (f['name']?.toString() ?? '').toLowerCase();
+        final id = (f['id']?.toString() ?? '').toLowerCase();
+        final text = ('$label $name $id').trim();
+        bool hasAny(Iterable<String> keys) =>
+            keys.any((k) => k.isNotEmpty && text.contains(k));
+        String cat;
+        const batteryKeys = [
+          'battery',
+          'batt',
+          'bms',
+          'soc',
+          'capacity',
+          'equal',
+          'float',
+          'bulk',
+          'absorb',
+          'charge current',
+          'discharge current',
+          'battery type',
+          'cell',
+          'pack',
+          'soh'
+        ];
+        const systemKeys = [
+          'system',
+          'language',
+          'date',
+          'time',
+          'rtc',
+          'address',
+          'addr',
+          'backlight',
+          'lcd',
+          'display',
+          'buzzer',
+          'alarm',
+          'restore',
+          'default',
+          'factory',
+          'password',
+          'pwd',
+          'comm',
+          'modbus',
+          'wifi',
+          'network',
+          'ethernet'
+        ];
+        const basicKeys = [
+          'time',
+          'start',
+          'end',
+          'schedule',
+          'period',
+          'window',
+          'slot',
+          'tou',
+          'charge time',
+          'discharge time',
+          'grid charge time',
+          'pv charge time',
+          'min reserve',
+          'reserve capacity'
+        ];
+        const standardKeys = [
+          'voltage',
+          'current',
+          'frequency',
+          'power',
+          'range',
+          'threshold',
+          'cut off',
+          'cutoff',
+          'turn off',
+          'turn-on',
+          'turn on',
+          'work mode',
+          'operation mode',
+          'run mode',
+          'output mode',
+          'grid mode',
+          'priority',
+          'eco',
+          'ups',
+          'ac input range',
+          'pv only',
+          'grid only'
+        ];
+        if (hasAny(batteryKeys))
+          cat = 'Battery Settings';
+        else if (hasAny(systemKeys))
+          cat = 'System Settings';
+        else if (hasAny(basicKeys))
+          cat = 'Basic Settings';
+        else if (hasAny(standardKeys))
+          cat = 'Standard Settings';
+        else
+          cat = 'Other Settings';
+        f['__category'] = cat;
+        if (cat == widget.title) {
+          // If Battery Settings, apply strict whitelist to match design
+          if (cat == 'Battery Settings') {
+            final id = f['id']?.toString().toLowerCase() ?? '';
+            final lname = (f['__label']?.toString() ?? '').toLowerCase();
+            final allow = _batteryIds.contains(id) ||
+                _batteryLabelWhitelist.contains(lname);
+            if (!allow) {
+              // Skip extra battery fields not in whitelist
+              continue;
+            }
+          }
+          parsed.add(f);
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _fields = parsed;
+        if (widget.title == 'Battery Settings') {
+          final order = _CategoryDetailScreenState._batteryLabelWhitelist;
+          _fields.sort((a, b) {
+            final ai =
+                order.indexOf((a['__label']?.toString() ?? '').toLowerCase());
+            final bi =
+                order.indexOf((b['__label']?.toString() ?? '').toLowerCase());
+            final aa = ai == -1 ? 999 : ai;
+            final bb = bi == -1 ? 999 : bi;
+            return aa.compareTo(bb);
+          });
+        }
+      });
+    } catch (e) {
+      // Silent; keep existing fields
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final tiles = widget.fields
+    final tiles = _fields
         .map((f) => _SettingTile(
             field: f,
             onChanged: () async {
+              // Refresh both parent and this category to reflect latest state
               await widget.reloadParent();
-              setState(() {});
+              await _reloadCategoryFields();
             }))
         .toList();
     return Scaffold(

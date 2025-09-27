@@ -12,14 +12,16 @@ class EnergyRepository {
   EnergyRepository(this._apiClient);
 
   Future<EnergySummary> getDailyEnergy(String plantId, String date) async {
+    // Legacy DESS endpoint that returns daily energy (kWh) for a day range
+    // Use sdate=edate=date to get a single-day result
     const salt = '12345678';
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
     final secret = prefs.getString('Secret') ?? '';
 
     final action =
-        '&action=queryPlantActiveOuputPowerOneDay&plantid=$plantId&date=$date';
-    final postaction =
+        '&action=queryPlantEnergyByDay&plantid=$plantId&sdate=$date&edate=$date';
+    const postaction =
         '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
     final data = salt + secret + token + action + postaction;
     final sign = sha1.convert(utf8.encode(data)).toString();
@@ -28,73 +30,101 @@ class EnergyRepository {
 
     final response = await _apiClient.signedPost(url);
     final dataJson = json.decode(response.body);
+    final baseDate = DateTime.tryParse(date) ?? DateTime.now();
+    double totalKwh = 0.0;
+    final timeline = <EnergyData>[];
     if (dataJson['dat'] != null) {
       final dat = dataJson['dat'];
-      // Map legacy DESS structure to our EnergySummary shape
-      final List<dynamic> list =
-          (dat['outputPower'] as List?) ?? (dat['detail'] as List?) ?? [];
-      final hourly = <EnergyData>[];
-      for (final item in list) {
-        try {
-          final tsRaw = item['ts'];
-          DateTime ts;
-          if (tsRaw is String) {
-            ts = DateTime.tryParse(tsRaw) ??
-                DateTime.parse('$date ${item['time'] ?? '00:00:00'}');
-          } else if (tsRaw is Map) {
-            // Some responses split into fields, e.g., {"year":2024,"month":6,"day":1,"hour":12,...}
-            final y = tsRaw['year'] ?? DateTime.now().year;
-            final m = tsRaw['month'] ?? 1;
-            final d = tsRaw['day'] ?? 1;
-            final h = tsRaw['hour'] ?? 0;
-            final min = tsRaw['minute'] ?? 0;
-            ts = DateTime(y, m, d, h, min);
-          } else {
-            ts = DateTime.now();
+      // Common shapes: energy/detail OR table (title/row) OR perday/parameter
+      List items = (dat['energy'] as List?) ?? (dat['detail'] as List?) ?? [];
+      if (items.isEmpty) {
+        // Table-shape with title/row
+        final rows = dat['row'] as List?;
+        final titles = dat['title'] as List?;
+        if (rows != null && rows.isNotEmpty) {
+          int firstNumericIdx = 0;
+          if (titles != null && titles.isNotEmpty) {
+            final idxEnergy = titles.indexWhere((t) {
+              try {
+                final title =
+                    (t is Map ? t['title'] : t)?.toString().toLowerCase();
+                return title != null &&
+                    (title.contains('energy') ||
+                        title.contains('generation') ||
+                        title.contains('kwh'));
+              } catch (_) {
+                return false;
+              }
+            });
+            if (idxEnergy != -1) firstNumericIdx = idxEnergy;
           }
-
-          final valStr = item['val']?.toString() ?? '0';
-          final power = double.tryParse(valStr) ?? 0.0;
-          hourly.add(EnergyData(
-            deviceId: plantId,
-            timestamp: ts,
-            power: power,
-            energy: 0,
-            voltage: 0,
-            current: 0,
-            temperature: 0,
-            additionalData: {},
-          ));
-        } catch (_) {}
+          for (final r in rows) {
+            try {
+              final timeStr = (r is Map ? r['time'] : null)?.toString();
+              final fields = (r is Map ? r['field'] : null) as List?;
+              if (fields == null || fields.isEmpty) continue;
+              final raw = fields.length > firstNumericIdx
+                  ? fields[firstNumericIdx]
+                  : fields.first;
+              final val = raw is num
+                  ? raw.toDouble()
+                  : double.tryParse(raw.toString()) ?? 0.0;
+              totalKwh += val;
+              DateTime ts;
+              if (timeStr != null && timeStr.isNotEmpty) {
+                // Expect 'YYYY-MM-DD' or similar
+                ts = DateTime.tryParse(timeStr) ?? baseDate;
+              } else {
+                ts = baseDate;
+              }
+              timeline.add(EnergyData(
+                deviceId: plantId,
+                timestamp: ts,
+                power: 0,
+                energy: val,
+                voltage: 0,
+                current: 0,
+                temperature: 0,
+                additionalData: const {},
+              ));
+            } catch (_) {}
+          }
+        } else {
+          // Other possible arrays
+          items = (dat['perday'] as List?) ?? (dat['parameter'] as List?) ?? [];
+        }
       }
-
-      // Compute basic stats
-      double peak = 0;
-      double sum = 0;
-      for (final e in hourly) {
-        peak = e.power > peak ? e.power : peak;
-        sum += e.power;
+      if (items.isNotEmpty) {
+        for (final it in items) {
+          try {
+            final val = it is Map
+                ? (double.tryParse(it['val']?.toString() ?? '0') ?? 0.0)
+                : 0.0;
+            totalKwh += val;
+            final tsRaw = (it is Map ? it['ts'] : null)?.toString();
+            final ts = tsRaw != null
+                ? (DateTime.tryParse(tsRaw) ?? baseDate)
+                : baseDate;
+            timeline.add(EnergyData(
+              deviceId: plantId,
+              timestamp: ts,
+              power: 0,
+              energy: val,
+              voltage: 0,
+              current: 0,
+              temperature: 0,
+              additionalData: const {},
+            ));
+          } catch (_) {}
+        }
       }
-      final double avg =
-          hourly.isEmpty ? 0.0 : (sum / hourly.length.toDouble());
-
-      return EnergySummary(
-        deviceId: plantId,
-        date: DateTime.tryParse(date) ?? DateTime.now(),
-        totalEnergy: sum,
-        peakPower: peak,
-        averagePower: avg,
-        hourlyData: hourly,
-      );
     }
 
-    // Graceful fallback for no data (e.g., err=12 or missing dat): return zeros instead of throwing
-    final baseDate = DateTime.tryParse(date) ?? DateTime.now();
-    final zeroHourly = List<EnergyData>.generate(24, (h) {
-      final ts = DateTime(baseDate.year, baseDate.month, baseDate.day, h);
-      return EnergyData(
+    // If nothing parsed, return zero summary for the day
+    if (timeline.isEmpty) {
+      final zero = EnergyData(
         deviceId: plantId,
-        timestamp: ts,
+        timestamp: baseDate,
         power: 0,
         energy: 0,
         voltage: 0,
@@ -102,14 +132,25 @@ class EnergyRepository {
         temperature: 0,
         additionalData: const {},
       );
-    });
+      return EnergySummary(
+        deviceId: plantId,
+        date: baseDate,
+        totalEnergy: 0,
+        peakPower: 0,
+        averagePower: 0,
+        hourlyData: [zero],
+      );
+    }
+    final peak =
+        timeline.fold<double>(0, (m, e) => e.energy > m ? e.energy : m);
+    final double avg = timeline.isEmpty ? 0.0 : (totalKwh / timeline.length);
     return EnergySummary(
       deviceId: plantId,
       date: baseDate,
-      totalEnergy: 0,
-      peakPower: 0,
-      averagePower: 0,
-      hourlyData: zeroHourly,
+      totalEnergy: totalKwh,
+      peakPower: peak,
+      averagePower: avg,
+      hourlyData: timeline,
     );
   }
 
@@ -177,30 +218,87 @@ class EnergyRepository {
     final points = <EnergyData>[];
     if (js['err'] == 0 && js['dat'] != null) {
       final dat = js['dat'];
-      final List list = dat['peryear'] ?? dat['parameter'] ?? dat['row'] ?? [];
-      for (final e in list) {
-        try {
-          final v = e['val'];
-          final d = v is num ? v.toDouble() : double.tryParse('${v}') ?? 0.0;
-          final tsRaw = e['ts']?.toString();
-          DateTime ts;
-          if (tsRaw != null) {
-            ts = DateTime.tryParse(tsRaw) ?? baseDate;
-          } else {
-            final y = e['year'] is num ? e['year'] as int : now.year;
-            ts = DateTime(y, 1, 1);
+      List list = dat['peryear'] ?? dat['parameter'] ?? [];
+      if (list.isNotEmpty) {
+        for (final e in list) {
+          try {
+            final v = e['val'];
+            final d = v is num ? v.toDouble() : double.tryParse('${v}') ?? 0.0;
+            final tsRaw = e['ts']?.toString();
+            DateTime ts;
+            if (tsRaw != null) {
+              // Expect 'YYYY' or 'YYYY-01-01'
+              ts = DateTime.tryParse(tsRaw) ??
+                  DateTime(int.tryParse(tsRaw) ?? now.year, 1, 1);
+            } else {
+              final y = e['year'] is num ? e['year'] as int : now.year;
+              ts = DateTime(y, 1, 1);
+            }
+            points.add(EnergyData(
+              deviceId: plantId,
+              timestamp: ts,
+              power: 0,
+              energy: d,
+              voltage: 0,
+              current: 0,
+              temperature: 0,
+              additionalData: const {},
+            ));
+          } catch (_) {}
+        }
+      } else {
+        // Try table shape: row/title
+        final rows = dat['row'] as List?;
+        final titles = dat['title'] as List?;
+        if (rows != null && rows.isNotEmpty) {
+          int firstNumericIdx = 0;
+          if (titles != null && titles.isNotEmpty) {
+            final idxEnergy = titles.indexWhere((t) {
+              try {
+                final title =
+                    (t is Map ? t['title'] : t)?.toString().toLowerCase();
+                return title != null &&
+                    (title.contains('energy') ||
+                        title.contains('generation') ||
+                        title.contains('kwh'));
+              } catch (_) {
+                return false;
+              }
+            });
+            if (idxEnergy != -1) firstNumericIdx = idxEnergy;
           }
-          points.add(EnergyData(
-            deviceId: plantId,
-            timestamp: ts,
-            power: 0,
-            energy: d,
-            voltage: 0,
-            current: 0,
-            temperature: 0,
-            additionalData: const {},
-          ));
-        } catch (_) {}
+          for (final r in rows) {
+            try {
+              final timeStr = (r is Map ? r['time'] : null)?.toString();
+              final fields = (r is Map ? r['field'] : null) as List?;
+              if (fields == null || fields.isEmpty) continue;
+              final raw = fields.length > firstNumericIdx
+                  ? fields[firstNumericIdx]
+                  : fields.first;
+              final val = raw is num
+                  ? raw.toDouble()
+                  : double.tryParse(raw.toString()) ?? 0.0;
+              DateTime ts;
+              if (timeStr != null && timeStr.isNotEmpty) {
+                // Expect 'YYYY'
+                final y = int.tryParse(timeStr) ?? now.year;
+                ts = DateTime(y, 1, 1);
+              } else {
+                ts = DateTime(now.year - (rows.indexOf(r)), 1, 1);
+              }
+              points.add(EnergyData(
+                deviceId: plantId,
+                timestamp: ts,
+                power: 0,
+                energy: val,
+                voltage: 0,
+                current: 0,
+                temperature: 0,
+                additionalData: const {},
+              ));
+            } catch (_) {}
+          }
+        }
       }
     }
     double total = 0;
@@ -284,7 +382,74 @@ class EnergyRepository {
 
       final dataJson = json.decode(response.body);
       if (dataJson['err'] == 0 && dataJson['dat'] != null) {
-        return ProfitStatistic.fromJson(dataJson['dat']);
+        final dat = dataJson['dat'];
+        if (dat is Map<String, dynamic>) {
+          // Direct map with values
+          // Some responses come in table form with title/row
+          if (dat.containsKey('row')) {
+            try {
+              final rows = (dat['row'] as List?) ?? const [];
+              final titles = (dat['title'] as List?) ?? const [];
+              if (rows.isNotEmpty) {
+                final first = rows.first as Map;
+                final fields = (first['field'] as List?) ?? const [];
+                // Build title list in lowercase for matching
+                final titleTexts = titles
+                    .map((t) =>
+                        (t is Map ? t['title'] : t)
+                            ?.toString()
+                            .toLowerCase()
+                            .trim() ??
+                        '')
+                    .toList();
+
+                int idxOf(List<String> candidates) {
+                  for (final c in candidates) {
+                    final i = titleTexts.indexWhere((t) => t.contains(c));
+                    if (i != -1) return i;
+                  }
+                  return -1;
+                }
+
+                String valAt(int idx) {
+                  if (idx >= 0 && idx < fields.length) {
+                    final v = fields[idx];
+                    return (v is num) ? v.toString() : (v?.toString() ?? '');
+                  }
+                  return '';
+                }
+
+                // Heuristics: pick profit/money/income column
+                final profitIdx = idxOf(['profit', 'money', 'income']);
+                final currencyIdx = idxOf(['currency', 'unit']);
+                final energyIdx = idxOf(['energy', 'generation', 'kwh']);
+
+                final profit = valAt(profitIdx).isNotEmpty
+                    ? valAt(profitIdx)
+                    : (dat['profit']?.toString() ?? '0.0');
+                final currency = valAt(currencyIdx).isNotEmpty
+                    ? valAt(currencyIdx)
+                    : (dat['currency']?.toString() ??
+                        dat['profitUnit']?.toString() ??
+                        '');
+                final energy = valAt(energyIdx).isNotEmpty
+                    ? valAt(energyIdx)
+                    : (dat['energy']?.toString() ?? '0.0000');
+                return ProfitStatistic(
+                  co2: dat['co2']?.toString() ?? '0.0000',
+                  so2: dat['so2']?.toString() ?? '0.0000',
+                  coal: dat['coal']?.toString() ?? '0.0000',
+                  profit: profit.isEmpty ? '0.0' : profit,
+                  energy: energy.isEmpty ? '0.0000' : energy,
+                  currency: currency,
+                );
+              }
+            } catch (_) {
+              // fallthrough to fromJson
+            }
+          }
+          return ProfitStatistic.fromJson(dat);
+        }
       }
       print('Profit statistics error: ${dataJson['desc']}');
       return null;
@@ -469,30 +634,103 @@ class EnergyRepository {
     final points = <EnergyData>[];
     if (dataJson['dat'] != null) {
       final dat = dataJson['dat'];
-      final List items =
-          (dat['energy'] as List?) ?? (dat['detail'] as List?) ?? [];
-      for (int i = 0; i < items.length; i++) {
-        final it = items[i];
-        try {
-          final tsRaw = it['ts']?.toString();
-          final val = double.tryParse(it['val']?.toString() ?? '0') ?? 0.0;
-          DateTime ts;
-          if (tsRaw != null) {
-            ts = DateTime.tryParse(tsRaw) ?? DateTime(baseDate.year, i + 1, 1);
-          } else {
-            ts = DateTime(baseDate.year, i + 1, 1);
+      // Common shapes from DESS:
+      // - permonth/parameter: [{ ts: 'YYYY-MM-01', val: number }, ...]
+      // - energy/detail: legacy arrays
+      // - row/title: table-like where row[i].time + row[i].field[j]
+      List items = (dat['permonth'] as List?) ??
+          (dat['parameter'] as List?) ??
+          (dat['energy'] as List?) ??
+          (dat['detail'] as List?) ??
+          [];
+      if (items.isEmpty) {
+        // Try table shape
+        final rows = dat['row'] as List?;
+        final titles = dat['title'] as List?; // may contain column names
+        if (rows != null && rows.isNotEmpty) {
+          int firstNumericIdx = 0;
+          if (titles != null && titles.isNotEmpty) {
+            final idxEnergy = titles.indexWhere((t) {
+              try {
+                final title =
+                    (t is Map ? t['title'] : t)?.toString().toLowerCase();
+                return title != null &&
+                    (title.contains('energy') ||
+                        title.contains('generation') ||
+                        title.contains('kwh'));
+              } catch (_) {
+                return false;
+              }
+            });
+            if (idxEnergy != -1) firstNumericIdx = idxEnergy;
           }
-          points.add(EnergyData(
-            deviceId: plantId,
-            timestamp: ts,
-            power: 0,
-            energy: val,
-            voltage: 0,
-            current: 0,
-            temperature: 0,
-            additionalData: const {},
-          ));
-        } catch (_) {}
+          for (final r in rows) {
+            try {
+              final timeStr = (r is Map ? r['time'] : null)?.toString();
+              final fields = (r is Map ? r['field'] : null) as List?;
+              if (fields == null || fields.isEmpty) continue;
+              final raw = fields.length > firstNumericIdx
+                  ? fields[firstNumericIdx]
+                  : fields.first;
+              final val = raw is num
+                  ? raw.toDouble()
+                  : double.tryParse(raw.toString()) ?? 0.0;
+              DateTime ts;
+              if (timeStr != null && timeStr.isNotEmpty) {
+                // Could be '1'..'12' or 'YYYY-MM'
+                if (timeStr.contains('-')) {
+                  // 'YYYY-MM' or 'YYYY-MM-01'
+                  final parsed = DateTime.tryParse(
+                      timeStr.length == 7 ? '$timeStr-01' : timeStr);
+                  ts = parsed ?? baseDate;
+                } else {
+                  final m = int.tryParse(timeStr) ?? 1;
+                  ts = DateTime(baseDate.year, m, 1);
+                }
+              } else {
+                ts = DateTime(baseDate.year, (points.length + 1), 1);
+              }
+              points.add(EnergyData(
+                deviceId: plantId,
+                timestamp: ts,
+                power: 0,
+                energy: val,
+                voltage: 0,
+                current: 0,
+                temperature: 0,
+                additionalData: const {},
+              ));
+            } catch (_) {}
+          }
+        }
+      }
+      if (items.isNotEmpty) {
+        for (int i = 0; i < items.length; i++) {
+          final it = items[i];
+          try {
+            final tsRaw = (it is Map ? it['ts'] : null)?.toString();
+            final val = it is Map
+                ? (double.tryParse(it['val']?.toString() ?? '0') ?? 0.0)
+                : 0.0;
+            DateTime ts;
+            if (tsRaw != null) {
+              ts =
+                  DateTime.tryParse(tsRaw) ?? DateTime(baseDate.year, i + 1, 1);
+            } else {
+              ts = DateTime(baseDate.year, i + 1, 1);
+            }
+            points.add(EnergyData(
+              deviceId: plantId,
+              timestamp: ts,
+              power: 0,
+              energy: val,
+              voltage: 0,
+              current: 0,
+              temperature: 0,
+              additionalData: const {},
+            ));
+          } catch (_) {}
+        }
       }
     }
     // Ensure 12 months

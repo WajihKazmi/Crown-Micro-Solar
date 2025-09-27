@@ -16,13 +16,47 @@ class ProfitStatistic {
   });
 
   factory ProfitStatistic.fromJson(Map<String, dynamic> json) {
+    // Handle multiple legacy key variants gracefully
+    String pick(List<String> keys, {String fallback = '0'}) {
+      for (final k in keys) {
+        final v = json[k];
+        if (v != null && v.toString().isNotEmpty) return v.toString();
+      }
+      return fallback;
+    }
+
+    final profit = pick([
+      'profit',
+      'profitAll',
+      'money',
+      'income',
+      'sumProfit',
+      'todayProfit',
+    ], fallback: '0.0');
+    final currency = pick([
+      'currency',
+      'profitUnit',
+      'currencyUnit',
+      'money_unit',
+      'unit',
+    ], fallback: '');
+    final energy = pick([
+      'energy',
+      'generation',
+      'power',
+      'kwh',
+    ], fallback: '0.0000');
+    final co2 = pick(['co2', 'co2Reduce', 'co2_reduction'], fallback: '0.0000');
+    final so2 = pick(['so2', 'so2Reduce', 'so2_reduction'], fallback: '0.0000');
+    final coal = pick(['coal', 'coalSave', 'coal_saving'], fallback: '0.0000');
+
     return ProfitStatistic(
-      co2: json['co2']?.toString() ?? '0.0000',
-      so2: json['so2']?.toString() ?? '0.0000',
-      coal: json['coal']?.toString() ?? '0.0000',
-      profit: json['profit']?.toString() ?? '0.0',
-      energy: json['energy']?.toString() ?? '0.0000',
-      currency: json['currency']?.toString() ?? '',
+      co2: co2,
+      so2: so2,
+      coal: coal,
+      profit: profit,
+      energy: energy,
+      currency: currency,
     );
   }
 

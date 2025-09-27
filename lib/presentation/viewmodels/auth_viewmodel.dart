@@ -312,8 +312,18 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   Future<void> fetchUserInfo() async {
-    _userInfo = await _accountRepository.fetchAccountInfo();
-    notifyListeners();
+    try {
+      _userInfo = await _accountRepository.fetchAccountInfo();
+    } catch (e) {
+      // Do not block UI on token or network errors; leave userInfo as null and continue
+      _userInfo = null;
+      // Keep error non-fatal for UI; optionally log
+      if (kDebugMode) {
+        print('fetchUserInfo failed: $e');
+      }
+    } finally {
+      notifyListeners();
+    }
   }
 
   Future<bool> changePassword(String oldPassword, String newPassword) async {
@@ -386,7 +396,8 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   Future<bool> updatePasswordWithUserId(int userId, String newPassword) async {
-    return await _accountRepository.updatePasswordForUserId(userId, newPassword);
+    return await _accountRepository.updatePasswordForUserId(
+        userId, newPassword);
   }
 
   // Add installer code flow
