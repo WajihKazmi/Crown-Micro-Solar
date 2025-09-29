@@ -20,7 +20,7 @@ import 'package:crown_micro_solar/presentation/repositories/device_repository.da
 // Use the unified alarm notification screen (same as home) for consistent loading logic
 import 'package:crown_micro_solar/view/home/alarm_notification_screen.dart';
 import 'package:video_player/video_player.dart';
-import 'package:crown_micro_solar/view/home/device_settings_legacy_screen.dart';
+import 'package:crown_micro_solar/view/home/data_control_old_screen.dart';
 
 class DeviceDetailScreen extends StatefulWidget {
   final Device device;
@@ -87,24 +87,75 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         _err = null;
       });
     }
-    try {
-      final date = DateFormat('yyyy-MM-dd').format(_anchorDate);
-      // Run independent calls in parallel for faster turnaround
-      final repo = getIt<DeviceRepository>();
-      final futures = await Future.wait([
-        _deviceVM.fetchDeviceLiveSignal(
+    final date = DateFormat('yyyy-MM-dd').format(_anchorDate);
+    final repo = getIt<DeviceRepository>();
+    int pending = 4;
+    bool anySuccess = false;
+    void done() {
+      pending -= 1;
+      if (pending <= 0) {
+        _isFetching = false;
+        if (!mounted) return;
+        if (!anySuccess && !silent) {
+          setState(() {
+            _loading = false;
+            _err = _err ?? 'Failed to load device data';
+          });
+        }
+      }
+    }
+
+    // Live signal
+    () async {
+      try {
+        final live = await _deviceVM.fetchDeviceLiveSignal(
           sn: widget.device.sn,
           pn: widget.device.pn,
           devcode: widget.device.devcode,
           devaddr: widget.device.devaddr,
-        ),
-        repo.fetchDeviceEnergyFlow(
+        );
+        if (!mounted) return;
+        setState(() {
+          _live = live;
+          _hasData = true;
+          _loading = false; // first successful response hides spinner
+          anySuccess = true;
+        });
+      } catch (e) {
+        // ignore individual errors
+      } finally {
+        done();
+      }
+    }();
+
+    // Energy flow
+    () async {
+      try {
+        final flow = await repo.fetchDeviceEnergyFlow(
           sn: widget.device.sn,
           pn: widget.device.pn,
           devcode: widget.device.devcode,
           devaddr: widget.device.devaddr,
-        ),
-        _metricAggVM.resolveMetrics([
+        );
+        if (!mounted) return;
+        final newKey = _computeFlowKey(flow);
+        setState(() {
+          _energyFlow = flow;
+          _lastFlowKey = newKey;
+          _hasData = true;
+          _loading = false;
+          anySuccess = true;
+        });
+      } catch (e) {
+      } finally {
+        done();
+      }
+    }();
+
+    // Aggregated metrics
+    () async {
+      try {
+        await _metricAggVM.resolveMetrics([
           'PV_OUTPUT_POWER',
           'PV_INPUT_VOLTAGE',
           'AC2_OUTPUT_VOLTAGE',
@@ -112,8 +163,24 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
           'LOAD_POWER',
           'GRID_POWER',
           'GRID_FREQUENCY',
-        ], date: date),
-        repo.fetchDeviceDataOneDayPaging(
+        ], date: date);
+        if (!mounted) return;
+        setState(() {
+          // metrics resolved inside view model; trigger rebuild
+          _hasData = true;
+          _loading = false;
+          anySuccess = true;
+        });
+      } catch (e) {
+      } finally {
+        done();
+      }
+    }();
+
+    // One-day paging (latest values table)
+    () async {
+      try {
+        final paging = await repo.fetchDeviceDataOneDayPaging(
           sn: widget.device.sn,
           pn: widget.device.pn,
           devcode: widget.device.devcode,
@@ -121,31 +188,21 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
           date: date,
           page: 0,
           pageSize: 200,
-        ),
-      ]);
-      final live = futures[0] as DeviceLiveSignalModel?;
-      final flow = futures[1] as DeviceEnergyFlowModel?;
-      final paging = futures[3] as Map<String, dynamic>?;
-      if (!mounted) return;
-      final newKey = _computeFlowKey(flow);
-      setState(() {
-        _live = live;
-        _energyFlow = flow;
-        _lastFlowKey = newKey;
-        _loading = false;
-        _hasData = true;
-        _latestPagingValues
-          ..clear()
-          ..addAll(_buildLatestFromPaging(paging));
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _err = e.toString();
-        _loading = false;
-      });
-    }
-    _isFetching = false;
+        );
+        if (!mounted) return;
+        setState(() {
+          _latestPagingValues
+            ..clear()
+            ..addAll(_buildLatestFromPaging(paging));
+          _hasData = true;
+          _loading = false;
+          anySuccess = true;
+        });
+      } catch (e) {
+      } finally {
+        done();
+      }
+    }();
   }
 
   Map<String, String> _buildLatestFromPaging(Map<String, dynamic>? paging) {
@@ -1107,8 +1164,9 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                   onTap: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) =>
-                            DeviceSettingsLegacyScreen(device: widget.device),
+                        builder: (_) => DataControlOldScreen.fromDevice(
+                          widget.device,
+                        ),
                       ),
                     );
                   },

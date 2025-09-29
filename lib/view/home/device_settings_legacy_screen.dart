@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:crown_micro_solar/legacy/device_ctrl_fields_model.dart';
 
@@ -75,7 +76,7 @@ class _LegacyTabbedState extends State<DeviceSettingsLegacyScreen> {
               tooltip: 'Refresh Values',
               icon: const Icon(Icons.refresh),
               onPressed: () =>
-                  _refreshMissingValues(forceAll: true, concurrency: 48),
+                  _refreshMissingValues(forceAll: true, concurrency: 128),
             )
           ],
         ),
@@ -111,7 +112,7 @@ class _LegacyTabbedState extends State<DeviceSettingsLegacyScreen> {
               tooltip: 'Refresh Values',
               icon: const Icon(Icons.refresh),
               onPressed: () =>
-                  _refreshMissingValues(forceAll: true, concurrency: 48),
+                  _refreshMissingValues(forceAll: true, concurrency: 128),
             )
           ],
           bottom: TabBar(
@@ -160,7 +161,7 @@ class _LegacyTabbedState extends State<DeviceSettingsLegacyScreen> {
   // After initial load, refresh current values (concurrently) for fields missing a value.
   // Use a higher concurrency to converge quickly.
   Future<void> _refreshMissingValues(
-      {bool forceAll = false, int concurrency = 24}) async {
+      {bool forceAll = false, int concurrency = 64}) async {
     if (!mounted) return;
     // Collect ids to refresh
     final List<Map<String, dynamic>> toRefresh = [];
@@ -178,7 +179,23 @@ class _LegacyTabbedState extends State<DeviceSettingsLegacyScreen> {
     if (toRefresh.isEmpty) return;
     // Concurrency-limited parallel fetch
     int idx = 0;
-    final int limit = concurrency.clamp(1, 64);
+    // Effective concurrency is bounded by number of items and a safe upper cap
+    final int limit = math.min(toRefresh.length, concurrency.clamp(1, 256));
+
+    // Throttled UI updates so values appear progressively while workers run
+    int _pendingUiUpdates = 0;
+    var _lastUi = DateTime.now();
+    void _maybeTickUi() {
+      _pendingUiUpdates++;
+      final now = DateTime.now();
+      if (_pendingUiUpdates >= 6 ||
+          now.difference(_lastUi) > const Duration(milliseconds: 150)) {
+        if (mounted) setState(() {});
+        _pendingUiUpdates = 0;
+        _lastUi = now;
+      }
+    }
+
     Future<void> worker() async {
       while (true) {
         if (idx >= toRefresh.length) break;
@@ -189,18 +206,18 @@ class _LegacyTabbedState extends State<DeviceSettingsLegacyScreen> {
         if (id.isEmpty) continue;
         try {
           final resp = await DevicecTRLvalueQuery(context,
-                  PN: widget.device.pn,
-                  SN: widget.device.sn,
-                  devaddr: widget.device.devaddr.toString(),
-                  devcode: widget.device.devcode.toString(),
-                  id: id)
-              .timeout(const Duration(seconds: 4));
+              PN: widget.device.pn,
+              SN: widget.device.sn,
+              devaddr: widget.device.devaddr.toString(),
+              devcode: widget.device.devcode.toString(),
+              id: id);
           if ((resp['err'] ?? 1) == 0) {
             final val = resp['dat']?['val']?.toString();
             if (val != null) {
               _valueCache[id] = val;
               f['val'] = val;
               f['__displayVal'] = _currentDisplayValue(f);
+              _maybeTickUi();
             }
           }
         } on TimeoutException {
@@ -277,16 +294,15 @@ class _LegacyTabbedState extends State<DeviceSettingsLegacyScreen> {
         m['__category'] = _settingsCategory(m);
         return m;
       }).toList();
-      // Set fields first so refresh can populate them, keep spinner until values converge
+      // Set fields first so refresh can populate them. Don't block UI; start background refresh.
       setState(() {
         _fields = mapped;
-      });
-      // Aggressively refresh all values concurrently before showing the screen
-      await _refreshMissingValues(forceAll: true, concurrency: 48);
-      if (!mounted) return;
-      setState(() {
         _loading = false;
       });
+      // Kick off a high-concurrency refresh in the background so tiles fill in progressively.
+      // We intentionally do not await here to avoid delaying first paint.
+      // ignore: unawaited_futures
+      _refreshMissingValues(forceAll: true, concurrency: 192);
     } catch (e) {
       setState(() {
         _loading = false;
@@ -312,12 +328,14 @@ class _LegacySettingTile extends StatefulWidget {
 class _LegacySettingTileState extends State<_LegacySettingTile> {
   late Map<String, dynamic> field;
   String _currentDisplay = '';
+  String? _currentRaw; // backend code currently selected (for dropdown)
 
   @override
   void initState() {
     super.initState();
     field = Map<String, dynamic>.from(widget.field);
     _currentDisplay = field['__displayVal']?.toString() ?? '';
+    _currentRaw = _extractCurrentRawValue(field) ?? field['val']?.toString();
     // Avoid per-tile auto fetch to keep initial screen fast; parent triggers a batched refresh.
     // _ensureFreshCurrentValue();
   }
@@ -329,6 +347,7 @@ class _LegacySettingTileState extends State<_LegacySettingTile> {
     // Sync with latest parent-provided field map on rebuild
     field = widget.field;
     _currentDisplay = field['__displayVal']?.toString() ?? _currentDisplay;
+    _currentRaw = _extractCurrentRawValue(field) ?? _currentRaw;
     final name = field['__label']?.toString() ?? '—';
     final options = (field['item'] as List?)?.whereType<Map>().toList() ?? [];
     final hasOptions = options.isNotEmpty;
@@ -337,13 +356,35 @@ class _LegacySettingTileState extends State<_LegacySettingTile> {
         hasOptions && options.length == 2 && _looksBoolean(options);
     final boolValue = isBoolean ? _currentBoolValue(field, options) : null;
 
+    // Special legacy action: Restore to Default -> immediate action (no options)
+    final isRestore = name.toLowerCase().contains('restore') ||
+        name.toLowerCase().contains('default');
+
     return InkWell(
       onTap: () async {
+        if (isRestore) {
+          final ok = await showDialog<bool>(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: Text(name),
+                  content: const Text('Restore device settings to defaults?'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('Cancel')),
+                    ElevatedButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text('Restore')),
+                  ],
+                ),
+              ) ??
+              false;
+          if (ok) await _writeValue(context, '1');
+          return;
+        }
         if (isBoolean) {
           await _toggleBoolean(context, field, !boolValue!);
-        } else if (hasOptions) {
-          await _showOptions(context);
-        } else if (hasRange || _currentDisplay.isNotEmpty) {
+        } else if (!hasOptions && (hasRange || _currentDisplay.isNotEmpty)) {
           await _showNumberEditor(context);
         }
       },
@@ -371,7 +412,18 @@ class _LegacySettingTileState extends State<_LegacySettingTile> {
                 value: boolValue!,
                 onChanged: (v) async => await _toggleBoolean(context, field, v),
               )
-            else ...[
+            else if (hasOptions) ...[
+              // Inline dropdown with backend codes
+              const SizedBox(width: 8),
+              _InlineDropdown(
+                field: field,
+                currentCode: _currentRaw,
+                displayText: _currentDisplay,
+                onChanged: (code) async {
+                  await _writeValue(context, code);
+                },
+              ),
+            ] else ...[
               if (_currentDisplay.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(right: 8.0),
@@ -386,141 +438,7 @@ class _LegacySettingTileState extends State<_LegacySettingTile> {
     );
   }
 
-  Future<void> _showOptions(BuildContext context) async {
-    final name = field['__label']?.toString() ?? '';
-    String? currentVal = _extractCurrentRawValue(field);
-    // If empty, fetch directly
-    if (currentVal == null || currentVal.isEmpty) {
-      final id = (field['id'] ?? field['name'])?.toString() ?? '';
-      if (id.isNotEmpty) {
-        try {
-          final resp = await DevicecTRLvalueQuery(context,
-              PN: widget.device.pn,
-              SN: widget.device.sn,
-              devaddr: widget.device.devaddr.toString(),
-              devcode: widget.device.devcode.toString(),
-              id: id);
-          if ((resp['err'] ?? 1) == 0) {
-            currentVal = resp['dat']?['val']?.toString();
-          }
-        } catch (_) {}
-      }
-    }
-    final rawItems = (field['item'] as List?)?.whereType<Map>().toList() ?? [];
-    final unit = _inferUnitForField(field);
-    List<Map<String, dynamic>> items = rawItems.map<Map<String, dynamic>>((e) {
-      final keyTxt = e['key']?.toString();
-      final val = e['val'];
-      String text = keyTxt ?? val?.toString() ?? '';
-      text = _normalizeOptionLabel(text,
-          fieldName: name, rawValue: val?.toString(), unit: unit);
-      // Always write the backend "val" code to the API (not the human label)
-      final write = val?.toString() ?? '';
-      return {
-        'text': text,
-        'val': val?.toString(),
-        'key': keyTxt,
-        'write': write
-      };
-    }).toList();
-    // Deduplicate by text
-    if (items.isNotEmpty) {
-      final Map<String, Map<String, dynamic>> byText = {};
-      for (final it in items) {
-        final t = (it['text'] ?? '').toString();
-        if (t.isEmpty) continue;
-        if (!byText.containsKey(t)) {
-          byText[t] = it;
-        } else {
-          final curStr = currentVal?.toString();
-          if (curStr != null && it['val']?.toString() == curStr) {
-            byText[t] = it;
-          }
-        }
-      }
-      items = byText.values.toList();
-    }
-    // Pre-select by value or normalized label
-    String? groupVal = currentVal;
-    if (groupVal == null ||
-        !items.any((e) => (e['val']?.toString() ?? '') == groupVal)) {
-      final normalized =
-          _normalizeOptionLabel(currentVal ?? '', fieldName: name)
-              .toLowerCase();
-      for (final it in items) {
-        final itLabel = (it['text'] ?? '').toString().toLowerCase();
-        if (itLabel == normalized) {
-          groupVal = it['val']?.toString();
-          break;
-        }
-      }
-    }
-    final selected = await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (c) {
-        return DraggableScrollableSheet(
-            expand: false,
-            maxChildSize: 0.85,
-            initialChildSize: 0.6,
-            minChildSize: 0.4,
-            builder: (context, scroll) {
-              return SafeArea(
-                top: false,
-                child: Column(children: [
-                  const SizedBox(height: 8),
-                  Container(
-                    height: 4,
-                    width: 40,
-                    decoration: BoxDecoration(
-                        color: Colors.black26,
-                        borderRadius: BorderRadius.circular(2)),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(name,
-                      style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w700)),
-                  const Divider(height: 24),
-                  Expanded(
-                    child: ListView.builder(
-                      controller: scroll,
-                      itemCount: items.length,
-                      itemBuilder: (_, i) {
-                        final opt = items[i];
-                        final optValStr = opt['val']?.toString();
-                        return InkWell(
-                          onTap: () => Navigator.pop(
-                              context, opt['val'] ?? opt['write']),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            child: Row(children: [
-                              Radio<String>(
-                                value: optValStr ?? '',
-                                groupValue: (groupVal ?? currentVal) ?? '',
-                                onChanged: (_) => Navigator.pop(
-                                    context, opt['val'] ?? opt['write']),
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                  child: Text(opt['text']?.toString() ?? '',
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w500))),
-                            ]),
-                          ),
-                        );
-                      },
-                    ),
-                  )
-                ]),
-              );
-            });
-      },
-    );
-    if (selected != null) await _writeValue(context, selected.toString());
-  }
+  // Options UI is now inline via _InlineDropdown
 
   Future<void> _showNumberEditor(BuildContext context) async {
     final name =
@@ -582,13 +500,23 @@ class _LegacySettingTileState extends State<_LegacySettingTile> {
   }
 
   Future<void> _writeValue(BuildContext context, String value) async {
+    // Normalize numbers: strip trailing .0 to avoid unexpected val: 110.0
+    String valToSend = value.trim();
+    final numRe = RegExp(r'^-?\d+(?:\.\d+)?$');
+    if (numRe.hasMatch(valToSend)) {
+      if (valToSend.contains('.')) {
+        // Remove trailing zeros after decimal, then trailing dot
+        valToSend = valToSend.replaceFirst(RegExp(r'(\.\d*?)0+$'), r'\\1');
+        valToSend = valToSend.replaceFirst(RegExp(r'\.$'), '');
+      }
+    }
     final id = (field['id'] ?? field['name'])?.toString() ?? '';
     if (id.isEmpty) return;
     final res = await UpdateDeviceFieldQuery(context,
         SN: widget.device.sn,
         PN: widget.device.pn,
         ID: id,
-        Value: value,
+        Value: valToSend,
         devcode: widget.device.devcode.toString(),
         devaddr: widget.device.devaddr.toString());
     if (!mounted) return;
@@ -629,6 +557,73 @@ class _LegacySettingTileState extends State<_LegacySettingTile> {
       if (err == 6) msg = 'Parameter error';
       _showSmallSnack(context, success: false, message: msg);
     }
+  }
+}
+
+// A compact dropdown that shows friendly labels but returns backend codes (val)
+class _InlineDropdown extends StatefulWidget {
+  final Map<String, dynamic> field;
+  final String? currentCode;
+  final String? displayText;
+  final Future<void> Function(String code) onChanged;
+  const _InlineDropdown(
+      {required this.field,
+      required this.currentCode,
+      required this.displayText,
+      required this.onChanged});
+
+  @override
+  State<_InlineDropdown> createState() => _InlineDropdownState();
+}
+
+class _InlineDropdownState extends State<_InlineDropdown> {
+  String? _selectedCode;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedCode = widget.currentCode;
+  }
+
+  @override
+  void didUpdateWidget(covariant _InlineDropdown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _selectedCode = widget.currentCode ?? _selectedCode;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items =
+        (widget.field['item'] as List?)?.whereType<Map>().toList() ?? [];
+    // Build dropdown items using backend codes; never send label
+    final unit = _inferUnitForField(widget.field);
+    final name = widget.field['__label']?.toString() ?? '';
+    final ddItems = <DropdownMenuItem<String>>[];
+    for (final it in items) {
+      final code = (it['val'] ?? '').toString();
+      final keyTxt = (it['key'] ?? it['name'] ?? '').toString();
+      String text = _normalizeOptionLabel(keyTxt,
+          fieldName: name, rawValue: code, unit: unit);
+      // Fall back if key is empty
+      if (text.isEmpty) text = code;
+      ddItems.add(DropdownMenuItem<String>(
+        value: code,
+        child: Text(text, overflow: TextOverflow.ellipsis),
+      ));
+    }
+    // If code not found among items, show the display text as hint
+    final valueInList = ddItems.any((e) => e.value == _selectedCode);
+    return DropdownButton<String>(
+      value: valueInList ? _selectedCode : null,
+      hint: Text(widget.displayText ?? ''),
+      items: ddItems,
+      onChanged: (code) async {
+        if (code == null) return;
+        setState(() => _selectedCode = code);
+        await widget.onChanged(code);
+      },
+      underline: const SizedBox.shrink(),
+    );
   }
 }
 

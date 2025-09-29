@@ -14,6 +14,17 @@ DeviceCtrlFieldseModel deviceCtrlFieldseModelFromJson(String str) =>
 String deviceCtrlFieldseModelToJson(DeviceCtrlFieldseModel data) =>
     json.encode(data.toJson());
 
+// Remember which public host worked last to avoid trying both each time
+String? _preferredPublicHost;
+final http.Client _http = http.Client();
+
+Future<http.Response> _postUrl(String url) {
+  return _http.post(Uri.parse(url), headers: {
+    'Connection': 'keep-alive',
+    'Accept': 'application/json,*/*',
+  });
+}
+
 // Query a single control field current value (legacy exact)
 Future<Map<String, dynamic>> DevicecTRLvalueQuery(BuildContext context,
     {required String SN,
@@ -21,14 +32,21 @@ Future<Map<String, dynamic>> DevicecTRLvalueQuery(BuildContext context,
     required String devcode,
     required String devaddr,
     required String id}) async {
-  var jsonResponse;
+  Map<String, dynamic>? jsonResponse;
 
   SharedPreferences prefs = await SharedPreferences.getInstance();
-  final token = prefs.getString('token') ?? '';
-  final Secret = prefs.getString('Secret') ?? '';
+  final token = (prefs.getString('token') ?? '').trim();
+  final Secret = (prefs.getString('Secret') ?? '').trim();
+  // Trim all params to match legacy exact signing
+  SN = SN.trim();
+  PN = PN.trim();
+  devcode = devcode.trim();
+  devaddr = devaddr.trim();
+  id = id.trim();
   String salt = "12345678";
-  String action =
-      "&action=queryDeviceCtrlValue&pn=$PN&sn=$SN&devcode=$devcode&devaddr=$devaddr&id=$id&i18n=en_US";
+  // We'll try both id= and par= variants like the legacy app did in different paths
+  String baseAction(String idKey) =>
+    "&action=queryDeviceCtrlValue&pn=$PN&sn=$SN&devcode=$devcode&devaddr=$devaddr&$idKey=$id&i18n=en_US";
 
   PackageInfo packageInfo = await PackageInfo.fromPlatform();
   String packageName = packageInfo.packageName;
@@ -38,25 +56,46 @@ Future<Map<String, dynamic>> DevicecTRLvalueQuery(BuildContext context,
   String postaction =
       "&source=$Source&app_id=$packageName&app_version=$version&app_client=$platform";
 
-  var data = salt + Secret + token + action + postaction;
-  var output = utf8.encode(data);
-  var sign = sha1.convert(output).toString();
-  String url =
-      'http://web.shinemonitor.com/public/?sign=$sign&salt=${salt}&token=${token}' +
+  final defaultHosts = [
+    'http://web.shinemonitor.com/public/',
+    'http://api.dessmonitor.com/public/',
+  ];
+  final hosts = _preferredPublicHost == null
+      ? defaultHosts
+      : [
+          _preferredPublicHost!,
+          ...defaultHosts.where((h) => h != _preferredPublicHost)
+        ];
+  for (final idKey in ['id', 'par']) {
+    final action = baseAction(idKey);
+    final data = salt + Secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    for (final base in hosts) {
+      final url = '${base}?sign=$sign&salt=${salt}&token=${token}' +
           action +
           postaction;
-  try {
-    await http.post(Uri.parse(url)).then((response) {
-      if (response.statusCode == 200) {
-        jsonResponse = json.decode(response.body);
-      } else if (response.statusCode == 404) {
-        jsonResponse = {'err': 404};
+      try {
+        final response = await _postUrl(url);
+        if (response.statusCode == 200) {
+          final decoded = json.decode(response.body);
+          if (decoded is Map) {
+            jsonResponse = Map<String, dynamic>.from(decoded);
+          } else {
+            jsonResponse = {'err': -1, 'desc': 'invalid_response'};
+          }
+          if ((jsonResponse['err'] == 0)) {
+            _preferredPublicHost = base;
+            return jsonResponse;
+          }
+        } else if (response.statusCode == 404) {
+          jsonResponse = {'err': 404};
+        }
+      } catch (e) {
+        jsonResponse = {'err': 404, 'desc': e.toString()};
       }
-    });
-  } catch (e) {
-    jsonResponse = {'err': 404, 'desc': e.toString()};
+    }
   }
-  return jsonResponse;
+  return jsonResponse ?? <String, dynamic>{'err': 404};
 }
 
 // Query device control fields (legacy exact)
@@ -65,14 +104,18 @@ Future<Map<String, dynamic>> DeviceCtrlFieldseModelQuery(BuildContext context,
     required String PN,
     required String devcode,
     required String devaddr}) async {
-  var jsonResponse;
+  Map<String, dynamic>? jsonResponse;
 
   SharedPreferences prefs = await SharedPreferences.getInstance();
-  final token = prefs.getString('token') ?? '';
-  final Secret = prefs.getString('Secret') ?? '';
+  final token = (prefs.getString('token') ?? '').trim();
+  final Secret = (prefs.getString('Secret') ?? '').trim();
+  SN = SN.trim();
+  PN = PN.trim();
+  devcode = devcode.trim();
+  devaddr = devaddr.trim();
   String salt = "12345678";
   String action =
-      "&action=queryDeviceCtrlField&pn=$PN&sn=$SN&devcode=$devcode&devaddr=$devaddr&i18n=en_US";
+    "&action=queryDeviceCtrlField&pn=$PN&sn=$SN&devcode=$devcode&devaddr=$devaddr&i18n=en_US";
 
   PackageInfo packageInfo = await PackageInfo.fromPlatform();
   String packageName = packageInfo.packageName;
@@ -86,22 +129,40 @@ Future<Map<String, dynamic>> DeviceCtrlFieldseModelQuery(BuildContext context,
   var data = salt + Secret + token + action + postaction;
   var output = utf8.encode(data);
   var sign = sha1.convert(output).toString();
-  String url =
-      'http://web.shinemonitor.com/public/?sign=$sign&salt=${salt}&token=${token}' +
-          action +
-          postaction;
-  try {
-    await http.post(Uri.parse(url)).then((response) {
+  final defaultHosts = [
+    'http://web.shinemonitor.com/public/',
+    'http://api.dessmonitor.com/public/',
+  ];
+  final hosts = _preferredPublicHost == null
+      ? defaultHosts
+      : [
+          _preferredPublicHost!,
+          ...defaultHosts.where((h) => h != _preferredPublicHost)
+        ];
+  for (final base in hosts) {
+    final url =
+        '${base}?sign=$sign&salt=${salt}&token=${token}' + action + postaction;
+    try {
+      final response = await _postUrl(url);
       if (response.statusCode == 200) {
-        jsonResponse = json.decode(response.body);
+        final decoded = json.decode(response.body);
+        if (decoded is Map) {
+          jsonResponse = Map<String, dynamic>.from(decoded);
+        } else {
+          jsonResponse = {'err': -1, 'desc': 'invalid_response'};
+        }
+        if ((jsonResponse['err'] == 0)) {
+          _preferredPublicHost = base;
+          return jsonResponse;
+        }
       } else if (response.statusCode == 404) {
         jsonResponse = {'err': 404};
       }
-    });
-  } catch (e) {
-    jsonResponse = {'err': 404, 'desc': e.toString()};
+    } catch (e) {
+      jsonResponse = {'err': 404, 'desc': e.toString()};
+    }
   }
-  return jsonResponse;
+  return jsonResponse ?? <String, dynamic>{'err': 404};
 }
 
 // Update field value (legacy exact)
@@ -112,14 +173,21 @@ Future<Map<String, dynamic>> UpdateDeviceFieldQuery(BuildContext context,
     required String Value,
     required String devcode,
     required String devaddr}) async {
-  var jsonResponse;
+  Map<String, dynamic>? jsonResponse;
 
   SharedPreferences prefs = await SharedPreferences.getInstance();
-  final token = prefs.getString('token') ?? '';
-  final Secret = prefs.getString('Secret') ?? '';
+  final token = (prefs.getString('token') ?? '').trim();
+  final Secret = (prefs.getString('Secret') ?? '').trim();
+  SN = SN.trim();
+  PN = PN.trim();
+  devcode = devcode.trim();
+  devaddr = devaddr.trim();
+  ID = ID.trim();
+  Value = Value.trim();
   String salt = "12345678";
-  String action =
-      "&action=ctrlDevice&pn=$PN&sn=$SN&devaddr=$devaddr&devcode=$devcode&id=$ID&val=$Value&i18n=en_US";
+  // Try both id and par key for the target field id
+  String baseAction(String idKey) =>
+    "&action=ctrlDevice&pn=$PN&sn=$SN&devaddr=$devaddr&devcode=$devcode&$idKey=$ID&val=$Value&i18n=en_US";
 
   PackageInfo packageInfo = await PackageInfo.fromPlatform();
   String packageName = packageInfo.packageName;
@@ -130,25 +198,46 @@ Future<Map<String, dynamic>> UpdateDeviceFieldQuery(BuildContext context,
   String postaction =
       "&source=$Source&app_id=$packageName&app_version=$version&app_client=$platform";
 
-  var data = salt + Secret + token + action + postaction;
-  var output = utf8.encode(data);
-  var sign = sha1.convert(output).toString();
-  String url =
-      'http://web.shinemonitor.com/public/?sign=$sign&salt=${salt}&token=${token}' +
+  final defaultHosts = [
+    'http://web.shinemonitor.com/public/',
+    'http://api.dessmonitor.com/public/',
+  ];
+  final hosts = _preferredPublicHost == null
+      ? defaultHosts
+      : [
+          _preferredPublicHost!,
+          ...defaultHosts.where((h) => h != _preferredPublicHost)
+        ];
+  for (final idKey in ['id', 'par']) {
+    final action = baseAction(idKey);
+    final data = salt + Secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    for (final base in hosts) {
+      final url = '${base}?sign=$sign&salt=${salt}&token=${token}' +
           action +
           postaction;
-  try {
-    await http.post(Uri.parse(url)).then((response) {
-      if (response.statusCode == 200) {
-        jsonResponse = json.decode(response.body);
-      } else if (response.statusCode == 404) {
-        jsonResponse = {'err': 404};
+      try {
+        final response = await _postUrl(url);
+        if (response.statusCode == 200) {
+          final decoded = json.decode(response.body);
+          if (decoded is Map) {
+            jsonResponse = Map<String, dynamic>.from(decoded);
+          } else {
+            jsonResponse = {'err': -1, 'desc': 'invalid_response'};
+          }
+          if ((jsonResponse['err'] == 0)) {
+            _preferredPublicHost = base;
+            return jsonResponse;
+          }
+        } else if (response.statusCode == 404) {
+          jsonResponse = {'err': 404};
+        }
+      } catch (e) {
+        jsonResponse = {'err': 404, 'desc': e.toString()};
       }
-    });
-  } catch (e) {
-    jsonResponse = {'err': 404, 'desc': e.toString()};
+    }
   }
-  return jsonResponse;
+  return jsonResponse ?? <String, dynamic>{'err': 404};
 }
 
 // --- Additional legacy calls retained for compatibility (optional) ---

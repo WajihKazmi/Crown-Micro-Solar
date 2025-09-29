@@ -177,19 +177,26 @@ class EnergyRepository {
   }
 
   Future<EnergySummary> getYearlyEnergy(String plantId, String year) async {
+    // Prefer legacy DESS aggregated endpoint first (old app behavior) for reliability
+    try {
+      final dess = await _getPlantEnergyYearPerMonthDess(
+        plantId: plantId,
+        year: year,
+      );
+      return dess;
+    } catch (_) {
+      // fall through to modern endpoint
+    }
     try {
       final response = await _apiClient.get(
         '${ApiEndpoints.getYearlyGeneration}?plantId=$plantId&year=$year',
       );
       final data = json.decode(response.body);
-
       if (data['success'] == true && data['data'] != null) {
         return EnergySummary.fromJson(data['data']);
       }
-    } catch (_) {
-      // fall through to DESS fallback
-    }
-    // Fallback to legacy DESS aggregated endpoint
+    } catch (_) {}
+    // If both fail, return an empty padded structure for the year
     return await _getPlantEnergyYearPerMonthDess(
       plantId: plantId,
       year: year,
