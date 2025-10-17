@@ -399,7 +399,8 @@ class CollectorDetailScreen extends StatelessWidget {
                     child: OutlinedButton(
                       onPressed: () async {
                         Navigator.pop(ctx);
-                        await AppSettings.openAppSettings(asAnotherTask: true);
+                        await AppSettings.openAppSettingsPanel(
+                            AppSettingsPanelType.wifi);
                       },
                       style: OutlinedButton.styleFrom(
                         side: const BorderSide(color: Colors.black12),

@@ -3,8 +3,10 @@ import 'package:flutter_rating_bar/flutter_rating_bar.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
+import 'package:crown_micro_solar/presentation/repositories/device_repository.dart';
 import 'package:crown_micro_solar/core/di/service_locator.dart';
 import 'package:crown_micro_solar/view/home/device_detail_screen.dart';
+import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
 import 'collector_detail_screen.dart';
 
 /// Devices tab content to be embedded inside the parent Scaffold (no own Scaffold/AppBar)
@@ -52,9 +54,13 @@ class _DevicesScreenState extends State<DevicesScreen>
 
   void _onVMChange() {
     if (!mounted) return;
+    final hasAny =
+        _deviceVM.allDevices.isNotEmpty || _deviceVM.collectors.isNotEmpty;
     setState(() {
-      _loading = _deviceVM.isLoading;
+      // Only show blocking loading when we have no data to render
+      _loading = !hasAny && _deviceVM.isLoading;
       _error = _deviceVM.error;
+      if (hasAny) _initialLoadDone = true;
     });
   }
 
@@ -93,6 +99,17 @@ class _DevicesScreenState extends State<DevicesScreen>
         return;
       }
       final plantId = _plantVM.plants.first.id;
+
+      // INSTANT CACHE LOAD: Show cached data immediately if available
+      final hadCache = await _deviceVM.loadDevicesFromCache(plantId);
+      if (hadCache && mounted) {
+        setState(() {
+          _loading = false;
+          _initialLoadDone = true;
+        });
+      }
+
+      // Then refresh from network in background
       await _deviceVM.loadDevicesAndCollectors(plantId);
       if (!mounted) return;
       setState(() {
@@ -169,10 +186,13 @@ class _DevicesScreenState extends State<DevicesScreen>
     final surface = theme.colorScheme.surface;
     final onSurface = theme.colorScheme.onSurface;
 
+    final hasAnyList =
+        _deviceVM.allDevices.isNotEmpty || _deviceVM.collectors.isNotEmpty;
     Widget content;
-    if (_loading || !_initialLoadDone) {
+    // Only show full-screen loading when we have NO data AND loading is in progress
+    if (!hasAnyList && _loading && !_initialLoadDone) {
       content = const Center(child: CircularProgressIndicator());
-    } else if (_error != null) {
+    } else if (_error != null && !hasAnyList) {
       content = Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -185,7 +205,7 @@ class _DevicesScreenState extends State<DevicesScreen>
           ],
         ),
       );
-    } else if (_deviceVM.allDevices.isEmpty) {
+    } else if (!hasAnyList) {
       // Show graceful empty state inside scroll view to avoid unbounded flex errors when embedded
       content = SingleChildScrollView(
           child: Padding(
@@ -214,6 +234,21 @@ class _DevicesScreenState extends State<DevicesScreen>
     return Stack(
       children: [
         Positioned.fill(child: content),
+        // Subtle refresh indicator when background loading but content is shown
+        if (_deviceVM.isLoading && hasAnyList)
+          Positioned(
+            top: 8,
+            left: 16,
+            right: 16,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: LinearProgressIndicator(
+                minHeight: 4,
+                backgroundColor:
+                    Theme.of(context).colorScheme.surface.withOpacity(0.4),
+              ),
+            ),
+          ),
         Positioned(
           right: 16,
           bottom: 16 + MediaQuery.of(context).padding.bottom,
@@ -222,7 +257,7 @@ class _DevicesScreenState extends State<DevicesScreen>
             backgroundColor: Theme.of(context).colorScheme.primary,
             icon: const Icon(Icons.add),
             label: const Text('Datalogger'),
-            onPressed: (_loading || !_initialLoadDone)
+            onPressed: ((!hasAnyList) && (_loading || !_initialLoadDone))
                 ? null
                 : _showAddDataloggerDialog,
           ),
@@ -587,14 +622,126 @@ class _DevicesScreenState extends State<DevicesScreen>
     final surface = theme.colorScheme.surface;
     final statusText = device.getStatusText();
     final statusColor = _getStatusColor(device.status);
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (_) => DeviceDetailScreen(device: device)));
+    
+    // Wrap card in Dismissible for swipe-to-delete functionality
+    return Dismissible(
+      key: Key('device_${device.sn}_${device.pn}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: const Icon(
+          Icons.delete,
+          color: Colors.white,
+          size: 32,
+        ),
+      ),
+      confirmDismiss: (direction) async {
+        // Show confirmation dialog before deleting
+        return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text('Delete Device'),
+            content: Text(
+              'Are you sure you want to delete this device?\n\n'
+              'Alias: ${device.alias.isNotEmpty ? device.alias : device.pn}\n'
+              'SN: ${device.sn}\n'
+              'PN: ${device.pn}',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        ) ?? false;
       },
-      child: Container(
+      onDismissed: (direction) async {
+        // Perform delete operation
+        try {
+          final repo = getIt<DeviceRepository>();
+          final plantId = device.plantId.isNotEmpty ? device.plantId : device.pid.toString();
+          
+          print('Deleting device: ${device.sn}, plantId: $plantId');
+          
+          final result = await repo.deleteDevice(
+            plantId: plantId,
+            pn: device.pn,
+            sn: device.sn,
+            devcode: device.devcode,
+            devaddr: device.devaddr,
+          );
+          
+          if (result['err'] == 0) {
+            // Success - reload devices
+            await _loadDevices(force: true);
+            
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Device ${device.alias.isNotEmpty ? device.alias : device.sn} deleted successfully'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          } else {
+            // Failed - show error and reload to restore device
+            final errorMsg = result['desc'] ?? 'Unknown error';
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Failed to delete device: $errorMsg'),
+                  backgroundColor: Colors.red,
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            }
+            // Reload to restore device in list
+            await _loadDevices(force: true);
+          }
+        } catch (e) {
+          print('Error deleting device: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Error: $e'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+          // Reload to restore device in list
+          await _loadDevices(force: true);
+        }
+      },
+      child: GestureDetector(
+        onTap: () async {
+          // Pre-warm energy flow so detail cards render instantly
+          try {
+            final rt = getIt<RealtimeDataService>();
+            await rt.prefetchEnergyFlow(device);
+          } catch (_) {}
+          Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => DeviceDetailScreen(device: device)));
+        },
+        child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
           color: surface,
@@ -694,8 +841,9 @@ class _DevicesScreenState extends State<DevicesScreen>
             Icon(Icons.keyboard_double_arrow_right, color: Colors.grey[600])
           ]),
         ),
-      ),
-    );
+      ), // closing GestureDetector child (Container)
+    ), // closing GestureDetector
+    ); // closing Dismissible
   }
 
   // (Corrupted previous dialog implementation removed; see cleaned version below.)

@@ -635,6 +635,124 @@ String _settingsCategory(Map f) {
   final text = ('$label $name $id').trim();
   bool hasAny(Iterable<String> keys) =>
       keys.any((k) => k.isNotEmpty && text.contains(k));
+  // Explicit mapping requested for Standard Settings tab
+  const standardExplicit = [
+    // LCD Auto-return to Main Screen
+    'lcd auto-return to main screen',
+    'lcd auto return to main screen',
+    'lcd auto-return',
+    'lcd auto return',
+    'auto return to main',
+    'return to main screen',
+    'auto home screen',
+    'home screen auto return',
+    'lcd return time',
+    // Overload Auto Restart
+    'overload auto restart',
+    'overload restart',
+    'restart after overload',
+    // Buzzer / Beeps
+    'buzzer',
+    'beep',
+    'beeps',
+    'beeping',
+    'audio alarm',
+    // Fault Code Record
+    'fault code record',
+    'fault record',
+    'fault log',
+    'error code record',
+    'error log',
+    'alarm log',
+    // Backlight
+    'backlight',
+    'back light',
+    'lcd light',
+    'screen light',
+    'display backlight',
+    'lcd brightness',
+    // Bypass Function
+    'bypass function',
+    'bypass enable',
+    'bypass mode',
+    'bypass',
+    // Solar Feed to Grid
+    'solar feed to grid',
+    'feed to grid',
+    'grid feed',
+    'pv to grid',
+    'pv feed to grid',
+    'solar to grid',
+    'export to grid',
+    'grid export',
+    // Beeps While Primary Source Interrupt
+    'beeps while primary source interrupt',
+    'beep on primary source interrupt',
+    'beep when primary source interrupt',
+    'beep on source interrupt',
+    'beep when source interrupt',
+    'beep when ac lost',
+    'beep on ac input lost',
+    'beep on grid fail',
+    // Over Temperature Auto Restart
+    'over temperature auto restart',
+    'over-temperature auto restart',
+    'over temperature restart',
+    'over temp auto restart',
+    'over temp restart',
+    // Power Saving Function / Eco
+    'power saving function',
+    'power saving',
+    'energy saving',
+    'eco mode',
+    'eco',
+    'sleep mode',
+  ];
+  // Also check common ID/code fragments that vendors use
+  const standardIdHints = [
+    // Generic vendor prefix
+    'std_',
+    // Specific std_* ids observed in logs
+    'std_lcd_display',
+    'std_overload_restart',
+    'std_buzzer',
+    'std_fault_code_record',
+    'std_backlight',
+    'std_bypass_function',
+    'std_solar_feed_to_grid',
+    'std_primary_source_alarm',
+    'std_temperature_restart',
+    'std_power_saving_function',
+    // Generic fragments
+    'lcd_auto', 'auto_return', 'return_main',
+    'overload_auto', 'overload_restart',
+    'buzzer', 'beep',
+    'fault_record', 'fault_log', 'error_log',
+    'backlight', 'lcd_brightness',
+    'bypass',
+    'feed_to_grid', 'export_grid', 'pv_to_grid', 'solar_to_grid',
+    'primary_source_alarm', 'primary_source_interrupt', 'ac_lost', 'grid_fail',
+    'over_temp', 'overtemperature', 'temp_restart',
+    'power_saving', 'eco'
+  ];
+  const standardIds = {
+    'std_lcd_display_ctrl_k',
+    'std_overload_restart_ctrl_u',
+    'std_buzzer_ctrl_a',
+    'std_fault_code_record_ctrl_z',
+    'std_backlight_function_ctrl_x',
+    'std_bypass_function_ctrl_b',
+    'std_solar_feed_to_grid_ctrl_d',
+    'std_primary_source_alarm_ctrl_y',
+    'std_temperature_restart_ctrl_v',
+    'std_power_saving_function_ctrl_j',
+  };
+  if (standardExplicit.any((s) => text.contains(s)) ||
+      standardIdHints.any((s) => id.contains(s)) ||
+      standardIds.contains(id) ||
+      id.startsWith('std_')) {
+    return 'Standard Settings';
+  }
   const batteryKeys = [
     'battery',
     'batt',

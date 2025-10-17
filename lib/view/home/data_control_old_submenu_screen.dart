@@ -26,10 +26,12 @@ class DataControlOldSubmenuScreen extends StatefulWidget {
   });
 
   @override
-  State<DataControlOldSubmenuScreen> createState() => _DataControlOldSubmenuScreenState();
+  State<DataControlOldSubmenuScreen> createState() =>
+      _DataControlOldSubmenuScreenState();
 }
 
-class _DataControlOldSubmenuScreenState extends State<DataControlOldSubmenuScreen> {
+class _DataControlOldSubmenuScreenState
+    extends State<DataControlOldSubmenuScreen> {
   List<bool> _checked = [];
   String? _selectedValue; // will store backend 'key' or the typed numeric
   bool _loading = false;
@@ -70,8 +72,10 @@ class _DataControlOldSubmenuScreenState extends State<DataControlOldSubmenuScree
   }
 
   Future<void> _save() async {
-    if ((_selectedValue == null || _selectedValue!.isEmpty) && _textCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No value selected.')));
+    if ((_selectedValue == null || _selectedValue!.isEmpty) &&
+        _textCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('No value selected.')));
       return;
     }
     setState(() => _loading = true);
@@ -111,47 +115,41 @@ class _DataControlOldSubmenuScreenState extends State<DataControlOldSubmenuScree
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    final width = size.width;
     final isEnum = widget.items.isNotEmpty;
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Theme.of(context).primaryColor,
-        title: Text(widget.fieldname, style: TextStyle(
-          fontSize: 0.035 * (size.height - size.width),
-          color: Colors.white,
-        )),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.all(10),
-            child: Card(
-              elevation: 5,
-              child: SizedBox(
-                width: 0.2 * width,
-                child: OutlinedButton(
-                  onPressed: _loading ? null : _save,
-                  child: Text('Set', style: TextStyle(
-                    fontSize: 0.035 * (size.height - size.width),
-                    color: const Color(0xFF3A3A3A),
-                  )),
-                ),
-              ),
-            ),
-          )
-        ],
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.black87),
+        title: Text(
+          widget.fieldname,
+          style: TextStyle(
+            fontSize: 0.035 * (size.height - size.width),
+            color: Colors.black87,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        centerTitle: true,
       ),
       body: _loading
-          ? Center(child: CircularProgressIndicator(color: Theme.of(context).primaryColor))
+          ? Center(
+              child: CircularProgressIndicator(
+                  color: Theme.of(context).primaryColor))
           : isEnum
               ? ListView.builder(
                   itemCount: widget.items.length,
                   itemBuilder: (context, index) {
                     final it = widget.items[index];
                     return CheckboxListTile(
-                      secondary: Icon(Icons.edit_attributes, color: Colors.greenAccent.shade400),
+                      secondary: Icon(Icons.edit_attributes,
+                          color: Colors.greenAccent.shade400),
                       controlAffinity: ListTileControlAffinity.trailing,
                       title: Text(
                         '${it.val}',
-                        style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w300, fontSize: 15),
+                        style: const TextStyle(
+                            color: Colors.black87,
+                            fontWeight: FontWeight.w300,
+                            fontSize: 15),
                       ),
                       value: _checked[index],
                       onChanged: (v) {
@@ -167,6 +165,14 @@ class _DataControlOldSubmenuScreenState extends State<DataControlOldSubmenuScree
                   },
                 )
               : _numberEditor(size),
+      floatingActionButton: _loading
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _save,
+              backgroundColor: Theme.of(context).primaryColor,
+              icon: const Icon(Icons.check, color: Colors.white),
+              label: const Text('Set', style: TextStyle(color: Colors.white)),
+            ),
     );
   }
 
@@ -183,9 +189,17 @@ class _DataControlOldSubmenuScreenState extends State<DataControlOldSubmenuScree
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(widget.fieldname, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w400, fontSize: 0.035 * (size.height - size.width))),
+                Text(widget.fieldname,
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w400,
+                        fontSize: 0.035 * (size.height - size.width))),
                 if (widget.unit != null)
-                  Text(' ( ${widget.unit} )', style: TextStyle(color: Colors.white60, fontWeight: FontWeight.w300, fontSize: 0.032 * (size.height - size.width))),
+                  Text(' ( ${widget.unit} )',
+                      style: TextStyle(
+                          color: Colors.white60,
+                          fontWeight: FontWeight.w300,
+                          fontSize: 0.032 * (size.height - size.width))),
               ],
             ),
           ),
@@ -193,11 +207,18 @@ class _DataControlOldSubmenuScreenState extends State<DataControlOldSubmenuScree
         if (widget.hint != null)
           Padding(
             padding: const EdgeInsets.all(8.0),
-            child: Text(' Input Example: ${widget.hint}', style: TextStyle(color: Colors.black87, fontSize: 0.038 * (size.height - size.width))),
+            child: Text(' Input Example: ${widget.hint}',
+                style: TextStyle(
+                    color: Colors.black87,
+                    fontSize: 0.038 * (size.height - size.width))),
           ),
         Padding(
           padding: const EdgeInsets.all(8.0),
-          child: Text(' Current Value: ${_currentVal ?? '--'}', style: TextStyle(color: Colors.blueGrey, fontWeight: FontWeight.w400, fontSize: 0.035 * (size.height - size.width))),
+          child: Text(' Current Value: ${_currentVal ?? '--'}',
+              style: TextStyle(
+                  color: Colors.blueGrey,
+                  fontWeight: FontWeight.w400,
+                  fontSize: 0.035 * (size.height - size.width))),
         ),
         Padding(
           padding: const EdgeInsets.all(8.0),

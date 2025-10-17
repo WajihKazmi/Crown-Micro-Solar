@@ -21,6 +21,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   bool _isInstallerMode = false;
+  bool _rememberMe = false;
   final _logger = Logger();
 
   final _formKey = GlobalKey<FormState>();
@@ -40,6 +41,7 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _userIdController.text = credentials['username']!;
         _passwordController.text = credentials['password']!;
+        _rememberMe = true; // If credentials are saved, remember me was checked
       });
     }
   }
@@ -66,6 +68,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final success = await viewModel.login(
         _userIdController.text,
         _passwordController.text,
+        rememberMe: _rememberMe,
       );
 
       if (mounted) {
@@ -289,8 +292,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: OutlinedButton(
                         onPressed: () async {
                           Navigator.pop(ctx);
-                          await AppSettings.openAppSettings(
-                              asAnotherTask: true);
+                          await AppSettings.openAppSettingsPanel(
+                              AppSettingsPanelType.wifi);
                         },
                         child: const Text('Open Wi‑Fi Settings'))),
                 const SizedBox(width: 10),
@@ -388,6 +391,24 @@ class _LoginScreenState extends State<LoginScreen> {
                           }
                           return null;
                         },
+                      ),
+                      const SizedBox(height: 15.0),
+                      Row(
+                        children: [
+                          Checkbox(
+                            value: _rememberMe,
+                            onChanged: (value) {
+                              setState(() {
+                                _rememberMe = value ?? false;
+                              });
+                            },
+                            activeColor: theme.colorScheme.primary,
+                          ),
+                          Text(
+                            'Remember Me',
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 15.0),
                       Row(

@@ -8,6 +8,8 @@ import 'package:crown_micro_solar/presentation/models/plant/plant_model.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crypto/crypto.dart';
+import 'package:crown_micro_solar/presentation/repositories/device_repository.dart'
+    show DeviceEnergyFlowModel;
 
 class RealtimeDataService extends ChangeNotifier {
   final ApiClient _apiClient;
@@ -23,6 +25,10 @@ class RealtimeDataService extends ChangeNotifier {
   List<Device> _devices = [];
   Map<String, double> _devicePowerData = {};
   Map<String, Map<String, dynamic>> _deviceRealTimeData = {};
+  // Energy flow cache per device PN
+  final Map<String, DeviceEnergyFlowModel> _deviceEnergyFlow = {};
+  // In-flight deduplication for energy flow
+  final Map<String, Future<void>> _inflightEnergyFlow = {};
 
   // Update intervals (in seconds)
   static const int _plantUpdateInterval = 30; // Update plants every 30 seconds
@@ -38,6 +44,7 @@ class RealtimeDataService extends ChangeNotifier {
   Map<String, double> get devicePowerData => _devicePowerData;
   Map<String, Map<String, dynamic>> get deviceRealTimeData =>
       _deviceRealTimeData;
+  Map<String, DeviceEnergyFlowModel> get deviceEnergyFlow => _deviceEnergyFlow;
   bool get isRunning => _isRunning;
 
   // Start real-time data updates
@@ -47,8 +54,31 @@ class RealtimeDataService extends ChangeNotifier {
     _isRunning = true;
     print('RealtimeDataService: Starting real-time data updates');
 
-    // Initial data load
+    // Initial data load (lightweight)
     await _loadInitialData();
+
+    // DEFER heavy prefetching by 2 seconds to let UI paint first
+    Future.delayed(const Duration(seconds: 2), () async {
+      if (!_isRunning) return;
+      // After initial load, prefetch energy flow for last opened device first
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final lastPn = prefs.getString('lastOpenedPn');
+        if (lastPn != null && lastPn.isNotEmpty) {
+          final d = _devices.firstWhere(
+            (e) => e.pn == lastPn,
+            orElse: () => _devices.isNotEmpty
+                ? _devices.first
+                : throw StateError('no devices'),
+          );
+          unawaited(prefetchEnergyFlow(d));
+        }
+      } catch (_) {}
+      // Fan out a small batch of prefetches to reduce first-open latency
+      for (final d in _devices.take(2)) {
+        unawaited(prefetchEnergyFlow(d));
+      }
+    });
 
     // Start periodic device updates
     _updateTimer =
@@ -100,9 +130,30 @@ class RealtimeDataService extends ChangeNotifier {
 
       // Initial real-time data update
       await _updateRealTimeData();
+      // Proactively prefetch energy flow right after devices are known (warm caches for instant cards)
+      unawaited(_prefetchAllEnergyFlows(concurrency: 8));
     } catch (e) {
       print('RealtimeDataService: Error loading initial data: $e');
     }
+  }
+
+  // Prefetch energy flow for all known devices with bounded concurrency
+  Future<void> _prefetchAllEnergyFlows({int concurrency = 6}) async {
+    if (_devices.isEmpty) return;
+    final list = _devices.toList();
+    int idx = 0;
+    final int limit = concurrency.clamp(1, 32);
+    Future<void> worker() async {
+      while (true) {
+        if (idx >= list.length) break;
+        final my = list[idx++];
+        try {
+          await prefetchEnergyFlow(my);
+        } catch (_) {}
+      }
+    }
+
+    await Future.wait(List.generate(limit, (_) => worker()));
   }
 
   // Update real-time data
@@ -246,6 +297,8 @@ class RealtimeDataService extends ChangeNotifier {
           if (realTimeData != null) {
             _deviceRealTimeData[device.pn] = realTimeData;
           }
+          // Also refresh energy flow for fast UI cards (e.g., grid voltage)
+          await prefetchEnergyFlow(device);
         }
       }
     } catch (e) {
@@ -292,6 +345,53 @@ class RealtimeDataService extends ChangeNotifier {
       print('RealtimeDataService: Error getting device power data: $e');
     }
     return null;
+  }
+
+  // Public: prefetch energy flow for a specific device with dedupe
+  Future<void> prefetchEnergyFlow(Device device) async {
+    final key = device.pn;
+    if (key.isEmpty) return;
+    // Return existing in-flight fetch to dedupe
+    final inflight = _inflightEnergyFlow[key];
+    if (inflight != null) {
+      return inflight;
+    }
+    final fut = _prefetchEnergyFlowInternal(device);
+    _inflightEnergyFlow[key] = fut;
+    try {
+      await fut;
+    } finally {
+      // clear when done
+      if (_inflightEnergyFlow[key] == fut) {
+        _inflightEnergyFlow.remove(key);
+      }
+    }
+  }
+
+  // Snapshot getter for UI: returns cached energy flow if available
+  DeviceEnergyFlowModel? snapshotEnergyFlow(String pn) {
+    return _deviceEnergyFlow[pn];
+  }
+
+  Future<void> _prefetchEnergyFlowInternal(Device device) async {
+    try {
+      final flow = await _deviceRepository.fetchDeviceEnergyFlow(
+        sn: device.sn,
+        pn: device.pn,
+        devcode: device.devcode,
+        devaddr: device.devaddr,
+      );
+      if (flow != null) {
+        _deviceEnergyFlow[device.pn] = flow;
+        // Notify listeners for immediate UI updates
+        notifyListeners();
+      }
+    } catch (e) {
+      // Swallow errors to keep UI smooth; next cycle may succeed
+      if (kDebugMode) {
+        print('RealtimeDataService: prefetchEnergyFlow error: $e');
+      }
+    }
   }
 
   // Get detailed device real-time data

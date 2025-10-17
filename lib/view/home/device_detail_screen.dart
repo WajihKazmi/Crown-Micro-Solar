@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
+import 'dart:convert';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import 'package:crown_micro_solar/l10n/app_localizations.dart' as gen;
@@ -21,6 +23,8 @@ import 'package:crown_micro_solar/presentation/repositories/device_repository.da
 import 'package:crown_micro_solar/view/home/alarm_notification_screen.dart';
 import 'package:video_player/video_player.dart';
 import 'package:crown_micro_solar/view/home/data_control_old_screen.dart';
+import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
+import 'package:crown_micro_solar/core/utils/device_model_config.dart';
 
 class DeviceDetailScreen extends StatefulWidget {
   final Device device;
@@ -31,6 +35,7 @@ class DeviceDetailScreen extends StatefulWidget {
 
 class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   late final DeviceViewModel _deviceVM;
+  late final RealtimeDataService _realtime;
   DeviceLiveSignalModel? _live;
   late final MetricAggregatorViewModel _metricAggVM;
   DeviceEnergyFlowModel? _energyFlow;
@@ -39,8 +44,10 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   String? _err;
   DateTime _anchorDate = DateTime.now();
   Timer? _refreshTimer;
+  Timer? _heavyOnceTimer;
   bool _isFetching = false;
   String? _lastFlowKey;
+  bool _graphEnabled = false;
   final Map<String, String> _selectedParByCategory =
       {}; // pv|battery|load|grid -> selected par label
   final Map<String, String> _latestPagingValues =
@@ -58,6 +65,9 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   void initState() {
     super.initState();
     _deviceVM = getIt<DeviceViewModel>();
+    _realtime = getIt<RealtimeDataService>();
+    // Listen for realtime prefetch updates to paint instantly when available
+    _realtime.addListener(_onRealtimeUpdated);
     final repo = getIt<DeviceRepository>();
     _metricAggVM = MetricAggregatorViewModel(
       deviceRepository: repo,
@@ -66,16 +76,79 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       devcode: widget.device.devcode,
       devaddr: widget.device.devaddr,
     );
-    _fetch();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    // Persist last opened PN to prioritize prefetch on next app start (fire-and-forget)
+    () async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('lastOpenedPn', widget.device.pn);
+      } catch (_) {}
+    }();
+    // Show cached energy flow instantly if we already have it
+    DeviceEnergyFlowModel? cached =
+        _realtime.snapshotEnergyFlow(widget.device.pn);
+    if (cached != null) {
+      _energyFlow = cached;
+      _lastFlowKey = _computeFlowKey(cached);
+      _hasData = true;
+      _loading = false;
+    } else {
+      // Restore last-known snapshot from prefs if available (async, non-blocking)
+      () async {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final raw = prefs.getString('energyFlow:${widget.device.pn}');
+          if (raw != null && raw.isNotEmpty && mounted) {
+            final map = Map<String, dynamic>.from(jsonDecode(raw));
+            final restored = DeviceEnergyFlowModel.fromJson(map);
+            setState(() {
+              _energyFlow = restored;
+              _lastFlowKey = _computeFlowKey(restored);
+              _hasData = true;
+              _loading = false;
+            });
+          }
+        } catch (_) {}
+      }();
+    }
+    // Warm cache for energy flow immediately to speed up grid/pv cards
+    _realtime.prefetchEnergyFlow(widget.device);
+    // Kick fast phase: if we have cached flow, avoid spinner flicker
+    _fetch(silent: cached != null);
+    // Schedule a one-off heavy phase after UI settles
+    _heavyOnceTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (!mounted) return;
+      _graphEnabled = true; // enable graph rendering after heavy starts
+      final date = DateFormat('yyyy-MM-dd').format(_anchorDate);
+      _fetchHeavy(date: date);
+      setState(() {});
+    });
+    // Lightweight periodic refresh for live/flow; avoid heavy calls every tick
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (mounted) _fetch(silent: true);
     });
   }
 
   @override
   void dispose() {
+    _realtime.removeListener(_onRealtimeUpdated);
     _refreshTimer?.cancel();
+    _heavyOnceTimer?.cancel();
     super.dispose();
+  }
+
+  void _onRealtimeUpdated() {
+    if (!mounted) return;
+    final updated = _realtime.snapshotEnergyFlow(widget.device.pn);
+    if (updated == null) return;
+    final newKey = _computeFlowKey(updated);
+    if (_lastFlowKey == newKey && _energyFlow != null)
+      return; // no visual change
+    setState(() {
+      _energyFlow = updated;
+      _lastFlowKey = newKey;
+      _hasData = true;
+      _loading = false;
+    });
   }
 
   Future<void> _fetch({bool silent = false}) async {
@@ -87,9 +160,10 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         _err = null;
       });
     }
-    final date = DateFormat('yyyy-MM-dd').format(_anchorDate);
+    // Heavy phase date is computed when scheduled; no need here
     final repo = getIt<DeviceRepository>();
-    int pending = 4;
+    // Phase 1: fast fetches (live + energy flow)
+    int pending = 2;
     bool anySuccess = false;
     void done() {
       pending -= 1;
@@ -128,9 +202,21 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       }
     }();
 
-    // Energy flow
+    // Energy flow (prefer cached snapshot first to render instantly)
     () async {
       try {
+        // Immediate snapshot was already applied in initState; keep here as safety
+        final cached = _realtime.snapshotEnergyFlow(widget.device.pn);
+        if (cached != null && mounted) {
+          setState(() {
+            _energyFlow = cached;
+            _lastFlowKey = _computeFlowKey(cached);
+            _hasData = true;
+            _loading = false;
+            anySuccess = true;
+          });
+        }
+        // Kick an async refresh in background while UI shows cached
         final flow = await repo.fetchDeviceEnergyFlow(
           sn: widget.device.sn,
           pn: widget.device.pn,
@@ -146,63 +232,59 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
           _loading = false;
           anySuccess = true;
         });
+        // Update realtime cache to benefit other screens
+        if (flow != null) {
+          _realtime.deviceEnergyFlow[widget.device.pn] = flow;
+        }
       } catch (e) {
       } finally {
         done();
       }
     }();
 
-    // Aggregated metrics
-    () async {
-      try {
-        await _metricAggVM.resolveMetrics([
-          'PV_OUTPUT_POWER',
-          'PV_INPUT_VOLTAGE',
-          'AC2_OUTPUT_VOLTAGE',
-          'BATTERY_SOC',
-          'LOAD_POWER',
-          'GRID_POWER',
-          'GRID_FREQUENCY',
-        ], date: date);
-        if (!mounted) return;
-        setState(() {
-          // metrics resolved inside view model; trigger rebuild
-          _hasData = true;
-          _loading = false;
-          anySuccess = true;
-        });
-      } catch (e) {
-      } finally {
-        done();
-      }
-    }();
+    // Heavy operations (metrics + paging) are moved to _fetchHeavy and not
+    // executed during the initial fast phase or silent refreshes.
+  }
 
-    // One-day paging (latest values table)
-    () async {
-      try {
-        final paging = await repo.fetchDeviceDataOneDayPaging(
-          sn: widget.device.sn,
-          pn: widget.device.pn,
-          devcode: widget.device.devcode,
-          devaddr: widget.device.devaddr,
-          date: date,
-          page: 0,
-          pageSize: 200,
-        );
-        if (!mounted) return;
-        setState(() {
-          _latestPagingValues
-            ..clear()
-            ..addAll(_buildLatestFromPaging(paging));
-          _hasData = true;
-          _loading = false;
-          anySuccess = true;
-        });
-      } catch (e) {
-      } finally {
-        done();
-      }
-    }();
+  Future<void> _fetchHeavy({required String date}) async {
+    final repo = getIt<DeviceRepository>();
+    // Run both in parallel but do not change global loading flags
+    await Future.wait([
+      () async {
+        try {
+          await _metricAggVM.resolveMetrics([
+            'PV_OUTPUT_POWER',
+            'PV_INPUT_VOLTAGE',
+            'AC2_OUTPUT_VOLTAGE',
+            'BATTERY_SOC',
+            'LOAD_POWER',
+            'GRID_POWER',
+            'GRID_FREQUENCY',
+          ], date: date);
+          if (!mounted) return;
+          setState(() {}); // metrics available for UI/graphs
+        } catch (_) {}
+      }(),
+      () async {
+        try {
+          final paging = await repo.fetchDeviceDataOneDayPaging(
+            sn: widget.device.sn,
+            pn: widget.device.pn,
+            devcode: widget.device.devcode,
+            devaddr: widget.device.devaddr,
+            date: date,
+            page: 0,
+            pageSize: 200,
+          );
+          if (!mounted) return;
+          setState(() {
+            _latestPagingValues
+              ..clear()
+              ..addAll(_buildLatestFromPaging(paging));
+          });
+        } catch (_) {}
+      }(),
+    ]);
   }
 
   Map<String, String> _buildLatestFromPaging(Map<String, dynamic>? paging) {
@@ -339,6 +421,23 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   String _fmtSoc(double? s) {
     if (s == null) return '--';
     return '${s.toStringAsFixed(0)}%';
+  }
+
+  // Parse a numeric from latest paging snapshot by label list; strips units
+  double? _numFromLatest(List<String> labels) {
+    String? raw;
+    for (final l in labels) {
+      raw = _latestPagingValues[l];
+      if (raw != null) break;
+    }
+    if (raw == null) return null;
+    // Extract first number in the string (handles "12.3 kW", "230 V", "50 Hz")
+    final m = RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(raw);
+    if (m == null) return null;
+    final v = double.tryParse(m.group(1)!);
+    // If in kW string, scale back to W for presence thresholds
+    if (raw.toLowerCase().contains('kw') && v != null) return v * 1000.0;
+    return v;
   }
 
   void _showReportDialog() {
@@ -542,7 +641,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     final pvVoltageMetric = _metricAggVM.metric('PV_INPUT_VOLTAGE');
     final batSocMetric = _metricAggVM.metric('BATTERY_SOC');
     final loadPowerMetric = _metricAggVM.metric('LOAD_POWER');
-    // final gridPowerMetric = _metricAggVM.metric('GRID_POWER'); // not used on card
+    final gridPowerMetric = _metricAggVM.metric('GRID_POWER');
     final acOutVoltageMetric = _metricAggVM.metric('AC2_OUTPUT_VOLTAGE');
     final gridFreqMetric = _metricAggVM.metric('GRID_FREQUENCY');
 
@@ -554,7 +653,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         loadPowerMetric?.latestValue ??
         _live?.outputPower;
     final gridVoltageVal = _energyFlow?.gridVoltage;
-    // Prefer voltage, otherwise frequency, and avoid showing power on card
+    final gridPowerVal = _energyFlow?.gridPower ?? gridPowerMetric?.latestValue;
     final gridFreqVal = gridFreqMetric?.latestValue;
     final batteryVoltage = _energyFlow?.batteryVoltage;
     final batSoc = _energyFlow?.batterySoc ??
@@ -604,6 +703,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     final rawCards = <Map<String, Object?>>[];
     if (pvVoltage != null || pvPower != null) {
       final selected = _selectedValueFor('pv');
+      final pvCurrent = _energyFlow?.pvCurrent;
       rawCards.add({
         'title': 'PV',
         'value': selected ?? _fmtVoltageOrPower(pvVoltage ?? pvPower),
@@ -612,6 +712,9 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             : (pvVoltage != null && pvPower != null
                 ? _fmtPowerW(pvPower)
                 : null),
+        'extraInfo': selected == null && pvVoltage != null && pvCurrent != null
+            ? '${_fmtVoltage(pvVoltage)} / ${pvCurrent.toStringAsFixed(1)}A'
+            : null,
         'icon': Icons.solar_power,
         'key': 'pv',
       });
@@ -652,28 +755,48 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         'key': 'load',
       });
     }
-    // Grid card: show Voltage; if missing, show Frequency (Hz). Do NOT show Watts.
+    // Grid card: show Power (Watts) as primary value; voltage/frequency as secondary
     final selectedGrid = _selectedValueFor('grid');
-    final gridValueStr = selectedGrid ??
-        (() {
-          if (gridVoltageVal != null) return _fmtVoltage(gridVoltageVal);
-          if (gridFreqVal != null)
-            return '${gridFreqVal.toStringAsFixed(1)} Hz';
-          return null;
-        })();
-    if (gridValueStr != null) {
-      rawCards.add({
-        'title': 'Grid',
-        'value': gridValueStr,
-        'subtitle': selectedGrid != null
-            ? _formatLabel(_selectedParByCategory['grid'] ?? '')
-            : (gridVoltageVal != null && gridFreqVal != null
-                ? '${gridFreqVal.toStringAsFixed(1)} Hz'
-                : null),
-        'icon': Icons.electrical_services,
-        'key': 'grid',
-      });
+    String? gridValueStr;
+    String? gridSubtitle;
+    
+    if (selectedGrid != null) {
+      gridValueStr = selectedGrid;
+      gridSubtitle = _formatLabel(_selectedParByCategory['grid'] ?? '');
+    } else if (gridPowerVal != null) {
+      // Primary: Grid Power in Watts
+      gridValueStr = _fmtPowerW(gridPowerVal);
+      // Secondary: Voltage or Frequency
+      if (gridVoltageVal != null) {
+        gridSubtitle = _fmtVoltage(gridVoltageVal);
+      } else if (gridFreqVal != null) {
+        gridSubtitle = '${gridFreqVal.toStringAsFixed(1)} Hz';
+      }
+    } else if (gridVoltageVal != null) {
+      // Fallback if no power: show voltage
+      gridValueStr = _fmtVoltage(gridVoltageVal);
+      if (gridFreqVal != null) {
+        gridSubtitle = '${gridFreqVal.toStringAsFixed(1)} Hz';
+      }
+    } else if (gridFreqVal != null) {
+      // Fallback if only frequency available
+      gridValueStr = '${gridFreqVal.toStringAsFixed(1)} Hz';
+    } else {
+      // Last resort: check paging values
+      gridValueStr = _latestPagingValues['Grid Power'] ??
+          _latestPagingValues['Grid Voltage'] ??
+          _latestPagingValues['Grid Frequency (Hz)'] ??
+          '--';
     }
+    
+    // Always show Grid card
+    rawCards.add({
+      'title': 'Grid',
+      'value': gridValueStr,
+      'subtitle': gridSubtitle,
+      'icon': Icons.electrical_services,
+      'key': 'grid',
+    });
     if (rawCards.isEmpty) return const SizedBox();
 
     const double cardHeight = 113; // increased by 5px to avoid overflow
@@ -773,6 +896,20 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                           )
                         : const SizedBox.shrink(),
                   ),
+                  if (c['extraInfo'] != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      c['extraInfo'] as String,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 8,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black45,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -790,93 +927,148 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       return;
     }
 
+    // Detect device model and get model-specific configuration
+    final deviceModel = DeviceModel.detect(
+      devcode: widget.device.devcode,
+      alias: widget.device.alias,
+    );
+    final modelConfig = DeviceModelPopupConfig.forModel(deviceModel);
+    final fieldConfigs = modelConfig.getFieldsForCategory(category);
+
     String title = '';
     List<DeviceEnergyFlowItem> items = const [];
     IconData icon = Icons.info_outline;
 
+    // Helper to find item by trying multiple API parameter names
+    DeviceEnergyFlowItem? findByCandidate(
+        List<DeviceEnergyFlowItem> source, List<String> candidates) {
+      for (final candidate in candidates) {
+        final found = source.firstWhere(
+          (e) => e.par.trim().toLowerCase() == candidate.trim().toLowerCase(),
+          orElse: () => DeviceEnergyFlowItem(par: '', value: null),
+        );
+        if (found.par.isNotEmpty) return found;
+      }
+      return null;
+    }
+
     switch (category) {
       case 'pv':
-        title = 'PV Details';
-        // Order: PV1 Input Voltage, PV1 Charging Power, PV2 Input Voltage, PV2 Charging Power
+        title = 'PV Details (${deviceModel.name.toUpperCase()})';
         final list = _energyFlow!.pvStatus;
-        DeviceEnergyFlowItem? byLabel(String label) => list.firstWhere(
-            (e) => e.par.trim().toLowerCase() == label.trim().toLowerCase(),
-            orElse: () => DeviceEnergyFlowItem(par: '', value: null));
-        final ordered = <DeviceEnergyFlowItem?>[
-          byLabel('PV1 Input Voltage'),
-          byLabel('PV1 Charging Power'),
-          byLabel('PV2 Input voltage'),
-          byLabel('PV2 Charging power'),
-        ]
-            .whereType<DeviceEnergyFlowItem>()
-            .where((e) => e.par.isNotEmpty)
-            .toList();
-        // Add any remaining PV fields after
-        final rest = list.where((e) => !ordered.any((o) => o.par == e.par));
+        
+        // Build ordered items based on model configuration
+        final ordered = <DeviceEnergyFlowItem>[];
+        for (final fieldConfig in fieldConfigs) {
+          final item = findByCandidate(list, fieldConfig.apiCandidates);
+          if (item != null) {
+            // Create a normalized item with clean label from config
+            ordered.add(DeviceEnergyFlowItem(
+              par: fieldConfig.label,
+              value: item.value,
+              unit: fieldConfig.unit.isNotEmpty ? fieldConfig.unit : item.unit,
+              status: item.status,
+            ));
+          }
+        }
+        
+        // Add any remaining fields not in the model config
+        final rest = list.where((e) => 
+          !fieldConfigs.any((fc) => fc.apiCandidates.any(
+            (c) => c.toLowerCase() == e.par.toLowerCase()
+          ))
+        ).toList();
+        
         items = [...ordered, ...rest];
         icon = Icons.solar_power;
         break;
+        
       case 'battery':
-        title = 'Battery Details';
-        // Order specific battery fields
+        title = 'Battery Details (${deviceModel.name.toUpperCase()})';
         final list = _energyFlow!.btStatus;
-        DeviceEnergyFlowItem? byLabel(String label) => list.firstWhere(
-            (e) => e.par.trim().toLowerCase() == label.trim().toLowerCase(),
-            orElse: () => DeviceEnergyFlowItem(par: '', value: null));
-        final ordered = <DeviceEnergyFlowItem?>[
-          byLabel('Battery Voltage'),
-          byLabel('Battery Capacity'),
-          byLabel('Battery charging current'),
-          byLabel('Battery discharging current'),
-          byLabel('Battery Type'),
-        ]
-            .whereType<DeviceEnergyFlowItem>()
-            .where((e) => e.par.isNotEmpty)
-            .toList();
-        final rest = list.where((e) => !ordered.any((o) => o.par == e.par));
+        
+        final ordered = <DeviceEnergyFlowItem>[];
+        for (final fieldConfig in fieldConfigs) {
+          final item = findByCandidate(list, fieldConfig.apiCandidates);
+          if (item != null) {
+            ordered.add(DeviceEnergyFlowItem(
+              par: fieldConfig.label,
+              value: item.value,
+              unit: fieldConfig.unit.isNotEmpty ? fieldConfig.unit : item.unit,
+              status: item.status,
+            ));
+          }
+        }
+        
+        final rest = list.where((e) => 
+          !fieldConfigs.any((fc) => fc.apiCandidates.any(
+            (c) => c.toLowerCase() == e.par.toLowerCase()
+          ))
+        ).toList();
+        
         items = [...ordered, ...rest];
         icon = Icons.battery_full;
         break;
+        
       case 'load':
-        title = 'Load Details';
+        title = 'Load Details (${deviceModel.name.toUpperCase()})';
         final list = [..._energyFlow!.bcStatus, ..._energyFlow!.olStatus];
-        DeviceEnergyFlowItem? byLabel(String label) => list.firstWhere(
-            (e) => e.par.trim().toLowerCase() == label.trim().toLowerCase(),
-            orElse: () => DeviceEnergyFlowItem(par: '', value: null));
-        final ordered = <DeviceEnergyFlowItem?>[
-          byLabel('Load Status'),
-          byLabel('AC Output Voltage'),
-          byLabel('AC Output Frequency'),
-          byLabel('AC2 Output Voltage'),
-          byLabel('AC2 Output Frequency'),
-          byLabel('AC Output Active Power'),
-          byLabel('Output Load Percentage'),
-        ]
-            .whereType<DeviceEnergyFlowItem>()
-            .where((e) => e.par.isNotEmpty)
-            .toList();
-        final rest = list.where((e) => !ordered.any((o) => o.par == e.par));
+        
+        final ordered = <DeviceEnergyFlowItem>[];
+        for (final fieldConfig in fieldConfigs) {
+          final item = findByCandidate(list, fieldConfig.apiCandidates);
+          if (item != null) {
+            ordered.add(DeviceEnergyFlowItem(
+              par: fieldConfig.label,
+              value: item.value,
+              unit: fieldConfig.unit.isNotEmpty ? fieldConfig.unit : item.unit,
+              status: item.status,
+            ));
+          }
+        }
+        
+        // Filter out unwanted power fields from rest
+        final rest = list.where((e) => 
+          !fieldConfigs.any((fc) => fc.apiCandidates.any(
+            (c) => c.toLowerCase() == e.par.toLowerCase()
+          )) &&
+          !e.par.toLowerCase().contains('ac output active power') &&
+          !e.par.toLowerCase().contains('ac active output power')
+        ).toList();
+        
         items = [...ordered, ...rest];
         icon = Icons.home;
         break;
+        
       case 'grid':
-        title = 'Grid Details';
+        title = 'Grid Details (${deviceModel.name.toUpperCase()})';
         final list = _energyFlow!.gdStatus;
-        DeviceEnergyFlowItem? byLabel(String label) => list.firstWhere(
-            (e) => e.par.trim().toLowerCase() == label.trim().toLowerCase(),
-            orElse: () => DeviceEnergyFlowItem(par: '', value: null));
-        final ordered = <DeviceEnergyFlowItem?>[
-          byLabel('Grid Voltage'),
-          byLabel('Grid Frequency'),
-          byLabel('AC Input Range'), // APL/UPS
-        ]
-            .whereType<DeviceEnergyFlowItem>()
-            .where((e) => e.par.isNotEmpty)
-            .toList();
-        final rest = list.where((e) => !ordered.any((o) => o.par == e.par));
+        
+        final ordered = <DeviceEnergyFlowItem>[];
+        for (final fieldConfig in fieldConfigs) {
+          final item = findByCandidate(list, fieldConfig.apiCandidates);
+          if (item != null) {
+            ordered.add(DeviceEnergyFlowItem(
+              par: fieldConfig.label,
+              value: item.value,
+              unit: fieldConfig.unit.isNotEmpty ? fieldConfig.unit : item.unit,
+              status: item.status,
+            ));
+          }
+        }
+        
+        // Filter out 'Grid Active Power' from rest
+        final rest = list.where((e) => 
+          !fieldConfigs.any((fc) => fc.apiCandidates.any(
+            (c) => c.toLowerCase() == e.par.toLowerCase()
+          )) &&
+          !e.par.toLowerCase().contains('grid active power')
+        ).toList();
+        
         items = [...ordered, ...rest];
         icon = Icons.electrical_services;
         break;
+        
       default:
         title = 'Details';
         items = const [];
@@ -950,6 +1142,17 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                                   value:
                                       _formatValueWithUnit(it.value, it.unit),
                                   status: it.status,
+                                  selected: () {
+                                    final sel =
+                                        _selectedParByCategory[category];
+                                    if (sel == null) return false;
+                                    final a = sel.trim().toLowerCase();
+                                    final b1 = it.par.trim().toLowerCase();
+                                    final b2 = _formatLabel(it.par)
+                                        .trim()
+                                        .toLowerCase();
+                                    return a == b1 || a == b2;
+                                  }(),
                                 ),
                               ),
                             // Extras from paging for missing required labels
@@ -1002,6 +1205,17 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     s = s.replaceAll('_', ' ');
     // Normalize spacing
     s = s.replaceAll(RegExp(r'\s+'), ' ');
+    
+    // Fix incorrect labels from API
+    // Remove "Bt" prefix from battery capacity
+    if (s.toLowerCase().startsWith('bt ')) {
+      s = s.substring(3);
+    }
+    // Fix "Oil Output Capacity" to "Output Capacity"
+    if (s.toLowerCase().contains('oil output capacity')) {
+      s = s.replaceFirst(RegExp(r'(?i)oil output capacity'), 'Output Capacity');
+    }
+    
     // Map known variants first
     final low = s.toLowerCase();
     if (low.contains('ac2 output'))
@@ -1093,6 +1307,13 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             label: label,
             value: v,
             status: 0,
+            selected: () {
+              final sel = _selectedParByCategory[category];
+              if (sel == null) return false;
+              final a = sel.trim().toLowerCase();
+              final b = label.trim().toLowerCase();
+              return a == b;
+            }(),
           ),
         ),
       );
@@ -1176,7 +1397,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
           ),
         ),
       ),
-      body: ((_loading && !_hasData) || (_metricAggVM.isLoading && !_hasData))
+      body: (_loading && !_hasData)
           ? const Center(child: CircularProgressIndicator())
           : _err != null
               ? Center(
@@ -1198,28 +1419,39 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _DeviceHeader(device: widget.device, live: _live),
-                      const SizedBox(height: 16),
+                      // Device Header card removed as per requirements
+                      // Diagram at the top now
                       AnimatedSwitcher(
                         duration: const Duration(milliseconds: 400),
                         switchInCurve: Curves.easeOut,
                         switchOutCurve: Curves.easeIn,
                         child: _EnergyFlowDiagram(
                           key: ValueKey(_lastFlowKey ?? 'empty'),
-                          pvW: _energyFlow?.pvVoltage ?? _energyFlow?.pvPower,
+                          pvW: _energyFlow?.pvVoltage ??
+                              _energyFlow?.pvPower ??
+                              _numFromLatest([
+                                'PV1 Input Voltage',
+                                'PV2 Input Voltage',
+                                'PV1 Input Power (Watts)'
+                              ]),
                           loadW: _energyFlow?.loadPower,
                           gridW: _energyFlow?.gridVoltage ??
-                              _energyFlow?.gridPower,
+                              _energyFlow?.gridPower ??
+                              _numFromLatest(
+                                  ['Grid Voltage', 'Grid Frequency (Hz)']),
                           batterySoc: _energyFlow?.batterySoc,
                           batteryFlowW: _energyFlow?.batteryVoltage ??
-                              _energyFlow?.batteryPower,
+                              _energyFlow?.batteryPower ??
+                              _numFromLatest(['Battery Voltage']),
                           lastUpdated: _live?.timestamp,
+                          energyFlow: _energyFlow, // Pass full model for status
                         ),
                       ),
                       const SizedBox(height: 16),
                       _summaryCards(),
                       const SizedBox(height: 24),
-                      _DeviceMetricGraph(device: widget.device),
+                      if (_graphEnabled)
+                        _DeviceMetricGraph(device: widget.device),
                     ],
                   ),
                 ),
@@ -1488,9 +1720,16 @@ class _FlowDetailRow extends StatelessWidget {
   final String label;
   final String value;
   final int? status;
-  const _FlowDetailRow({required this.label, required this.value, this.status});
+  final bool selected;
+  const _FlowDetailRow({
+    required this.label,
+    required this.value,
+    this.status,
+    this.selected = false,
+  });
   @override
   Widget build(BuildContext context) {
+    // Color based on status (green=active, red=fault, grey=unknown)
     Color dotColor;
     switch (status) {
       case 1:
@@ -1502,28 +1741,46 @@ class _FlowDetailRow extends StatelessWidget {
       default:
         dotColor = Colors.grey;
     }
+    
+    // Red filled dot for selected item, empty border for non-selected
+    final dot = Container(
+      width: 10,
+      height: 10,
+      decoration: BoxDecoration(
+        // ONLY show filled dot when selected (red color to indicate selection)
+        color: selected ? Colors.red : Colors.transparent,
+        shape: BoxShape.circle,
+        // Show border only for non-selected items
+        border: selected ? null : Border.all(color: dotColor.withOpacity(0.3), width: 1.5),
+      ),
+    );
+    
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFFEAEAEA))),
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: selected ? const Color(0xFFF7F9FC) : Colors.transparent,
+        border: const Border(
+          bottom: BorderSide(color: Color(0xFFEAEAEA)),
+        ),
       ),
       child: Row(
         children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 8),
+          dot,
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(fontSize: 13, color: Colors.black87),
+              style: TextStyle(
+                fontSize: 13,
+                color: selected ? Colors.black : Colors.black87,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+              ),
             ),
           ),
           const SizedBox(width: 12),
           Text(
             value,
+            textAlign: TextAlign.right,
             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
           ),
         ],
@@ -1582,6 +1839,8 @@ class _DeviceHeader extends StatelessWidget {
   const _DeviceHeader({required this.device, this.live});
   @override
   Widget build(BuildContext context) {
+    // Map online/offline using device status (0 == online) to match legacy;
+    // live.err is request success and may not reflect device online state.
     final online = device.isOnline;
     return Container(
       width: double.infinity,
@@ -1639,16 +1898,7 @@ class _DeviceHeader extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  online
-                      ? gen.AppLocalizations.of(context).online
-                      : gen.AppLocalizations.of(context).offline,
-                  style: TextStyle(
-                    color: online ? Colors.green : Colors.red,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+                // Removed Offline/Online status display
                 if (live != null) ...[
                   const SizedBox(height: 4),
                   Row(
@@ -2244,6 +2494,7 @@ class _EnergyFlowDiagram extends StatefulWidget {
   final double? batterySoc;
   final double? batteryFlowW; // using battery voltage/power for presence
   final DateTime? lastUpdated;
+  final DeviceEnergyFlowModel? energyFlow; // Full model for status directions
   const _EnergyFlowDiagram({
     Key? key,
     required this.pvW,
@@ -2252,6 +2503,7 @@ class _EnergyFlowDiagram extends StatefulWidget {
     required this.batterySoc,
     required this.batteryFlowW,
     required this.lastUpdated,
+    this.energyFlow,
   }) : super(key: key);
   @override
   State<_EnergyFlowDiagram> createState() => _EnergyFlowDiagramState();
@@ -2260,53 +2512,210 @@ class _EnergyFlowDiagram extends StatefulWidget {
 class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
   VideoPlayerController? _controller;
   String? _currentAsset;
+  bool _isInitializing = false;
 
   bool _present(double? v, {double threshold = 5}) => (v ?? 0) > threshold;
 
   String _selectVideoAsset() {
-    // Use thresholds consistent with previous image selection logic
-    final pvOn = _present(widget.pvW, threshold: 50);
-    final gridOn = _present(widget.gridW, threshold: 50);
-    final batOn = _present(widget.batteryFlowW, threshold: 20) ||
-        (widget.batterySoc ?? 0) > 5;
+    // If no energyFlow data, use simple logic based on available values
+    if (widget.energyFlow == null) {
+      final hasPV = _present(widget.pvW, threshold: 10);
+      final hasBattery = (widget.batterySoc ?? 0) > 5 ||
+          _present(widget.batteryFlowW, threshold: 10);
+      final hasGrid = _present(widget.gridW, threshold: 10);
 
-    if (pvOn && gridOn) return 'assets/energy_diagram/grid_solar.mp4';
-    if (pvOn && batOn) return 'assets/energy_diagram/solar_battery.mp4';
-    if (gridOn && batOn) return 'assets/energy_diagram/grid_battery.mp4';
-    if (pvOn) return 'assets/energy_diagram/solar_battery.mp4';
-    if (gridOn) return 'assets/energy_diagram/grid_battery.mp4';
-    return 'assets/energy_diagram/battery_only.mp4';
+      if (hasPV && hasBattery) return 'assets/energy_diagram/Case_5.mp4';
+      if (hasBattery && hasGrid) return 'assets/energy_diagram/Case_3.mp4';
+      if (hasBattery) return 'assets/energy_diagram/Case_4.mp4';
+      return 'assets/energy_diagram/Case_2.mp4';
+    }
+
+    // Get status directions from energyFlow
+    final int? pvStatus = widget.energyFlow?.pvStatusDir;
+    final int? batteryStatus = widget.energyFlow?.batteryStatusDir;
+    final int? gridStatus = widget.energyFlow?.gridStatusDir;
+
+    // Get power values
+    final double pvPower = widget.pvW ?? 0;
+    final double batteryPower = widget.batteryFlowW ?? 0;
+    final double gridPower = widget.gridW ?? 0;
+    final double loadPower = widget.loadW ?? 0;
+
+    // Solar to inverter: PV producing power
+    final bool solarToInverter = pvPower > 50 || (pvStatus ?? 0) > 0;
+
+    // Battery discharging (to inverter): positive power flow OR positive status
+    final bool batteryToInverter =
+        batteryPower > 20 || (batteryStatus ?? 0) > 0;
+
+    // Battery charging (from inverter): negative status
+    final bool inverterToBattery = (batteryStatus ?? 0) < 0;
+
+    // Grid to inverter: Grid status positive OR (load exists but no other sources)
+    // CRITICAL: If load > 100W but solar=0 and battery not discharging, grid MUST be supplying!
+    final bool gridToInverter = (gridStatus ?? 0) > 0 ||
+        gridPower > 50 ||
+        (loadPower > 100 && !solarToInverter && !batteryToInverter);
+
+    // Inverter to grid (exporting): negative grid status
+    final bool inverterToGrid = (gridStatus ?? 0) < 0;
+
+    // Inverter to home: always true when device is online
+    final bool inverterToHome = true;
+
+    // Case matching with EXACT conditions:
+
+    // Case 1: Solar + Battery + Grid → Home (all sources active)
+    if (solarToInverter &&
+        batteryToInverter &&
+        gridToInverter &&
+        inverterToHome) {
+      return 'assets/energy_diagram/Case_1.mp4';
+    }
+
+    // Case 6: Solar → Battery + Grid + Home (excess solar, charging + exporting)
+    if (solarToInverter &&
+        inverterToBattery &&
+        inverterToGrid &&
+        inverterToHome) {
+      return 'assets/energy_diagram/Case_6.mp4';
+    }
+
+    // Case 5: Solar + Battery → Home (no grid)
+    if (solarToInverter &&
+        batteryToInverter &&
+        !gridToInverter &&
+        inverterToHome) {
+      return 'assets/energy_diagram/Case_5.mp4';
+    }
+
+    // Case 3: Battery + Grid → Home (no solar)
+    if (!solarToInverter &&
+        batteryToInverter &&
+        gridToInverter &&
+        inverterToHome) {
+      return 'assets/energy_diagram/Case_3.mp4';
+    }
+
+    // Case 4: Battery only → Home
+    if (!solarToInverter &&
+        batteryToInverter &&
+        !gridToInverter &&
+        inverterToHome) {
+      return 'assets/energy_diagram/Case_4.mp4';
+    }
+
+    // Grid only → Home (IMPORTANT: When load exists but no solar/battery)
+    if (!solarToInverter && !batteryToInverter && gridToInverter) {
+      return 'assets/energy_diagram/Case_3.mp4'; // Use Case 3 video (grid powering home)
+    }
+
+    // Solar only → Home
+    if (solarToInverter && !batteryToInverter && !gridToInverter) {
+      return 'assets/energy_diagram/Case_5.mp4';
+    }
+
+    // Case 2: Minimal/standby (no sources, very low or no load)
+    if (!solarToInverter && !batteryToInverter && !gridToInverter) {
+      return 'assets/energy_diagram/Case_2.mp4';
+    }
+
+    // Final fallback based on load
+    if (loadPower > 100) {
+      // If there's significant load, grid must be active
+      return 'assets/energy_diagram/Case_3.mp4';
+    }
+
+    return 'assets/energy_diagram/Case_2.mp4';
   }
 
   Future<void> _initControllerFor(String asset) async {
-    if (_currentAsset == asset && _controller != null) return;
-    final old = _controller;
-    _controller = VideoPlayerController.asset(asset);
-    _currentAsset = asset;
-    try {
-      await _controller!.initialize();
-      _controller!.setLooping(true);
-      await _controller!.play();
-    } catch (_) {
-      // ignore play errors for missing/invalid assets
+    if (_currentAsset == asset &&
+        _controller != null &&
+        _controller!.value.isInitialized) {
+      return;
     }
-    if (mounted) setState(() {});
-    await old?.pause();
-    await old?.dispose();
+    if (_isInitializing) {
+      return; // Prevent concurrent initialization
+    }
+
+    _isInitializing = true;
+
+    final old = _controller;
+
+    try {
+      // Create controller
+      _controller = VideoPlayerController.asset(asset);
+      _currentAsset = asset;
+
+      // Initialize
+      await _controller!.initialize();
+
+      // Check if initialized
+      if (!_controller!.value.isInitialized) {
+        throw Exception('Controller not initialized after initialize() call');
+      }
+
+      // Set looping
+      _controller!.setLooping(true);
+
+      // Start playback
+      await _controller!.play();
+
+      // Verify playing
+    } catch (e) {
+      // Set controller to null so PNG fallback shows
+      _controller?.dispose();
+      _controller = null;
+      _currentAsset = null;
+    }
+
+    _isInitializing = false;
+
+    // Update UI
+    if (mounted) {
+      setState(() {});
+    }
+
+    // Cleanup old controller
+    if (old != null) {
+      await old.pause();
+      await old.dispose();
+    }
   }
 
   @override
   void didUpdateWidget(covariant _EnergyFlowDiagram oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final asset = _selectVideoAsset();
-    _initControllerFor(asset);
+
+    // Force init if no controller
+    if (_controller == null && !_isInitializing) {
+      final asset = _selectVideoAsset();
+      _initControllerFor(asset);
+      return;
+    }
+
+    // Reinit if values changed
+    final pvChanged = (oldWidget.pvW ?? 0) != (widget.pvW ?? 0);
+    final batteryChanged =
+        (oldWidget.batterySoc ?? 0) != (widget.batterySoc ?? 0);
+    final gridChanged = (oldWidget.gridW ?? 0) != (widget.gridW ?? 0);
+
+    if (pvChanged || batteryChanged || gridChanged) {
+      final asset = _selectVideoAsset();
+      _initControllerFor(asset);
+    }
   }
 
   @override
   void initState() {
     super.initState();
-    final asset = _selectVideoAsset();
-    _initControllerFor(asset);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final asset = _selectVideoAsset();
+        _initControllerFor(asset);
+      }
+    });
   }
 
   @override
@@ -2318,13 +2727,51 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
   @override
   Widget build(BuildContext context) {
     final ready = _controller != null && _controller!.value.isInitialized;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final aspect = 365 / 302; // original design aspect
         final double height =
             width.isFinite ? (width / aspect).toDouble() : 240.0;
-        if (!ready) return const SizedBox.shrink();
+
+        if (!ready) {
+          // Show loading indicator while video initializes
+          return Container(
+            width: double.infinity,
+            height: height,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF5F5F5),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 16),
+                  Text(
+                    _isInitializing
+                        ? 'Loading Energy Diagram...'
+                        : 'Initializing...',
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
         return Container(
           width: double.infinity,
           height: height,
@@ -2343,18 +2790,14 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
           child: Stack(
             children: [
               Positioned.fill(
-                child: (_controller != null && _controller!.value.isInitialized)
-                    ? FittedBox(
-                        fit: BoxFit.cover,
-                        child: SizedBox(
-                          width: _controller!.value.size.width,
-                          height: _controller!.value.size.height,
-                          child: VideoPlayer(_controller!),
-                        ),
-                      )
-                    : const Center(
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
+                child: FittedBox(
+                  fit: BoxFit.cover,
+                  child: SizedBox(
+                    width: _controller!.value.size.width,
+                    height: _controller!.value.size.height,
+                    child: VideoPlayer(_controller!),
+                  ),
+                ),
               ),
               Positioned(
                 right: 10,

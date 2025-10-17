@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:crown_micro_solar/presentation/repositories/device_repository.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_data_one_day_query_model.dart';
@@ -18,6 +20,12 @@ class DeviceViewModel extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   Set<String> _expandedCollectors = {};
+
+  // Cache management
+  String? _cachedPlantId;
+  DateTime? _lastDevicesFetch;
+  static const _devicesCacheDuration =
+      Duration(minutes: 15); // Device list rarely changes
 
   // Device Detail Fields - for device details page
   Device? _currentDevice;
@@ -54,8 +62,22 @@ class DeviceViewModel extends ChangeNotifier {
   String? get addError => _addError;
 
   // Load devices and collectors for a plant
-  Future<void> loadDevicesAndCollectors(String plantId) async {
+  Future<void> loadDevicesAndCollectors(String plantId,
+      {bool force = false}) async {
     try {
+      // Check if we have valid cached data for this plant
+      bool cacheValid = _cachedPlantId == plantId &&
+          _lastDevicesFetch != null &&
+          DateTime.now().difference(_lastDevicesFetch!) <
+              _devicesCacheDuration &&
+          (_allDevices.isNotEmpty || _collectors.isNotEmpty);
+
+      if (!force && cacheValid) {
+        print(
+            'DeviceViewModel: Using cached device data for plant $plantId (${_allDevices.length} devices, ${_collectors.length} collectors)');
+        return;
+      }
+
       _isLoading = true;
       _error = null;
       notifyListeners();
@@ -63,25 +85,162 @@ class DeviceViewModel extends ChangeNotifier {
       print(
           'DeviceViewModel: Loading devices and collectors for plant $plantId');
 
-      final result = await _deviceRepository.getDevicesAndCollectors(plantId);
+      // 1) Quick path for instant UI paint, but only if list is empty
+      // Skip if cache was already loaded (avoid redundant quick fetch)
+      bool hadAny = _allDevices.isNotEmpty || _collectors.isNotEmpty;
+      if (!hadAny) {
+        print('DeviceViewModel: No data cached, fetching quick data');
+        final quick =
+            await _deviceRepository.getDevicesAndCollectorsQuick(plantId);
+        _standaloneDevices = (quick['standaloneDevices'] ?? []) as List<Device>;
+        _collectors = (quick['collectors'] ?? []) as List<Map<String, dynamic>>;
+        _collectorDevices =
+            (quick['collectorDevices'] ?? {}) as Map<String, List<Device>>;
+        _allDevices = (quick['allDevices'] ?? []) as List<Device>;
+        notifyListeners();
+        // Save quick snapshot for cold starts
+        await _saveDevicesCache(plantId);
+      } else {
+        print('DeviceViewModel: Cache already loaded, skipping quick fetch');
+      }
 
-      _standaloneDevices = result['standaloneDevices'] ?? [];
-      _collectors = result['collectors'] ?? [];
-      _collectorDevices = result['collectorDevices'] ?? {};
-      _allDevices = result['allDevices'] ?? [];
+      // 2) Background enrichment: fetch subordinate devices (does not block UI)
+      try {
+        final full = await _deviceRepository.getDevicesAndCollectors(plantId);
+        // Only update if the new data is different (avoid flicker/ghosts)
+        bool changed = false;
+        List<Device> nextAll =
+            (full['allDevices'] ?? _allDevices) as List<Device>;
+        List<Device> nextStandalone =
+            (full['standaloneDevices'] ?? _standaloneDevices) as List<Device>;
+        List<Map<String, dynamic>> nextCollectors =
+            (full['collectors'] ?? _collectors) as List<Map<String, dynamic>>;
+        Map<String, List<Device>> nextCollectorDevices =
+            (full['collectorDevices'] ?? _collectorDevices)
+                as Map<String, List<Device>>;
 
-      print(
-          'DeviceViewModel: Loaded ${_standaloneDevices.length} standalone devices');
-      print('DeviceViewModel: Loaded ${_collectors.length} collectors');
-      print('DeviceViewModel: Loaded ${_allDevices.length} total devices');
+        // Sort consistently by PN to stabilize ordering
+        int byPn(Device a, Device b) => a.pn.compareTo(b.pn);
+        nextAll.sort(byPn);
+        nextStandalone.sort(byPn);
+        for (final v in nextCollectorDevices.values) {
+          v.sort(byPn);
+        }
 
-      _isLoading = false;
-      notifyListeners();
+        String keyDevices(List<Device> list) => list.map((d) => d.pn).join('|');
+        String keyCollectors(List<Map<String, dynamic>> list) =>
+            list.map((c) => (c['pn'] ?? '').toString()).join('|');
+        String keyCollectorMap(Map<String, List<Device>> m) {
+          final keys = m.keys.toList()..sort();
+          final parts = <String>[];
+          for (final k in keys) {
+            final devices = m[k]!..sort(byPn);
+            parts.add('$k:${keyDevices(devices)}');
+          }
+          return parts.join('#');
+        }
+
+        if (keyDevices(nextAll) != keyDevices(_allDevices)) {
+          _allDevices = nextAll;
+          changed = true;
+        }
+        if (keyDevices(nextStandalone) != keyDevices(_standaloneDevices)) {
+          _standaloneDevices = nextStandalone;
+          changed = true;
+        }
+        if (keyCollectors(nextCollectors) != keyCollectors(_collectors)) {
+          _collectors = nextCollectors;
+          changed = true;
+        }
+        if (keyCollectorMap(nextCollectorDevices) !=
+            keyCollectorMap(_collectorDevices)) {
+          _collectorDevices = nextCollectorDevices;
+          changed = true;
+        }
+        if (changed) notifyListeners();
+        if (changed) await _saveDevicesCache(plantId);
+
+        // Update cache metadata
+        _cachedPlantId = plantId;
+        _lastDevicesFetch = DateTime.now();
+      } catch (e) {
+        // keep quick results if full fails
+      } finally {
+        _isLoading = false;
+        notifyListeners();
+      }
     } catch (e) {
       print('DeviceViewModel: Error loading devices: $e');
       _error = e.toString();
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  // Force refresh devices
+  Future<void> refreshDevices(String plantId) async {
+    _lastDevicesFetch = null; // Invalidate cache
+    await loadDevicesAndCollectors(plantId, force: true);
+  }
+
+  // ---- Persisted snapshot cache ----
+  Future<bool> loadDevicesFromCache(String plantId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('devices_cache_v1:$plantId');
+      if (raw == null || raw.isEmpty) return false;
+      final map = json.decode(raw) as Map<String, dynamic>;
+      final allDevicesJson =
+          (map['allDevices'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      final standaloneJson =
+          (map['standaloneDevices'] as List?)?.cast<Map<String, dynamic>>() ??
+              [];
+      final collectors =
+          (map['collectors'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      final collectorMap =
+          (map['collectorDevices'] as Map?)?.cast<String, dynamic>() ?? {};
+
+      List<Device> allDevices =
+          allDevicesJson.map((e) => Device.fromJson(e)).toList();
+      List<Device> standaloneDevices =
+          standaloneJson.map((e) => Device.fromJson(e)).toList();
+      Map<String, List<Device>> collectorDevices = {};
+      collectorMap.forEach((k, v) {
+        final list = (v as List).cast<Map<String, dynamic>>();
+        collectorDevices[k] = list.map((e) => Device.fromJson(e)).toList();
+      });
+
+      // Sort for stable order
+      int byPn(Device a, Device b) => a.pn.compareTo(b.pn);
+      allDevices.sort(byPn);
+      standaloneDevices.sort(byPn);
+      for (final v in collectorDevices.values) v.sort(byPn);
+
+      _allDevices = allDevices;
+      _standaloneDevices = standaloneDevices;
+      _collectors = collectors;
+      _collectorDevices = collectorDevices;
+      notifyListeners();
+      return _allDevices.isNotEmpty || _collectors.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _saveDevicesCache(String plantId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      Map<String, dynamic> map = {
+        'allDevices': _allDevices.map((d) => d.toJson()).toList(),
+        'standaloneDevices': _standaloneDevices.map((d) => d.toJson()).toList(),
+        'collectors': _collectors,
+        'collectorDevices': _collectorDevices
+            .map((k, v) => MapEntry(k, v.map((d) => d.toJson()).toList())),
+        'ts': DateTime.now().toIso8601String(),
+      };
+      await prefs.setString('devices_cache_v1:$plantId', json.encode(map));
+    } catch (_) {
+      // ignore cache errors
     }
   }
 

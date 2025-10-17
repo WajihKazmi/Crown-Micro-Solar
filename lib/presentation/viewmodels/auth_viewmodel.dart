@@ -87,7 +87,7 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> login(String userId, String password) async {
+  Future<bool> login(String userId, String password, {bool rememberMe = false}) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
@@ -135,9 +135,12 @@ class AuthViewModel extends ChangeNotifier {
         print('AuthViewModel: Set credentials in ApiClient');
       }
 
-      // Save credentials if not in installer mode
-      if (!_isInstaller) {
+      // Save credentials only if rememberMe is true and not in installer mode
+      if (rememberMe && !_isInstaller) {
         await saveCredentials(userId, password);
+      } else if (!rememberMe) {
+        // Clear credentials if remember me is not checked
+        await clearCredentials();
       }
 
       await fetchUserInfo();
@@ -312,14 +315,17 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   Future<void> fetchUserInfo() async {
+    print('AuthViewModel: Fetching user info...');
     try {
       _userInfo = await _accountRepository.fetchAccountInfo();
-    } catch (e) {
+      print('AuthViewModel: User info fetched successfully - usr: ${_userInfo?.usr}');
+    } catch (e, stackTrace) {
       // Do not block UI on token or network errors; leave userInfo as null and continue
       _userInfo = null;
       // Keep error non-fatal for UI; optionally log
       if (kDebugMode) {
-        print('fetchUserInfo failed: $e');
+        print('AuthViewModel: fetchUserInfo failed: $e');
+        print('StackTrace: $stackTrace');
       }
     } finally {
       notifyListeners();
@@ -358,13 +364,14 @@ class AuthViewModel extends ChangeNotifier {
     try {
       _error = null; // Clear previous errors
       notifyListeners();
-
+      // Normalize SN similar to legacy: trim and uppercase
+      final normalizedSn = sn.trim().toUpperCase();
       final result = await _accountRepository.register(
         email: email,
         mobileNo: mobileNo,
         username: username,
         password: password,
-        sn: sn,
+        sn: normalizedSn,
       );
 
       if (result['success'] == true) {

@@ -20,11 +20,12 @@ class VerificationScreen extends StatefulWidget {
 
 class _VerificationScreenState extends State<VerificationScreen> {
   late Timer _timer;
-  int _start = 60; // Countdown starts from 60 seconds
+  int _start =
+      300; // Countdown starts from 300 seconds (5 minutes) like old app
   bool _isLoading = false;
   final List<TextEditingController> _codeControllers =
-      List.generate(4, (_) => TextEditingController());
-  final List<FocusNode> _focusNodes = List.generate(4, (_) => FocusNode());
+      List.generate(6, (_) => TextEditingController());
+  final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
   RecoveryMode _recoveryMode = RecoveryMode.password; // Default value
   String? _email;
 
@@ -70,7 +71,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
   }
 
   void startTimer() {
-    _start = 60; // Reset timer if needed
+    _start = 300; // Reset timer to 5 minutes (300 seconds) like old app
     _isLoading = false; // Reset loading state
     const oneSec = Duration(seconds: 1);
     _timer = Timer.periodic(
@@ -92,7 +93,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
   void _verifyCode() async {
     final enteredCode =
         _codeControllers.map((controller) => controller.text).join();
-    if (enteredCode.length == 4 && RegExp(r'^\d{4}').hasMatch(enteredCode)) {
+    if (enteredCode.length == 6 && RegExp(r'^\d{6}').hasMatch(enteredCode)) {
       setState(() {
         _codeError = false;
         _codeErrorMessage = null;
@@ -136,7 +137,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       // Validation failed, show error, shake, and clear fields
       setState(() {
         _codeError = true;
-        _codeErrorMessage = 'Enter a valid 4-digit code';
+        _codeErrorMessage = 'Enter a valid 6-digit code';
         // Clear all text fields on validation failure
         for (var controller in _codeControllers) {
           controller.clear();
@@ -233,7 +234,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                 const SizedBox(height: 16.0), // Space below title
                 // Subtitle
                 Text(
-                  'We have sent you an email containing 4 digits verification code. Please enter the code to verify your identity',
+                  'We have sent you an email containing 6 digits verification code. Please enter the code to verify your identity',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.titleMedium?.copyWith(
                     color: Colors.grey[600],
@@ -246,7 +247,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children:
-                        List.generate(4, (index) => _buildCodeInput(index)),
+                        List.generate(6, (index) => _buildCodeInput(index)),
                   ),
                 ),
                 // Display error message below the code inputs
@@ -287,14 +288,15 @@ class _VerificationScreenState extends State<VerificationScreen> {
                                   width: 100, // Adjust size as needed
                                   height: 100,
                                   child: CircularProgressIndicator(
-                                    value: _start / 60, // Value from 0.0 to 1.0
+                                    value: _start /
+                                        300, // Value from 0.0 to 1.0 (300 seconds = 5 minutes)
                                     strokeWidth: 6.0, // Adjust thickness
                                     backgroundColor: Colors.grey[300],
                                     color: theme.colorScheme.primary,
                                   ),
                                 ),
                                 Text(
-                                  '00:${_start.toString().padLeft(2, '0')}',
+                                  '${(_start ~/ 60).toString().padLeft(2, '0')}:${(_start % 60).toString().padLeft(2, '0')}',
                                   style: theme.textTheme.headlineSmall,
                                 ),
                               ],
@@ -361,8 +363,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
               });
             }
 
-            // Move to next field if not the last one
-            if (index < 3) {
+            // Move to next field if not the last one (index 0-5 for 6 digits)
+            if (index < 5) {
               _focusNodes[index + 1].requestFocus();
             } else {
               // If it's the last field and we have a valid number, verify the code

@@ -30,11 +30,13 @@ void main() async {
     // Initialize SharedPreferences
     final prefs = await SharedPreferences.getInstance();
 
-    // Start real-time data service if user is logged in
+    // DEFER real-time data service start until after first frame to speed up app launch
     final token = prefs.getString('token');
     if (token != null && token.isNotEmpty) {
-      final realtimeService = getIt<RealtimeDataService>();
-      realtimeService.start();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final realtimeService = getIt<RealtimeDataService>();
+        realtimeService.start();
+      });
     }
 
     // Initialize API Service

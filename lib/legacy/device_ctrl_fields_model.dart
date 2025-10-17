@@ -46,7 +46,7 @@ Future<Map<String, dynamic>> DevicecTRLvalueQuery(BuildContext context,
   String salt = "12345678";
   // We'll try both id= and par= variants like the legacy app did in different paths
   String baseAction(String idKey) =>
-    "&action=queryDeviceCtrlValue&pn=$PN&sn=$SN&devcode=$devcode&devaddr=$devaddr&$idKey=$id&i18n=en_US";
+      "&action=queryDeviceCtrlValue&pn=$PN&sn=$SN&devcode=$devcode&devaddr=$devaddr&$idKey=$id&i18n=en_US";
 
   PackageInfo packageInfo = await PackageInfo.fromPlatform();
   String packageName = packageInfo.packageName;
@@ -115,7 +115,7 @@ Future<Map<String, dynamic>> DeviceCtrlFieldseModelQuery(BuildContext context,
   devaddr = devaddr.trim();
   String salt = "12345678";
   String action =
-    "&action=queryDeviceCtrlField&pn=$PN&sn=$SN&devcode=$devcode&devaddr=$devaddr&i18n=en_US";
+      "&action=queryDeviceCtrlField&pn=$PN&sn=$SN&devcode=$devcode&devaddr=$devaddr&i18n=en_US";
 
   PackageInfo packageInfo = await PackageInfo.fromPlatform();
   String packageName = packageInfo.packageName;
@@ -187,7 +187,7 @@ Future<Map<String, dynamic>> UpdateDeviceFieldQuery(BuildContext context,
   String salt = "12345678";
   // Try both id and par key for the target field id
   String baseAction(String idKey) =>
-    "&action=ctrlDevice&pn=$PN&sn=$SN&devaddr=$devaddr&devcode=$devcode&$idKey=$ID&val=$Value&i18n=en_US";
+      "&action=ctrlDevice&pn=$PN&sn=$SN&devaddr=$devaddr&devcode=$devcode&$idKey=$ID&val=$Value&i18n=en_US";
 
   PackageInfo packageInfo = await PackageInfo.fromPlatform();
   String packageName = packageInfo.packageName;

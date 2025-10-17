@@ -23,7 +23,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    // No need to call loadDashboardData here; HomeScreen handles it globally.
+    // Fetch user info if not already loaded
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
+      if (authViewModel.userInfo == null && authViewModel.isLoggedIn) {
+        print('ProfileScreen: User info is null, fetching...');
+        authViewModel.fetchUserInfo();
+      }
+    });
   }
 
   void _showChangePasswordDialog(BuildContext context) {

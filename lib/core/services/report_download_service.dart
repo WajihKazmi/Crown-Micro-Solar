@@ -34,15 +34,21 @@ class ReportDownloadService {
     String filePrefix = 'crown_report',
     void Function(int received, int total)? onProgress,
   }) async {
+    print('ReportDownloadService: Starting download - collectorPn: $collectorPn, range: $range, date: $anchorDate');
+    
     // Permissions (Android only)
     if (Platform.isAndroid) {
+      print('ReportDownloadService: Requesting storage permissions...');
       final manage = await Permission.manageExternalStorage.request();
       if (!manage.isGranted) {
+        print('ReportDownloadService: Manage external storage not granted, trying regular storage...');
         final storage = await Permission.storage.request();
         if (!storage.isGranted) {
+          print('ReportDownloadService: Storage permission denied');
           throw Exception('Storage permission not granted');
         }
       }
+      print('ReportDownloadService: Storage permissions granted');
     }
 
     // Auth and app info (match legacy)
@@ -50,8 +56,11 @@ class ReportDownloadService {
     final token = prefs.getString('token') ?? '';
     final secret = prefs.getString('Secret') ?? '';
     if (token.isEmpty || secret.isEmpty) {
+      print('ReportDownloadService: Missing credentials - token: ${token.isEmpty ? "empty" : "present"}, secret: ${secret.isEmpty ? "empty" : "present"}');
       throw Exception('Missing token/secret');
     }
+    print('ReportDownloadService: Credentials loaded');
+    
     final pkg = await PackageInfo.fromPlatform();
     final String appId = pkg.packageName;
     final String appVersion = pkg.version;
@@ -95,10 +104,32 @@ class ReportDownloadService {
     final url =
         'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$parsed$postaction';
 
+    print('ReportDownloadService: Download URL prepared');
+
     final downloadsDir = await _getDownloadsDirectory();
     final filePath = '${downloadsDir.path}/${filePrefix}_$fileTag.xlsx';
 
-    await _dio.download(url, filePath, onReceiveProgress: onProgress);
+    print('ReportDownloadService: Saving to: $filePath');
+    print('ReportDownloadService: Starting download...');
+
+    await _dio.download(url, filePath, onReceiveProgress: (received, total) {
+      print('ReportDownloadService: Downloaded $received of $total bytes');
+      if (onProgress != null) {
+        onProgress(received, total);
+      }
+    });
+
+    print('ReportDownloadService: Download completed successfully');
+    print('ReportDownloadService: File saved at: $filePath');
+    
+    // Verify file exists
+    final file = File(filePath);
+    if (await file.exists()) {
+      final size = await file.length();
+      print('ReportDownloadService: File verified - size: $size bytes');
+    } else {
+      print('ReportDownloadService: WARNING - File not found after download!');
+    }
 
     return filePath;
   }

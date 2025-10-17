@@ -20,6 +20,7 @@ import '../common/bordered_icon_button.dart';
 import '../profile/profile_screen.dart';
 import 'app_bottom_nav_bar.dart';
 import 'devices_screen.dart';
+import 'device_detail_screen.dart';
 import 'alarm_notification_screen.dart';
 import 'plant_info_screen.dart';
 import 'dart:ui' as ui;
@@ -53,23 +54,76 @@ class _HomeScreenState extends State<HomeScreen> {
         const DevicesScreen(key: PageStorageKey('devices_screen_body'));
     _realtimeDataService.start();
     _alarmViewModel = getIt<AlarmViewModel>();
+
+    // ULTRA-OPTIMIZED: Load everything in parallel with cache-first approach
     _plantViewModel.loadPlants().then((_) async {
       if (_plantViewModel.plants.isNotEmpty) {
         final firstPlantId = _plantViewModel.plants.first.id;
         try {
-          await _deviceViewModel.loadDevicesAndCollectors(firstPlantId);
-          // Preload alarms to enable overview totals fallback like legacy
-          await _alarmViewModel.loadAlarms(firstPlantId);
+          // 1) Restore cache instantly (blocking)
+          await _deviceViewModel.loadDevicesFromCache(firstPlantId);
+          // 2) Fire all network calls in parallel (non-blocking)
+          Future.wait([
+            _deviceViewModel.loadDevicesAndCollectors(firstPlantId),
+            _alarmViewModel.loadAlarms(firstPlantId),
+            _dashboardViewModel.loadDashboardData(),
+          ]).ignore();
         } catch (_) {}
+      } else {
+        // No plants, still load dashboard
+        _dashboardViewModel.loadDashboardData();
       }
     });
+
+    // Start dashboard load immediately (don't wait for plants)
     _dashboardViewModel.loadDashboardData();
   }
 
-  void _onTabTapped(int index) {
+  void _onTabTapped(int index) async {
     if (index == _currentIndex) return; // Avoid redundant rebuilds
-    setState(() => _currentIndex = index);
-    if (index == 2) _plantViewModel.loadPlants();
+    
+    // Feature: Conditional device navigation
+    // If tapping device tab (index 2) and only one device exists, go directly to device detail
+    if (index == 2) {
+      await _plantViewModel.loadPlants();
+      
+      // Check if we have exactly one device (standalone or under collector)
+      final standaloneCount = _deviceViewModel.standaloneDevices.length;
+      final collectorCount = _deviceViewModel.collectors.length;
+      
+      // Single standalone device - navigate directly
+      if (standaloneCount == 1 && collectorCount == 0) {
+        final device = _deviceViewModel.standaloneDevices.first;
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => DeviceDetailScreen(device: device),
+          ),
+        );
+        return; // Don't change tab index
+      }
+      
+      // Single collector with devices - navigate to first device under collector
+      if (standaloneCount == 0 && collectorCount == 1) {
+        final collectorPn = _deviceViewModel.collectors.first['pn']?.toString();
+        if (collectorPn != null) {
+          final devicesUnderCollector = _deviceViewModel.collectorDevices[collectorPn] ?? [];
+          if (devicesUnderCollector.length == 1) {
+            final device = devicesUnderCollector.first;
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => DeviceDetailScreen(device: device),
+              ),
+            );
+            return; // Don't change tab index
+          }
+        }
+      }
+      
+      // Multiple devices or complex setup - show devices screen
+      setState(() => _currentIndex = index);
+    } else {
+      setState(() => _currentIndex = index);
+    }
   }
 
   void _onDrawerNavigate(int index) {
@@ -181,15 +235,21 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _refreshDataForNewUser() async {
     try {
-      // Refresh plant data
-      await _plantViewModel.loadPlants();
+      // Force refresh plant data (invalidate cache)
+      await _plantViewModel.refreshPlants();
 
-      // Refresh dashboard data
+      // Force refresh dashboard data
       await _dashboardViewModel.loadDashboardData();
+
+      // Force refresh devices if we have plants
+      if (_plantViewModel.plants.isNotEmpty) {
+        final firstPlantId = _plantViewModel.plants.first.id;
+        await _deviceViewModel.refreshDevices(firstPlantId);
+      }
 
       // Restart real-time data service with new user context
       _realtimeDataService.stop();
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(const Duration(milliseconds: 300));
       _realtimeDataService.start();
 
       // Force UI refresh
@@ -563,11 +623,29 @@ class _OverviewBodyState extends State<_OverviewBody> {
           // Defer to next microtask to avoid doing async work mid-build
           final firstId = plantViewModel.plants.first.id;
           Future.microtask(() async {
-            await graphVM.init(firstId);
-            await _resolveCurrentPower(firstId);
-            await _fetchProfitStatistics();
-            // Ensure dashboard aggregates run after plants arrive
-            await dashboardViewModel.loadDashboardData();
+            try {
+              print('HomeScreen: Initializing graph for plantId: $firstId');
+              await graphVM.init(firstId);
+              print('HomeScreen: Graph initialization complete');
+            } catch (e) {
+              print('HomeScreen: Graph initialization failed: $e');
+            }
+            try {
+              await _resolveCurrentPower(firstId);
+            } catch (e) {
+              print('HomeScreen: Failed to resolve current power: $e');
+            }
+            try {
+              await _fetchProfitStatistics();
+            } catch (e) {
+              print('HomeScreen: Failed to fetch profit statistics: $e');
+            }
+            try {
+              // Ensure dashboard aggregates run after plants arrive
+              await dashboardViewModel.loadDashboardData();
+            } catch (e) {
+              print('HomeScreen: Failed to load dashboard data: $e');
+            }
           });
         }
         // Proactively kick off loads ASAP if plants known but some values not yet computed
@@ -739,8 +817,9 @@ class _OverviewBodyState extends State<_OverviewBody> {
                                     width: 120, // Fixed width
                                     child: Container(
                                       decoration: BoxDecoration(
-                                        color: Colors
-                                            .white, // Solid white background
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .surface, // Use theme surface color
                                         borderRadius: BorderRadius.circular(
                                           16,
                                         ),
@@ -787,20 +866,25 @@ class _OverviewBodyState extends State<_OverviewBody> {
                                               ),
                                             ),
                                             const SizedBox(height: 4),
-                                            const Text(
+                                            Text(
                                               'Current Power\n Generation',
                                               style: TextStyle(
                                                 fontSize: 10,
-                                                color: Colors.black,
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .onSurface,
                                                 fontWeight: FontWeight.w700,
                                               ),
                                               textAlign: TextAlign.center,
                                             ),
-                                            const Text(
+                                            Text(
                                               'All Power Stations',
                                               style: TextStyle(
                                                 fontSize: 8,
-                                                color: Colors.black54,
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .onSurface
+                                                    .withOpacity(0.6),
                                               ),
                                             ),
                                           ],
@@ -1578,11 +1662,14 @@ class _InfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final primaryColor = theme.colorScheme.primary;
+    
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       width: 160,
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface, // themed surface
+        color: theme.colorScheme.surface, // themed surface
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -1595,20 +1682,32 @@ class _InfoCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SvgPicture.asset(icon, height: 28),
+          // Apply theme color to SVG icon
+          SvgPicture.asset(
+            icon,
+            height: 28,
+            colorFilter: ColorFilter.mode(
+              primaryColor,
+              BlendMode.srcIn,
+            ),
+          ),
           const SizedBox(height: 8),
           Text(
             label,
-            style: const TextStyle(fontSize: 12, color: Colors.black),
+            style: TextStyle(
+              fontSize: 12,
+              color: theme.colorScheme.onSurface,
+            ),
           ),
           const SizedBox(height: 3),
           Row(
             children: [
               Text(
                 value,
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
+                  color: theme.colorScheme.onSurface,
                 ),
               ),
               const SizedBox(width: 5),
@@ -1616,7 +1715,7 @@ class _InfoCard extends StatelessWidget {
                 unit,
                 style: TextStyle(
                   fontSize: 10,
-                  color: Theme.of(context).colorScheme.primary,
+                  color: primaryColor,
                 ),
               ),
             ],
@@ -1985,13 +2084,17 @@ void _showCollectorReportDialog() {
                 return;
               }
               try {
+                print('HomeScreen: Starting report download - collector: $selectedCollectorPn, range: $range, date: $anchorDate');
                 final service = ReportDownloadService();
                 Navigator.of(context).pop();
 
                 final progressVN = ValueNotifier<double>(0);
                 final bottomSheetContext =
                     NavigationService.navigatorKey.currentContext;
-                if (bottomSheetContext == null) return;
+                if (bottomSheetContext == null) {
+                  print('HomeScreen: No bottom sheet context available');
+                  return;
+                }
                 showModalBottomSheet(
                   context: bottomSheetContext,
                   isDismissible: false,
@@ -2041,16 +2144,19 @@ void _showCollectorReportDialog() {
                   },
                 );
 
-                await service.downloadFullReportByCollector(
+                final filePath = await service.downloadFullReportByCollector(
                   collectorPn: selectedCollectorPn!,
                   range: range,
                   anchorDate: anchorDate,
                   onProgress: (r, t) {
+                    print('HomeScreen: Download progress: $r / $t bytes');
                     if (t > 0) {
                       progressVN.value = (r / t).clamp(0, 1);
                     }
                   },
                 );
+
+                print('HomeScreen: Download completed - file path: $filePath');
 
                 if (NavigationService.canPop()) {
                   NavigationService.pop();
@@ -2058,10 +2164,15 @@ void _showCollectorReportDialog() {
                 final scContext = NavigationService.navigatorKey.currentContext;
                 if (scContext != null) {
                   ScaffoldMessenger.of(scContext).showSnackBar(
-                    const SnackBar(content: Text('Report saved to Downloads')),
+                    SnackBar(
+                      content: Text('Report saved to Downloads${filePath != null ? '\n$filePath' : ''}'),
+                      duration: const Duration(seconds: 4),
+                    ),
                   );
                 }
-              } catch (e) {
+              } catch (e, stackTrace) {
+                print('HomeScreen: Download error: $e');
+                print('StackTrace: $stackTrace');
                 if (NavigationService.canPop()) {
                   NavigationService.pop();
                 }

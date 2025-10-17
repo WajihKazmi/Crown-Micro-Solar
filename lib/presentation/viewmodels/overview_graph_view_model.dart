@@ -68,7 +68,7 @@ class OverviewGraphViewModel extends ChangeNotifier {
   final _energyRepo = getIt<EnergyRepository>();
   final _deviceRepo = getIt<DeviceRepository>();
 
-  GraphMetric _metric = GraphMetric.outputPower;
+  GraphMetric _metric = GraphMetric.pvInputCurrent;
   GraphPeriod _period = GraphPeriod.day;
   DateTime _anchor = DateTime.now();
   String? _error;
@@ -131,8 +131,19 @@ class OverviewGraphViewModel extends ChangeNotifier {
 
   // Public API
   Future<void> init(String plantId) async {
-    await _loadDevices(plantId);
-    await refresh(plantId: plantId);
+    print('OverviewGraphViewModel: Initializing for plantId: $plantId');
+    try {
+      await _loadDevices(plantId);
+      print('OverviewGraphViewModel: Devices loaded, count: ${_devices.length}');
+      await refresh(plantId: plantId);
+      print('OverviewGraphViewModel: Initial refresh complete');
+    } catch (e, stackTrace) {
+      print('OverviewGraphViewModel: Initialization failed: $e');
+      print('StackTrace: $stackTrace');
+      _error = 'Failed to load graph data: $e';
+      _loading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> setMetric(GraphMetric m, {required String plantId}) async {
@@ -182,17 +193,26 @@ class OverviewGraphViewModel extends ChangeNotifier {
     _state = OverviewGraphState.loading();
     notifyListeners();
 
+    print('OverviewGraphViewModel: Refreshing graph - Period: $_period, Metric: $_metric, PlantId: $plantId');
+
     try {
       if (_period == GraphPeriod.day) {
+        print('OverviewGraphViewModel: Loading daily data for ${_anchor.toIso8601String().substring(0, 10)}');
         await _loadDaily(plantId);
       } else if (_period == GraphPeriod.month) {
+        print('OverviewGraphViewModel: Loading monthly data');
         await _loadMonthly(plantId);
       } else if (_period == GraphPeriod.year) {
+        print('OverviewGraphViewModel: Loading yearly data');
         await _loadYearly(plantId);
       } else {
+        print('OverviewGraphViewModel: Loading total data');
         await _loadTotal(plantId);
       }
-    } catch (e) {
+      print('OverviewGraphViewModel: Data loaded successfully - ${_state.series.length} series, ${_state.labels.length} labels');
+    } catch (e, stackTrace) {
+      print('OverviewGraphViewModel: Error loading graph data: $e');
+      print('StackTrace: $stackTrace');
       _error = e.toString();
       _state = OverviewGraphState(
         labels: const [],

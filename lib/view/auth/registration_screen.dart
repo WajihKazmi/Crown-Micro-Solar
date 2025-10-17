@@ -6,7 +6,6 @@ import 'package:flutter/gestures.dart';
 import '../common/bordered_icon_button.dart';
 import 'package:provider/provider.dart';
 import '../../presentation/viewmodels/auth_viewmodel.dart';
-import 'forgot_password_screen.dart'; // for RecoveryMode enum
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({Key? key}) : super(key: key);
@@ -75,14 +74,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             backgroundColor: Colors.green,
           ),
         );
-        // Navigate to OTP verification if backend requires email verification
-        Navigator.of(context).pushReplacementNamed(
-          AppRoutes.verification,
-          arguments: {
-            'mode': RecoveryMode.registration,
-            'email': email,
-          },
-        );
+        // Navigate directly to login like the old app (no email verification required after registration)
+        Navigator.of(context).pushReplacementNamed(AppRoutes.login);
       } else {
         // Show specific error from viewmodel
         final errorMessage =
@@ -156,7 +149,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                             if (value == null || value.isEmpty) {
                               return 'Please enter your email';
                             }
-                            if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}\$')
+                            // Basic email format validation (anchor end correctly; allow modern TLDs)
+                            if (!RegExp(r'^[\w.-]+@([\w-]+\.)+[\w-]{2,63}$')
                                 .hasMatch(value)) {
                               return 'Please enter a valid email address';
                             }

@@ -107,52 +107,37 @@ class AccountRepository {
   }
 
   Future<bool> forgotPassword(String email) async {
-    final headers = {
-      'Content-Type': 'application/json',
-      'x-api-key': 'C5BFF7F0-B4DF-475E-A331-F737424F013C',
-    };
-    final body = {"Email": email};
-    final candidates = <String>[
-      'https://apis.crown-micro.net/api/MonitoringApp/ForgotPassword',
-      // Fallbacks based on legacy variations
-      'https://apis.crown-micro.net/api/MonitoringApp/SendShortCode',
-      'https://apis.crown-micro.net/api/MonitoringApp/SendVerificationCode',
-    ];
-    for (final url in candidates) {
-      try {
-        final response = await Dio().post(
-          url,
-          data: body,
-          options: Options(
-            headers: headers,
-            validateStatus: (s) => s != null && s < 500,
-          ),
-        );
-        if (response.statusCode == 200) {
-          final data = response.data;
-          final code = data is Map<String, dynamic>
-              ? data['ResponseCode']?.toString()
-              : null;
-          final desc = data is Map<String, dynamic>
-              ? data['Description']?.toString().toLowerCase()
-              : null;
-          final ok = code == '00' || (desc?.contains('success') ?? false);
-          if (ok) return true;
-          // If 200 but not OK, keep trying others
-        } else if (response.statusCode == 404) {
-          // Try next candidate
-          continue;
-        } else {
-          // Other non-200, treat as failure and stop
-          print('forgotPassword: HTTP ${response.statusCode} from $url');
-          return false;
-        }
-      } catch (e) {
-        print('Error in forgotPassword calling $url: $e');
-        // Try next candidate
+    try {
+      final headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': 'C5BFF7F0-B4DF-475E-A331-F737424F013C',
+      };
+      final body = {"Email": email};
+
+      // Use PushShortCode endpoint like the old working app
+      final response = await Dio().post(
+        'https://apis.crown-micro.net/api/MonitoringApp/PushShortCode',
+        data: body,
+        options: Options(
+          headers: headers,
+          validateStatus: (s) => s != null && s < 500,
+        ),
+      );
+
+      print(
+          'forgotPassword response: ${response.statusCode} - ${response.data}');
+
+      if (response.statusCode == 200) {
+        // Old app treats 200 as success
+        return true;
       }
+
+      print('forgotPassword: HTTP ${response.statusCode}');
+      return false;
+    } catch (e) {
+      print('Error in forgotPassword: $e');
+      return false;
     }
-    return false;
   }
 
   Future<String?> forgotUserId(String email) async {
@@ -209,15 +194,18 @@ class AccountRepository {
   }) async {
     try {
       print('Registration attempt for email: $email');
+      // Normalize SN similar to legacy expectations
+      final normalizedSn = sn.trim().toUpperCase();
       final response = await Dio().post(
         'https://apis.crown-micro.net/api/MonitoringApp/Register',
         data: {
-          "Name": username, // Using username as name for now
+          // Legacy accepts either Name or FullName; include Name explicitly
+          "Name": username,
           "Email": email,
           "MobileNo": mobileNo,
           "Username": username,
           "Password": password,
-          "SN": sn,
+          "SN": normalizedSn,
         },
         options: Options(headers: {
           'Content-Type': 'application/json',
@@ -229,16 +217,24 @@ class AccountRepository {
       print('Registration response data: ${response.data}');
 
       if (response.statusCode == 200) {
-        final description = response.data['Description'];
-        print('Registration description: $description');
-        if (description == "Success") {
+        final data = response.data;
+        final code = data is Map<String, dynamic>
+            ? data['ResponseCode']?.toString()
+            : null;
+        final description = data is Map<String, dynamic>
+            ? data['Description']?.toString()
+            : null;
+        print('Registration description: $description, code: $code');
+        final ok = code == '00' ||
+            description == 'Success' ||
+            (description?.toLowerCase().contains('success') ?? false);
+        if (ok) {
           return {'success': true, 'message': 'Registration successful'};
-        } else {
-          return {
-            'success': false,
-            'message': description ?? 'Registration failed'
-          };
         }
+        return {
+          'success': false,
+          'message': description ?? 'Registration failed'
+        };
       }
       return {
         'success': false,
@@ -263,12 +259,15 @@ class AccountRepository {
           validateStatus: (s) => s != null && s < 500,
         ),
       );
-      if (response.statusCode != 200) return false;
-      final data = response.data;
-      final codeStr = data is Map<String, dynamic>
-          ? data['ResponseCode']?.toString()
-          : null;
-      return codeStr == '00';
+
+      print('verifyOtp response: ${response.statusCode} - ${response.data}');
+
+      if (response.statusCode == 200) {
+        // Old app treats 200 as success without checking ResponseCode
+        return true;
+      }
+
+      return false;
     } catch (e) {
       print('Error in verifyOtp: $e');
       return false;
