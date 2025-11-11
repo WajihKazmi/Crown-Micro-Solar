@@ -160,87 +160,94 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         _err = null;
       });
     }
-    // Heavy phase date is computed when scheduled; no need here
+
     final repo = getIt<DeviceRepository>();
-    // Phase 1: fast fetches (live + energy flow)
-    int pending = 2;
-    bool anySuccess = false;
-    void done() {
-      pending -= 1;
-      if (pending <= 0) {
-        _isFetching = false;
-        if (!mounted) return;
-        if (!anySuccess && !silent) {
-          setState(() {
-            _loading = false;
-            _err = _err ?? 'Failed to load device data';
-          });
-        }
-      }
+
+    // OPTIMIZED: Show cached data INSTANTLY (like old app)
+    final cached = _realtime.snapshotEnergyFlow(widget.device.pn);
+    if (cached != null && mounted) {
+      setState(() {
+        _energyFlow = cached;
+        _lastFlowKey = _computeFlowKey(cached);
+        _hasData = true;
+        _loading = false; // Show UI immediately with cached data
+      });
     }
 
-    // Live signal
-    () async {
-      try {
-        final live = await _deviceVM.fetchDeviceLiveSignal(
-          sn: widget.device.sn,
-          pn: widget.device.pn,
-          devcode: widget.device.devcode,
-          devaddr: widget.device.devaddr,
-        );
-        if (!mounted) return;
-        setState(() {
-          _live = live;
-          _hasData = true;
-          _loading = false; // first successful response hides spinner
-          anySuccess = true;
-        });
-      } catch (e) {
-        // ignore individual errors
-      } finally {
-        done();
-      }
-    }();
+    // FAST PATH: Use energy flow endpoint (single call, all data)
+    try {
+      final now = DateTime.now();
+      print(
+          '_fetch: Requesting energy flow for pn=${widget.device.pn} at $now');
+      final flow = await repo.fetchDeviceEnergyFlow(
+        sn: widget.device.sn,
+        pn: widget.device.pn,
+        devcode: widget.device.devcode,
+        devaddr: widget.device.devaddr,
+      );
 
-    // Energy flow (prefer cached snapshot first to render instantly)
-    () async {
-      try {
-        // Immediate snapshot was already applied in initState; keep here as safety
-        final cached = _realtime.snapshotEnergyFlow(widget.device.pn);
-        if (cached != null && mounted) {
-          setState(() {
-            _energyFlow = cached;
-            _lastFlowKey = _computeFlowKey(cached);
-            _hasData = true;
-            _loading = false;
-            anySuccess = true;
-          });
+      final afterFetch = DateTime.now();
+      final elapsed = afterFetch.difference(now).inMilliseconds;
+      print('_fetch: Received energy flow data in ${elapsed}ms');
+      if (flow != null) {
+        if (flow.pvStatus.isNotEmpty) {
+          print(
+              '  pvStatus[0]: par=${flow.pvStatus[0].par}, val=${flow.pvStatus[0].value}');
         }
-        // Kick an async refresh in background while UI shows cached
-        final flow = await repo.fetchDeviceEnergyFlow(
-          sn: widget.device.sn,
-          pn: widget.device.pn,
-          devcode: widget.device.devcode,
-          devaddr: widget.device.devaddr,
-        );
-        if (!mounted) return;
+        if (flow.gdStatus.isNotEmpty) {
+          print(
+              '  gdStatus[0]: par=${flow.gdStatus[0].par}, val=${flow.gdStatus[0].value}, status=${flow.gdStatus[0].status}');
+        }
+      }
+
+      if (!mounted) {
+        _isFetching = false;
+        return;
+      }
+
+      if (flow != null) {
         final newKey = _computeFlowKey(flow);
         setState(() {
           _energyFlow = flow;
           _lastFlowKey = newKey;
           _hasData = true;
           _loading = false;
-          anySuccess = true;
         });
-        // Update realtime cache to benefit other screens
-        if (flow != null) {
-          _realtime.deviceEnergyFlow[widget.device.pn] = flow;
+        // Update realtime cache
+        _realtime.deviceEnergyFlow[widget.device.pn] = flow;
+      } else {
+        // Fallback: Try live signal if energy flow fails
+        try {
+          final live = await _deviceVM.fetchDeviceLiveSignal(
+            sn: widget.device.sn,
+            pn: widget.device.pn,
+            devcode: widget.device.devcode,
+            devaddr: widget.device.devaddr,
+          );
+          if (!mounted) {
+            _isFetching = false;
+            return;
+          }
+          setState(() {
+            _live = live;
+            _hasData = true;
+            _loading = false;
+          });
+        } catch (e) {
+          print('Live signal fallback error: $e');
         }
-      } catch (e) {
-      } finally {
-        done();
       }
-    }();
+    } catch (e) {
+      print('Energy flow fetch error: $e');
+      if (!silent && mounted) {
+        setState(() {
+          _loading = false;
+          _err = 'Failed to load device data';
+        });
+      }
+    } finally {
+      _isFetching = false;
+    }
 
     // Heavy operations (metrics + paging) are moved to _fetchHeavy and not
     // executed during the initial fast phase or silent refreshes.
@@ -344,56 +351,33 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         }
       }
 
-      // PV
-      setBy(
-          ['PV1 Input Voltage', 'PV1 Input voltage'], 'PV1 Input Voltage', 'V');
-      setBy(['PV1 Charging Power', 'PV1 Input Power', 'PV1 Active Power'],
-          'PV1 Input Power (Watts)', 'W');
-      setBy(
-          ['PV2 Input Voltage', 'PV2 Input voltage'], 'PV2 Input Voltage', 'V');
-      setBy(['PV2 Charging power', 'PV2 Input Power', 'PV2 Active Power'],
-          'PV2 Input Power (Watts)', 'W');
+      // PV - All required fields
+      setBy(['PV1 Input Voltage', 'PV1 Input voltage'], 'PV1 Input volts', 'V');
+      setBy(['PV2 Input Voltage', 'PV2 Input voltage'], 'PV2 Input volts', 'V');
+      setBy(['PV1 Charging Power', 'PV1 Input Power', 'PV1 Active Power'], 'PV1 watts', 'W');
+      setBy(['PV2 Charging power', 'PV2 Input Power', 'PV2 Active Power'], 'PV2 watts', 'W');
+      setBy(['PV1 Input Current', 'PV1 Input current'], 'PV1 Input Current', 'A', assumeKWForPower: false);
+      setBy(['PV2 Input Current', 'PV2 Input current'], 'PV2 Input Current', 'A', assumeKWForPower: false);
+      setBy(['PV Output Power', 'Total PV Power'], 'PV Output Power', 'W');
 
-      // Battery
+      // Battery - All required fields
       setBy(['Battery Voltage'], 'Battery Voltage', 'V');
-      setBy(['Battery Capacity'], 'Battery Capacity (%)', '%');
-      setBy(['Battery charging current'], 'Battery Charging Current (A)', 'A',
-          assumeKWForPower: false);
-      setBy([
-        'Battery discharging current'
-      ], 'Battery Discharging Current (A)', 'A', assumeKWForPower: false);
+      setBy(['Battery charging current'], 'Battery Charging Current', 'A', assumeKWForPower: false);
       final btTypeIdx = idxOf(['Battery Type']);
       if (btTypeIdx != -1 && btTypeIdx < field.length) {
         res['Battery Type'] = (field[btTypeIdx]?.toString() ?? '--');
       }
+      setBy(['Battery Capacity', 'Battery SOC', 'SOC'], 'Battery Capacity', '%', assumeKWForPower: false);
 
-      // Load
-      final loadStatusIdx = idxOf(['Load Status']);
-      if (loadStatusIdx != -1 && loadStatusIdx < field.length) {
-        res['Load Status'] = (field[loadStatusIdx]?.toString() ?? '--');
-      }
-      setBy(['AC Output Voltage', 'AC1 Output Voltage'], 'AC Output Voltage',
-          'V');
-      setBy(['AC Output Frequency', 'AC1 Output Frequency'],
-          'AC Output Frequency (Hz)', 'Hz');
-      setBy(['AC2 Output Voltage'], 'Second Output Voltage', 'V');
-      setBy(['AC2 Output Frequency'], 'Second Output Frequency (Hz)', 'Hz');
-      setBy([
-        'AC Output Active Power',
-        'Load Active Power',
-        'Output Active Power'
-      ], 'AC Output Active Power (W)', 'W');
-      setBy(['Output Load Percentage', 'Output Load %'],
-          'Output Load Percentage (%)', '%');
+      // Load - All required fields
+      setBy(['AC Output Voltage', 'AC1 Output Voltage'], 'AC Output Voltage', 'V');
+      setBy(['AC Output Active Power', 'Load Active Power', 'Output Active Power'], 'Load Watts', 'W');
+      setBy(['Output Load Percentage', 'Load Percentage'], 'Output Load Percentage', '%', assumeKWForPower: false);
+      setBy(['Load Active Power', 'AC Active Power'], 'Load Active Power', 'W');
 
-      // Grid
+      // Grid - All required fields
       setBy(['Grid Voltage'], 'Grid Voltage', 'V');
-      setBy(
-          ['Grid Frequency', 'AC Grid Frequency'], 'Grid Frequency (Hz)', 'Hz');
-      final acInputIdx = idxOf(['AC Input Range', 'AC input range']);
-      if (acInputIdx != -1 && acInputIdx < field.length) {
-        res['AC Input Range (APL/UPS)'] = field[acInputIdx]?.toString() ?? '--';
-      }
+      setBy(['Grid Frequency', 'AC Grid Frequency'], 'Grid Frequency', 'Hz');
     } catch (_) {}
     return res;
   }
@@ -642,19 +626,78 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     final batSocMetric = _metricAggVM.metric('BATTERY_SOC');
     final loadPowerMetric = _metricAggVM.metric('LOAD_POWER');
     final gridPowerMetric = _metricAggVM.metric('GRID_POWER');
+    final gridVoltageMetric = _metricAggVM.metric('GRID_VOLTAGE');
     final acOutVoltageMetric = _metricAggVM.metric('AC2_OUTPUT_VOLTAGE');
     final gridFreqMetric = _metricAggVM.metric('GRID_FREQUENCY');
 
+    // Use fresh energyFlow data first, then fall back to metrics for older data
     final pvVoltage = _energyFlow?.pvVoltage ?? pvVoltageMetric?.latestValue;
     final pvPower =
         _energyFlow?.pvPower ?? pvPowerMetric?.latestValue ?? _live?.inputPower;
-    final loadVoltage = acOutVoltageMetric?.latestValue;
+
+    // Load voltage - try to extract from energyFlow bcStatus/olStatus first
+    double? loadVoltage;
+    if (_energyFlow != null) {
+      final combined = [..._energyFlow!.bcStatus, ..._energyFlow!.olStatus];
+      for (final item in combined) {
+        final par = item.par.toLowerCase();
+        final unit = (item.unit ?? '').toLowerCase();
+        if ((unit == 'v' || par.contains('voltage')) &&
+            (par.contains('output') || par.contains('ac'))) {
+          loadVoltage = item.value;
+          break;
+        }
+      }
+    }
+    loadVoltage ??= acOutVoltageMetric?.latestValue; // Fallback to metric
+
     final loadPower = _energyFlow?.loadPower ??
         loadPowerMetric?.latestValue ??
         _live?.outputPower;
-    final gridVoltageVal = _energyFlow?.gridVoltage;
-    final gridPowerVal = _energyFlow?.gridPower ?? gridPowerMetric?.latestValue;
-    final gridFreqVal = gridFreqMetric?.latestValue;
+    
+    // Grid voltage - try multiple sources including gdStatus items
+    double? gridVoltageVal = _energyFlow?.gridVoltage ?? gridVoltageMetric?.latestValue;
+    if (gridVoltageVal == null && _energyFlow != null) {
+      for (final item in _energyFlow!.gdStatus) {
+        final par = item.par.toLowerCase();
+        final unit = (item.unit ?? '').toLowerCase();
+        if ((unit == 'v' || par.contains('voltage')) && 
+            (par.contains('grid') || par.contains('utility') || par.contains('ac'))) {
+          gridVoltageVal = item.value;
+          break;
+        }
+      }
+    }
+    
+    // Grid power - try multiple sources including gdStatus items
+    double? gridPowerVal = _energyFlow?.gridPower ?? gridPowerMetric?.latestValue;
+    if (gridPowerVal == null && _energyFlow != null) {
+      for (final item in _energyFlow!.gdStatus) {
+        final par = item.par.toLowerCase();
+        final unit = (item.unit ?? '').toLowerCase();
+        if ((unit == 'w' || unit == 'kw' || par.contains('power')) && 
+            (par.contains('grid') || par.contains('utility') || par.contains('active'))) {
+          gridPowerVal = item.value;
+          if (unit == 'kw') gridPowerVal = (gridPowerVal ?? 0) * 1000;
+          break;
+        }
+      }
+    }
+
+    // Grid frequency - try to extract from energyFlow gdStatus first
+    double? gridFreqVal;
+    if (_energyFlow != null) {
+      for (final item in _energyFlow!.gdStatus) {
+        final par = item.par.toLowerCase();
+        final unit = (item.unit ?? '').toLowerCase();
+        if (unit == 'hz' || par.contains('frequency')) {
+          gridFreqVal = item.value;
+          break;
+        }
+      }
+    }
+    gridFreqVal ??= gridFreqMetric?.latestValue; // Fallback to metric
+
     final batteryVoltage = _energyFlow?.batteryVoltage;
     final batSoc = _energyFlow?.batterySoc ??
         batSocMetric?.latestValue ??
@@ -701,18 +744,43 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     }
 
     final rawCards = <Map<String, Object?>>[];
+    // PV Card: Show Power as primary, Voltage as secondary
     if (pvVoltage != null || pvPower != null) {
       final selected = _selectedValueFor('pv');
       final pvCurrent = _energyFlow?.pvCurrent;
+      String primaryValue;
+      String? secondaryValue;
+
+      if (selected != null) {
+        primaryValue = selected;
+        secondaryValue = _formatLabel(_selectedParByCategory['pv'] ?? '');
+      } else if (pvPower != null) {
+        // Primary: Power in Watts
+        primaryValue = _fmtPowerW(pvPower);
+        // Secondary: Voltage
+        if (pvVoltage != null) {
+          secondaryValue = _fmtVoltage(pvVoltage);
+        } else if (pvCurrent != null) {
+          secondaryValue = '${pvCurrent.toStringAsFixed(1)}A';
+        }
+      } else if (pvVoltage != null) {
+        // Fallback: show voltage if no power
+        primaryValue = _fmtVoltage(pvVoltage);
+        if (pvCurrent != null) {
+          secondaryValue = '${pvCurrent.toStringAsFixed(1)}A';
+        }
+      } else {
+        primaryValue = '--';
+      }
+
       rawCards.add({
         'title': 'PV',
-        'value': selected ?? _fmtVoltageOrPower(pvVoltage ?? pvPower),
-        'subtitle': selected != null
-            ? _formatLabel(_selectedParByCategory['pv'] ?? '')
-            : (pvVoltage != null && pvPower != null
-                ? _fmtPowerW(pvPower)
-                : null),
-        'extraInfo': selected == null && pvVoltage != null && pvCurrent != null
+        'value': primaryValue,
+        'subtitle': secondaryValue,
+        'extraInfo': selected == null &&
+                pvVoltage != null &&
+                pvCurrent != null &&
+                pvPower != null
             ? '${_fmtVoltage(pvVoltage)} / ${pvCurrent.toStringAsFixed(1)}A'
             : null,
         'icon': Icons.solar_power,
@@ -741,16 +809,33 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         'key': 'battery',
       });
     }
+    // Load Card: Show Power as primary, Voltage as secondary
     if (loadVoltage != null || loadPower != null) {
       final selected = _selectedValueFor('load');
+      String primaryValue;
+      String? secondaryValue;
+
+      if (selected != null) {
+        primaryValue = selected;
+        secondaryValue = _formatLabel(_selectedParByCategory['load'] ?? '');
+      } else if (loadPower != null) {
+        // Primary: Power in Watts
+        primaryValue = _fmtPowerW(loadPower);
+        // Secondary: Voltage
+        if (loadVoltage != null) {
+          secondaryValue = _fmtVoltage(loadVoltage);
+        }
+      } else if (loadVoltage != null) {
+        // Fallback: show voltage if no power
+        primaryValue = _fmtVoltage(loadVoltage);
+      } else {
+        primaryValue = '--';
+      }
+
       rawCards.add({
         'title': 'Load',
-        'value': selected ?? _fmtVoltageOrPower(loadVoltage ?? loadPower),
-        'subtitle': selected != null
-            ? _formatLabel(_selectedParByCategory['load'] ?? '')
-            : ((loadVoltage != null && loadPower != null)
-                ? _fmtPowerW(loadPower)
-                : null),
+        'value': primaryValue,
+        'subtitle': secondaryValue,
         'icon': Icons.home,
         'key': 'load',
       });
@@ -759,7 +844,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     final selectedGrid = _selectedValueFor('grid');
     String? gridValueStr;
     String? gridSubtitle;
-    
+
     if (selectedGrid != null) {
       gridValueStr = selectedGrid;
       gridSubtitle = _formatLabel(_selectedParByCategory['grid'] ?? '');
@@ -788,7 +873,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
           _latestPagingValues['Grid Frequency (Hz)'] ??
           '--';
     }
-    
+
     // Always show Grid card
     rawCards.add({
       'title': 'Grid',
@@ -920,20 +1005,47 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   }
 
   void _showFlowDetails(String category) {
+    print('_showFlowDetails called for category: $category');
+    print('_energyFlow is null: ${_energyFlow == null}');
+
     if (_energyFlow == null) {
+      print('No energy flow data available - showing snackbar');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No details available')),
+        const SnackBar(
+          content: Text('Please wait, loading device data...'),
+          duration: Duration(seconds: 2),
+        ),
       );
       return;
     }
 
+    // For battery category, try to get the actual battery device info
+    Device deviceForModel = widget.device;
+    if (category == 'battery') {
+      // Try to find battery device from subordinate devices
+      final subDevices = _deviceVM.getSubordinateDevices(widget.device.pn);
+      final batteryDevice = subDevices.firstWhere(
+        (d) => d.devcode == 1792 || // Standard battery devcode
+            d.devcode == 6451 || // Arceus devices (all have 6451)
+            d.type.toLowerCase().contains('battery'),
+        orElse: () => widget.device,
+      );
+      if (batteryDevice.devcode == 1792 || batteryDevice.devcode == 6451) {
+        deviceForModel = batteryDevice;
+        print('Found battery device: ${batteryDevice.alias}, devcode: ${batteryDevice.devcode}');
+      }
+    }
+
     // Detect device model and get model-specific configuration
     final deviceModel = DeviceModel.detect(
-      devcode: widget.device.devcode,
-      alias: widget.device.alias,
+      devcode: deviceForModel.devcode,
+      alias: deviceForModel.alias,
     );
     final modelConfig = DeviceModelPopupConfig.forModel(deviceModel);
     final fieldConfigs = modelConfig.getFieldsForCategory(category);
+
+    print(
+        'Device model: ${deviceModel.name}, Field configs count: ${fieldConfigs.length}');
 
     String title = '';
     List<DeviceEnergyFlowItem> items = const [];
@@ -954,14 +1066,21 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
 
     switch (category) {
       case 'pv':
-        title = 'PV Details (${deviceModel.name.toUpperCase()})';
+        title = 'PV Details';
         final list = _energyFlow!.pvStatus;
-        
+
+        print('PV case: pvStatus count=${list.length}');
+        for (final item in list) {
+          print('  PV item: par="${item.par}", value=${item.value}, unit=${item.unit}');
+        }
+
         // Build ordered items based on model configuration
         final ordered = <DeviceEnergyFlowItem>[];
         for (final fieldConfig in fieldConfigs) {
+          print('  Looking for fieldConfig: label="${fieldConfig.label}", candidates=${fieldConfig.apiCandidates}');
           final item = findByCandidate(list, fieldConfig.apiCandidates);
           if (item != null) {
+            print('    Found match: par="${item.par}", value=${item.value}');
             // Create a normalized item with clean label from config
             ordered.add(DeviceEnergyFlowItem(
               par: fieldConfig.label,
@@ -969,24 +1088,44 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
               unit: fieldConfig.unit.isNotEmpty ? fieldConfig.unit : item.unit,
               status: item.status,
             ));
+          } else {
+            print('    No match found in energy flow, checking paging data');
+            // If not found in energy flow, try to get from paging data
+            final pagingValue = _latestPagingValues[fieldConfig.label];
+            if (pagingValue != null) {
+              print('    Found in paging data: $pagingValue');
+              // Parse the value from formatted string (e.g., "230 V" -> 230)
+              final match = RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(pagingValue);
+              if (match != null) {
+                final numValue = double.tryParse(match.group(1)!);
+                if (numValue != null) {
+                  ordered.add(DeviceEnergyFlowItem(
+                    par: fieldConfig.label,
+                    value: numValue,
+                    unit: fieldConfig.unit,
+                    status: 0,
+                  ));
+                }
+              }
+            }
           }
         }
-        
+
         // Add any remaining fields not in the model config
-        final rest = list.where((e) => 
-          !fieldConfigs.any((fc) => fc.apiCandidates.any(
-            (c) => c.toLowerCase() == e.par.toLowerCase()
-          ))
-        ).toList();
-        
+        final rest = list
+            .where((e) => !fieldConfigs.any((fc) => fc.apiCandidates
+                .any((c) => c.toLowerCase() == e.par.toLowerCase())))
+            .toList();
+
+        print('PV ordered count: ${ordered.length}, rest count: ${rest.length}');
         items = [...ordered, ...rest];
         icon = Icons.solar_power;
         break;
-        
+
       case 'battery':
-        title = 'Battery Details (${deviceModel.name.toUpperCase()})';
+        title = 'Battery Details';
         final list = _energyFlow!.btStatus;
-        
+
         final ordered = <DeviceEnergyFlowItem>[];
         for (final fieldConfig in fieldConfigs) {
           final item = findByCandidate(list, fieldConfig.apiCandidates);
@@ -997,23 +1136,59 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
               unit: fieldConfig.unit.isNotEmpty ? fieldConfig.unit : item.unit,
               status: item.status,
             ));
+          } else {
+            // If not found in energy flow, try to get from paging data
+            final pagingValue = _latestPagingValues[fieldConfig.label];
+            if (pagingValue != null) {
+              // Parse the value from formatted string
+              final match = RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(pagingValue);
+              if (match != null) {
+                final numValue = double.tryParse(match.group(1)!);
+                if (numValue != null) {
+                  ordered.add(DeviceEnergyFlowItem(
+                    par: fieldConfig.label,
+                    value: numValue,
+                    unit: fieldConfig.unit,
+                    status: 0,
+                  ));
+                }
+              } else {
+                // If it's not a number (e.g., Battery Type), add as-is
+                ordered.add(DeviceEnergyFlowItem(
+                  par: fieldConfig.label,
+                  value: null,
+                  unit: pagingValue, // Store the string value in unit for display
+                  status: 0,
+                ));
+              }
+            }
           }
         }
-        
-        final rest = list.where((e) => 
-          !fieldConfigs.any((fc) => fc.apiCandidates.any(
-            (c) => c.toLowerCase() == e.par.toLowerCase()
-          ))
-        ).toList();
-        
-        items = [...ordered, ...rest];
+
+        // For battery category, ONLY show the configured fields (ordered).
+        // This prevents extraneous fields from energy flow (like duplicate
+        // battery capacity entries or 'Battery Active Power') from appearing.
+        // Any missing configured fields will be added via _extraRowsForCategory
+        // which pulls values from paging data (_latestPagingValues).
+        items = ordered;
         icon = Icons.battery_full;
         break;
-        
+
       case 'load':
-        title = 'Load Details (${deviceModel.name.toUpperCase()})';
+        title = 'Load Details';
+
+        // Extra safety: verify _energyFlow is still not null
+        if (_energyFlow == null) {
+          print('ERROR: _energyFlow became null in load case!');
+          items = const [];
+          break;
+        }
+
+        print(
+            'Load case: bcStatus count=${_energyFlow!.bcStatus.length}, olStatus count=${_energyFlow!.olStatus.length}');
         final list = [..._energyFlow!.bcStatus, ..._energyFlow!.olStatus];
-        
+        print('Combined list size: ${list.length}');
+
         final ordered = <DeviceEnergyFlowItem>[];
         for (final fieldConfig in fieldConfigs) {
           final item = findByCandidate(list, fieldConfig.apiCandidates);
@@ -1024,26 +1199,47 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
               unit: fieldConfig.unit.isNotEmpty ? fieldConfig.unit : item.unit,
               status: item.status,
             ));
+          } else {
+            // If not found in energy flow, try to get from paging data
+            final pagingValue = _latestPagingValues[fieldConfig.label];
+            if (pagingValue != null) {
+              // Parse the value from formatted string
+              final match = RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(pagingValue);
+              if (match != null) {
+                final numValue = double.tryParse(match.group(1)!);
+                if (numValue != null) {
+                  ordered.add(DeviceEnergyFlowItem(
+                    par: fieldConfig.label,
+                    value: numValue,
+                    unit: fieldConfig.unit,
+                    status: 0,
+                  ));
+                }
+              }
+            }
           }
         }
-        
+
         // Filter out unwanted power fields from rest
-        final rest = list.where((e) => 
-          !fieldConfigs.any((fc) => fc.apiCandidates.any(
-            (c) => c.toLowerCase() == e.par.toLowerCase()
-          )) &&
-          !e.par.toLowerCase().contains('ac output active power') &&
-          !e.par.toLowerCase().contains('ac active output power')
-        ).toList();
-        
+        final rest = list
+            .where((e) =>
+                !fieldConfigs.any((fc) => fc.apiCandidates
+                    .any((c) => c.toLowerCase() == e.par.toLowerCase())) &&
+                !e.par.toLowerCase().contains('ac output active power') &&
+                !e.par.toLowerCase().contains('ac active output power') &&
+                !e.par.toLowerCase().contains('oil output power') &&
+                !e.par.toLowerCase().contains('oil_output_power'))
+            .toList();
+
         items = [...ordered, ...rest];
+        print('Load items count: ${items.length}');
         icon = Icons.home;
         break;
-        
+
       case 'grid':
-        title = 'Grid Details (${deviceModel.name.toUpperCase()})';
+        title = 'Grid Details';
         final list = _energyFlow!.gdStatus;
-        
+
         final ordered = <DeviceEnergyFlowItem>[];
         for (final fieldConfig in fieldConfigs) {
           final item = findByCandidate(list, fieldConfig.apiCandidates);
@@ -1054,131 +1250,167 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
               unit: fieldConfig.unit.isNotEmpty ? fieldConfig.unit : item.unit,
               status: item.status,
             ));
+          } else {
+            // If not found in energy flow, try to get from paging data
+            final pagingValue = _latestPagingValues[fieldConfig.label];
+            if (pagingValue != null) {
+              // Parse the value from formatted string
+              final match = RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(pagingValue);
+              if (match != null) {
+                final numValue = double.tryParse(match.group(1)!);
+                if (numValue != null) {
+                  ordered.add(DeviceEnergyFlowItem(
+                    par: fieldConfig.label,
+                    value: numValue,
+                    unit: fieldConfig.unit,
+                    status: 0,
+                  ));
+                }
+              }
+            }
           }
         }
-        
-        // Filter out 'Grid Active Power' from rest
-        final rest = list.where((e) => 
-          !fieldConfigs.any((fc) => fc.apiCandidates.any(
-            (c) => c.toLowerCase() == e.par.toLowerCase()
-          )) &&
-          !e.par.toLowerCase().contains('grid active power')
-        ).toList();
-        
-        items = [...ordered, ...rest];
+
+        // For grid category, ONLY show configured fields (ordered).
+        // This prevents duplicate fields from appearing (e.g., duplicate Grid Frequency).
+        items = ordered;
         icon = Icons.electrical_services;
         break;
-        
+
       default:
         title = 'Details';
         items = const [];
     }
 
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return Dialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          insetPadding:
-              const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primary,
-                          borderRadius: BorderRadius.circular(10),
+    // DEDUPLICATION: Remove duplicate labels (case-insensitive)
+    // Keep only the first occurrence of each unique label
+    final seenLabels = <String>{};
+    final deduplicatedItems = <DeviceEnergyFlowItem>[];
+    for (final item in items) {
+      final normalizedLabel = item.par.trim().toLowerCase();
+      if (!seenLabels.contains(normalizedLabel)) {
+        seenLabels.add(normalizedLabel);
+        deduplicatedItems.add(item);
+      }
+    }
+    items = deduplicatedItems;
+
+    print('About to show dialog with ${items.length} items (after deduplication)');
+
+    try {
+      showDialog(
+        context: context,
+        builder: (ctx) {
+          return Dialog(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            insetPadding:
+                const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primary,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(icon, color: Colors.white, size: 18),
                         ),
-                        child: Icon(icon, color: Colors.white, size: 18),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          title,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.of(ctx).pop(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (items.isEmpty && _latestPagingValues.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        child: Text('No data'),
+                      )
+                    else
+                      SizedBox(
+                        height: 300,
+                        child: SingleChildScrollView(
+                          child: Column(
+                            children: [
+                              for (final it in items)
+                                InkWell(
+                                  onTap: () {
+                                    // set selected label for category and update card
+                                    _selectedParByCategory[category] = it.par;
+                                    Navigator.of(ctx).pop();
+                                    setState(() {});
+                                  },
+                                  child: _FlowDetailRow(
+                                    label: _formatLabel(it.par),
+                                    value:
+                                        _formatValueWithUnit(it.value, it.unit),
+                                    status: it.status,
+                                    selected: () {
+                                      final sel =
+                                          _selectedParByCategory[category];
+                                      if (sel == null) return false;
+                                      final a = sel.trim().toLowerCase();
+                                      final b1 = it.par.trim().toLowerCase();
+                                      final b2 = _formatLabel(it.par)
+                                          .trim()
+                                          .toLowerCase();
+                                      return a == b1 || a == b2;
+                                    }(),
+                                  ),
+                                ),
+                              // Extras from paging for missing required labels
+                              // Pass both formatted and raw labels to ensure proper matching
+                              ..._extraRowsForCategory(
+                                  category,
+                                  items.map((e) => e.par).toSet(),
+                                  ctx),
+                            ],
                           ),
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
                         onPressed: () => Navigator.of(ctx).pop(),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  if (items.isEmpty && _latestPagingValues.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 12),
-                      child: Text('No data'),
-                    )
-                  else
-                    SizedBox(
-                      height: 300,
-                      child: SingleChildScrollView(
-                        child: Column(
-                          children: [
-                            for (final it in items)
-                              InkWell(
-                                onTap: () {
-                                  // set selected label for category and update card
-                                  _selectedParByCategory[category] = it.par;
-                                  Navigator.of(ctx).pop();
-                                  setState(() {});
-                                },
-                                child: _FlowDetailRow(
-                                  label: _formatLabel(it.par),
-                                  value:
-                                      _formatValueWithUnit(it.value, it.unit),
-                                  status: it.status,
-                                  selected: () {
-                                    final sel =
-                                        _selectedParByCategory[category];
-                                    if (sel == null) return false;
-                                    final a = sel.trim().toLowerCase();
-                                    final b1 = it.par.trim().toLowerCase();
-                                    final b2 = _formatLabel(it.par)
-                                        .trim()
-                                        .toLowerCase();
-                                    return a == b1 || a == b2;
-                                  }(),
-                                ),
-                              ),
-                            // Extras from paging for missing required labels
-                            ..._extraRowsForCategory(
-                                category,
-                                items.map((e) => _formatLabel(e.par)).toSet(),
-                                ctx),
-                          ],
-                        ),
+                        child: const Text('Close'),
                       ),
                     ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () => Navigator.of(ctx).pop(),
-                      child: const Text('Close'),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-        );
-      },
-    );
+          );
+        },
+      );
+    } catch (e, stackTrace) {
+      print('ERROR showing dialog: $e');
+      print('Stack trace: $stackTrace');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error showing details: $e')),
+      );
+    }
   }
 
   String _formatValueWithUnit(double? value, String? unit) {
@@ -1205,7 +1437,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     s = s.replaceAll('_', ' ');
     // Normalize spacing
     s = s.replaceAll(RegExp(r'\s+'), ' ');
-    
+
     // Fix incorrect labels from API
     // Remove "Bt" prefix from battery capacity
     if (s.toLowerCase().startsWith('bt ')) {
@@ -1213,13 +1445,20 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     }
     // Fix "Oil Output Capacity" to "Output Capacity"
     if (s.toLowerCase().contains('oil output capacity')) {
-      s = s.replaceFirst(RegExp(r'(?i)oil output capacity'), 'Output Capacity');
+      s = s.replaceFirst(RegExp(r'oil output capacity', caseSensitive: false),
+          'Output Capacity');
     }
-    
+    // Fix "Oil Output Power" to "Output Power"
+    if (s.toLowerCase().contains('oil output power')) {
+      s = s.replaceFirst(
+          RegExp(r'oil output power', caseSensitive: false), 'Output Power');
+    }
+
     // Map known variants first
     final low = s.toLowerCase();
     if (low.contains('ac2 output'))
-      s = s.replaceFirst(RegExp(r'(?i)ac2 output'), 'Second Output');
+      s = s.replaceFirst(
+          RegExp(r'ac2 output', caseSensitive: false), 'Second Output');
     if (low == 'pv1 input voltage') s = 'PV1 Input Voltage';
     if (low == 'pv2 input voltage' || low == 'pv2 input voltage')
       s = 'PV2 Input Voltage';
@@ -1250,42 +1489,44 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
 
   List<Widget> _extraRowsForCategory(
       String category, Set<String> existingLabels, BuildContext ctx) {
-    // Define desired labels per category (canonical UI labels)
+    // Define desired labels per category (canonical UI labels matching our model config)
     final desired = <String>[];
     switch (category) {
       case 'pv':
+        // All required PV fields
         desired.addAll([
-          'PV1 Input Voltage',
-          'PV1 Input Power (Watts)',
-          'PV2 Input Voltage',
-          'PV2 Input Power (Watts)',
+          'PV1 Input volts',
+          'PV2 Input volts',
+          'PV1 watts',
+          'PV2 watts',
+          'PV1 Input Current',
+          'PV2 Input Current',
+          'PV Output Power',
         ]);
         break;
       case 'battery':
+        // All required Battery fields
         desired.addAll([
           'Battery Voltage',
-          'Battery Capacity (%)',
-          'Battery Charging Current (A)',
-          'Battery Discharging Current (A)',
+          'Battery Charging Current',
           'Battery Type',
+          'Battery Capacity',
         ]);
         break;
       case 'load':
+        // All required Load fields
         desired.addAll([
-          'Load Status',
           'AC Output Voltage',
-          'AC Output Frequency (Hz)',
-          'Second Output Voltage',
-          'Second Output Frequency (Hz)',
-          'AC Output Active Power (W)',
-          'Output Load Percentage (%)',
+          'Load Watts',
+          'Output Load Percentage',
+          'Load Active Power',
         ]);
         break;
       case 'grid':
+        // All required Grid fields
         desired.addAll([
           'Grid Voltage',
-          'Grid Frequency (Hz)',
-          'AC Input Range (APL/UPS)',
+          'Grid Frequency',
         ]);
         break;
     }
@@ -1337,7 +1578,10 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
               children: [
                 _SquareIconButton(
                   icon: Icons.arrow_back,
-                  onTap: () => Navigator.pop(context),
+                  onTap: () {
+                    // Always navigate back to devices screen (HomeScreen with index 2)
+                    Navigator.of(context).popUntil((route) => route.isFirst);
+                  },
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1414,45 +1658,56 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                     ],
                   ),
                 )
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Device Header card removed as per requirements
-                      // Diagram at the top now
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 400),
-                        switchInCurve: Curves.easeOut,
-                        switchOutCurve: Curves.easeIn,
-                        child: _EnergyFlowDiagram(
-                          key: ValueKey(_lastFlowKey ?? 'empty'),
-                          pvW: _energyFlow?.pvVoltage ??
-                              _energyFlow?.pvPower ??
-                              _numFromLatest([
-                                'PV1 Input Voltage',
-                                'PV2 Input Voltage',
-                                'PV1 Input Power (Watts)'
-                              ]),
-                          loadW: _energyFlow?.loadPower,
-                          gridW: _energyFlow?.gridVoltage ??
-                              _energyFlow?.gridPower ??
-                              _numFromLatest(
-                                  ['Grid Voltage', 'Grid Frequency (Hz)']),
-                          batterySoc: _energyFlow?.batterySoc,
-                          batteryFlowW: _energyFlow?.batteryVoltage ??
-                              _energyFlow?.batteryPower ??
-                              _numFromLatest(['Battery Voltage']),
-                          lastUpdated: _live?.timestamp,
-                          energyFlow: _energyFlow, // Pass full model for status
+              : RefreshIndicator(
+                  onRefresh: () async {
+                    // Fetch latest data and force a heavy fetch
+                    await _fetch();
+                    final dateStr =
+                        DateFormat('yyyy-MM-dd').format(_anchorDate);
+                    await _fetchHeavy(date: dateStr);
+                  },
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Device Header card removed as per requirements
+                        // Diagram at the top now
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 400),
+                          switchInCurve: Curves.easeOut,
+                          switchOutCurve: Curves.easeIn,
+                          child: _EnergyFlowDiagram(
+                            key: ValueKey(_lastFlowKey ?? 'empty'),
+                            pvW: _energyFlow?.pvVoltage ??
+                                _energyFlow?.pvPower ??
+                                _numFromLatest([
+                                  'PV1 Input Voltage',
+                                  'PV2 Input Voltage',
+                                  'PV1 Input Power (Watts)'
+                                ]),
+                            loadW: _energyFlow?.loadPower,
+                            gridW: _energyFlow?.gridVoltage ??
+                                _energyFlow?.gridPower ??
+                                _numFromLatest(
+                                    ['Grid Voltage', 'Grid Frequency (Hz)']),
+                            batterySoc: _energyFlow?.batterySoc,
+                            batteryFlowW: _energyFlow?.batteryVoltage ??
+                                _energyFlow?.batteryPower ??
+                                _numFromLatest(['Battery Voltage']),
+                            lastUpdated: _live?.timestamp,
+                            energyFlow:
+                                _energyFlow, // Pass full model for status
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      _summaryCards(),
-                      const SizedBox(height: 24),
-                      if (_graphEnabled)
-                        _DeviceMetricGraph(device: widget.device),
-                    ],
+                        const SizedBox(height: 16),
+                        _summaryCards(),
+                        const SizedBox(height: 24),
+                        if (_graphEnabled)
+                          _DeviceMetricGraph(device: widget.device),
+                      ],
+                    ),
                   ),
                 ),
     );
@@ -1741,7 +1996,7 @@ class _FlowDetailRow extends StatelessWidget {
       default:
         dotColor = Colors.grey;
     }
-    
+
     // Red filled dot for selected item, empty border for non-selected
     final dot = Container(
       width: 10,
@@ -1751,10 +2006,12 @@ class _FlowDetailRow extends StatelessWidget {
         color: selected ? Colors.red : Colors.transparent,
         shape: BoxShape.circle,
         // Show border only for non-selected items
-        border: selected ? null : Border.all(color: dotColor.withOpacity(0.3), width: 1.5),
+        border: selected
+            ? null
+            : Border.all(color: dotColor.withOpacity(0.3), width: 1.5),
       ),
     );
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
@@ -2484,6 +2741,38 @@ String _metricLabel(GraphMetric m) {
       return 'AC Output Current';
     case GraphMetric.batterySoc:
       return 'Battery SOC';
+    case GraphMetric.batteryCapacity:
+      return 'Battery Capacity';
+    case GraphMetric.batteryVoltage:
+      return 'Battery Voltage';
+    case GraphMetric.batteryChargingCurrent:
+      return 'Battery Charging Current';
+    case GraphMetric.batteryDischargeCurrent:
+      return 'Battery Discharge Current';
+    case GraphMetric.generatorAcVoltage:
+      return 'Generator AC Voltage';
+    case GraphMetric.utilityAcVoltage:
+      return 'Utility AC Voltage';
+    case GraphMetric.pv1ChargingPower:
+      return 'PV1 Charging Power';
+    case GraphMetric.pv2ChargingPower:
+      return 'PV2 Charging Power';
+    case GraphMetric.acOutputActivePower:
+      return 'AC Output Active Power';
+    case GraphMetric.pv1InputVoltage:
+      return 'PV1 Input Voltage';
+    case GraphMetric.pv2InputVoltage:
+      return 'PV2 Input Voltage';
+    case GraphMetric.pv1InputCurrent:
+      return 'PV1 Input Current';
+    case GraphMetric.pv2InputCurrent:
+      return 'PV2 Input Current';
+    case GraphMetric.todayGeneration:
+      return 'Today Generation';
+    case GraphMetric.totalGeneration:
+      return 'Total Generation';
+    case GraphMetric.inputPower:
+      return 'Input Power';
   }
 }
 
@@ -2516,126 +2805,260 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
 
   bool _present(double? v, {double threshold = 5}) => (v ?? 0) > threshold;
 
+  /// Check if all energy values are zero/empty (should show empty SVG)
+  bool _isAllZero() {
+    // Check energyFlow if available - use more sophisticated logic
+    if (widget.energyFlow != null) {
+      final pvPower = widget.energyFlow?.pvPower ?? 0;
+      final batteryPower = widget.energyFlow?.batteryPower?.abs() ?? 0;
+      final gridPower = widget.energyFlow?.gridPower?.abs() ?? 0;
+      final loadPower = widget.energyFlow?.loadPower ?? 0;
+      final batterySoc = widget.batterySoc ?? 0;
+      final gridVoltage = widget.energyFlow?.gridVoltage ?? 0;
+
+      // Check status directions to see if devices are actually ON
+      final int? pvStatus = widget.energyFlow?.pvStatusDir;
+      final int? batteryStatus = widget.energyFlow?.batteryStatusDir;
+      final int? gridStatus = widget.energyFlow?.gridStatusDir;
+
+      // Device is considered "active" if:
+      // 1. Has power flow > 5W, OR
+      // 2. Has status indicating it's active (non-zero status), OR
+      // 3. Battery has capacity > 10% (indicating it's available), OR
+      // 4. Grid has voltage > 100V (indicating it's connected)
+      final bool hasPV = pvPower > 5 || (pvStatus ?? 0) != 0;
+      final bool hasBattery =
+          batteryPower > 5 || (batteryStatus ?? 0) != 0 || batterySoc > 10;
+      final bool hasGrid =
+          gridPower > 5 || (gridStatus ?? 0) != 0 || gridVoltage > 100;
+      final bool hasLoad = loadPower > 5;
+
+      // Only show empty PNG if ALL components are truly inactive
+      final allZero = !hasPV && !hasBattery && !hasGrid && !hasLoad;
+
+      print(
+          'EnergyFlowDiagram _isAllZero check: pvPower=$pvPower, batteryPower=$batteryPower, gridPower=$gridPower, loadPower=$loadPower');
+      print(
+          'EnergyFlowDiagram _isAllZero check: batterySoc=$batterySoc, gridVoltage=$gridVoltage');
+      print(
+          'EnergyFlowDiagram _isAllZero check: pvStatus=$pvStatus, batteryStatus=$batteryStatus, gridStatus=$gridStatus');
+      print(
+          'EnergyFlowDiagram _isAllZero result: $allZero (hasPV=$hasPV, hasBattery=$hasBattery, hasGrid=$hasGrid, hasLoad=$hasLoad)');
+
+      return allZero;
+    }
+
+    // Fallback logic if energyFlow is not available
+    final pvZero = !_present(widget.pvW, threshold: 10);
+    final batteryZero = (widget.batterySoc ?? 0) < 5 &&
+        !_present(widget.batteryFlowW, threshold: 10);
+    final gridZero = !_present(widget.gridW, threshold: 10);
+    final loadZero = !_present(widget.loadW, threshold: 10);
+
+    return pvZero && batteryZero && gridZero && loadZero;
+  }
+
+  /// Selects the appropriate energy diagram video based on current energy flows
+  ///
+  /// Video Cases (see docs/ENERGY_DIAGRAM_VIDEO_CASES.md for full details):
+  /// - Case_1.mp4: Grid + Solar + Battery → Home (all sources active)
+  /// - Case_3.mp4: Grid + Battery → Home (no solar)
+  /// - Case_4.mp4: Battery only → Home (island mode) OR when battery capacity exists and load is on
+  /// - Case_5.mp4: Solar + Battery → Home (no grid)
+  /// - Case_6.mp4: Solar → Battery + Grid export + Home (selling to grid)
+  ///
+  /// Status values interpretation:
+  /// - Positive (> 0): Energy flowing OUT from component
+  /// - Negative (< 0): Energy flowing INTO component
+  /// - Zero (= 0): Inactive
   String _selectVideoAsset() {
     // If no energyFlow data, use simple logic based on available values
     if (widget.energyFlow == null) {
+      print('EnergyFlowDiagram: No energyFlow data, using fallback logic');
       final hasPV = _present(widget.pvW, threshold: 10);
       final hasBattery = (widget.batterySoc ?? 0) > 5 ||
           _present(widget.batteryFlowW, threshold: 10);
       final hasGrid = _present(widget.gridW, threshold: 10);
+      final hasLoad = _present(widget.loadW, threshold: 10);
 
-      if (hasPV && hasBattery) return 'assets/energy_diagram/Case_5.mp4';
-      if (hasBattery && hasGrid) return 'assets/energy_diagram/Case_3.mp4';
-      if (hasBattery) return 'assets/energy_diagram/Case_4.mp4';
-      return 'assets/energy_diagram/Case_2.mp4';
+      String selectedCase = 'Case_4.mp4'; // Default to Case 4 when battery has capacity and load exists
+      if (hasPV && hasBattery)
+        selectedCase = 'Case_5.mp4';
+      else if (hasBattery && hasGrid)
+        selectedCase = 'Case_3.mp4';
+      else if (hasBattery && hasLoad) 
+        selectedCase = 'Case_4.mp4';
+
+      print(
+          'EnergyFlowDiagram: Selected $selectedCase (hasPV: $hasPV, hasBattery: $hasBattery, hasGrid: $hasGrid, hasLoad: $hasLoad)');
+      return 'assets/energy_diagram/$selectedCase';
     }
 
-    // Get status directions from energyFlow
+    print('EnergyFlowDiagram: Has energyFlow data, analyzing status...');
+    // Get status directions from energyFlow (based on legacy code logic)
+    // Status values: > 0 = active/producing, < 0 = consuming/charging, 0 = inactive
     final int? pvStatus = widget.energyFlow?.pvStatusDir;
     final int? batteryStatus = widget.energyFlow?.batteryStatusDir;
     final int? gridStatus = widget.energyFlow?.gridStatusDir;
 
-    // Get power values
+    // Get power/voltage values for additional validation
     final double pvPower = widget.pvW ?? 0;
-    final double batteryPower = widget.batteryFlowW ?? 0;
-    final double gridPower = widget.gridW ?? 0;
+    final double batteryPower = widget.batteryFlowW?.abs() ?? 0;
+    final double gridPower = widget.gridW?.abs() ?? 0;
     final double loadPower = widget.loadW ?? 0;
+    final double batterySoc = widget.batterySoc ?? 0;
 
-    // Solar to inverter: PV producing power
-    final bool solarToInverter = pvPower > 50 || (pvStatus ?? 0) > 0;
+    // CRITICAL: Get grid voltage to determine if grid is CONNECTED (not just power flowing)
+    // Grid can be connected (voltage present) even when power is 0W
+    final double gridVoltage = widget.energyFlow?.gridVoltage ?? 0;
 
-    // Battery discharging (to inverter): positive power flow OR positive status
-    final bool batteryToInverter =
-        batteryPower > 20 || (batteryStatus ?? 0) > 0;
+    print(
+        'EnergyFlowDiagram: pvStatus=$pvStatus, batteryStatus=$batteryStatus, gridStatus=$gridStatus');
+    print(
+        'EnergyFlowDiagram: pvPower=$pvPower, batteryPower=$batteryPower, gridPower=$gridPower, gridVoltage=$gridVoltage, loadPower=$loadPower, batterySoc=$batterySoc');
 
-    // Battery charging (from inverter): negative status
-    final bool inverterToBattery = (batteryStatus ?? 0) < 0;
+    // Determine energy flow directions based on status and power values
 
-    // Grid to inverter: Grid status positive OR (load exists but no other sources)
-    // CRITICAL: If load > 100W but solar=0 and battery not discharging, grid MUST be supplying!
-    final bool gridToInverter = (gridStatus ?? 0) > 0 ||
-        gridPower > 50 ||
-        (loadPower > 100 && !solarToInverter && !batteryToInverter);
+    // Solar is producing energy (status > 0 AND power > threshold)
+    // Status indicates direction, but we need actual power flow to show animation
+    final bool solarActive = (pvStatus ?? 0) > 0 && pvPower > 50;
 
-    // Inverter to grid (exporting): negative grid status
-    final bool inverterToGrid = (gridStatus ?? 0) < 0;
+    // Battery is discharging to inverter (status > 0 AND positive power flow)
+    final bool batteryDischarging =
+        (batteryStatus ?? 0) > 0 && batteryPower > 20;
 
-    // Inverter to home: always true when device is online
-    final bool inverterToHome = true;
+    // Battery is charging from inverter (status < 0 AND power flow present)
+    // Status < 0 means charging direction, but verify with power value
+    final bool batteryCharging = (batteryStatus ?? 0) < 0 && batteryPower > 20;
 
-    // Case matching with EXACT conditions:
+    // Grid is CONNECTED if voltage is present (e.g., 220-240V range)
+    // Grid can be connected even when power transfer is 0W (standby/idle)
+    final bool gridConnected =
+        gridVoltage > 100; // Typically 220V-240V for connected grid
 
-    // Case 1: Solar + Battery + Grid → Home (all sources active)
-    if (solarToInverter &&
-        batteryToInverter &&
-        gridToInverter &&
-        inverterToHome) {
-      return 'assets/energy_diagram/Case_1.mp4';
-    }
+    // Grid is supplying power to inverter (status > 0 OR grid connected with positive power)
+    // Check voltage first to detect grid connection even when power is minimal
+    final bool gridSupplying =
+        gridConnected && ((gridStatus ?? 0) > 0 || gridPower > 50);
 
-    // Case 6: Solar → Battery + Grid + Home (excess solar, charging + exporting)
-    if (solarToInverter &&
-        inverterToBattery &&
-        inverterToGrid &&
-        inverterToHome) {
+    // Grid is receiving power (exporting/selling) (status < 0 AND power flowing out)
+    final bool gridReceiving =
+        gridConnected && (gridStatus ?? 0) < 0 && gridPower > 50;
+
+    // Load is present (device is online and consuming power)
+    // Load is considered active if there's any power consumption
+    final bool loadActive = loadPower > 0;
+
+    // Battery has capacity and can potentially power the load
+    final bool batteryAvailable = batterySoc > 0;
+
+    // Check if battery is effectively dead (low SOC and not discharging/charging)
+    final bool batteryDead =
+        batterySoc < 5 && !batteryDischarging && !batteryCharging;
+
+    print(
+        'EnergyFlowDiagram: solarActive=$solarActive, batteryDischarging=$batteryDischarging, batteryCharging=$batteryCharging');
+    print(
+        'EnergyFlowDiagram: gridConnected=$gridConnected, gridSupplying=$gridSupplying, gridReceiving=$gridReceiving, loadActive=$loadActive, batteryAvailable=$batteryAvailable, batteryDead=$batteryDead');
+
+    // Case 6: Solar producing, battery charging, exporting to grid, and powering home
+    // This is when the plant is selling energy to the grid (excess solar production)
+    if (solarActive && batteryCharging && gridReceiving && loadActive) {
+      print(
+          'EnergyFlowDiagram: Selected Case_6.mp4 (Solar+Battery+Grid export)');
       return 'assets/energy_diagram/Case_6.mp4';
     }
 
-    // Case 5: Solar + Battery → Home (no grid)
-    if (solarToInverter &&
-        batteryToInverter &&
-        !gridToInverter &&
-        inverterToHome) {
-      return 'assets/energy_diagram/Case_5.mp4';
+    // Case 1: All three sources active - Grid + Solar + Battery discharging → Home
+    // Energy coming from grid, solar producing, and battery discharging
+    if (solarActive && batteryDischarging && gridSupplying && loadActive) {
+      print('EnergyFlowDiagram: Selected Case_1.mp4 (All sources active)');
+      return 'assets/energy_diagram/Case_1.mp4';
     }
 
-    // Case 3: Battery + Grid → Home (no solar)
-    if (!solarToInverter &&
-        batteryToInverter &&
-        gridToInverter &&
-        inverterToHome) {
+    // Special Case: Grid + Solar → Home (battery is dead or at zero capacity)
+    // When grid is on, solar is producing, load is active, but battery is effectively dead
+    // This prevents Case_4 from incorrectly triggering when battery is at 0%
+    if (solarActive && gridSupplying && loadActive && batteryDead) {
+      print('EnergyFlowDiagram: Selected Case_3.mp4 (Grid+Solar+Load, battery dead)');
       return 'assets/energy_diagram/Case_3.mp4';
     }
 
-    // Case 4: Battery only → Home
-    if (!solarToInverter &&
-        batteryToInverter &&
-        !gridToInverter &&
-        inverterToHome) {
+    // Case 5: Solar + Battery → Home (no grid involvement)
+    // Solar producing and battery available (charging or discharging), no grid connection
+    // This covers off-grid scenarios where solar powers load and charges/maintains battery
+    if (solarActive && batteryAvailable && !gridConnected) {
+      print('EnergyFlowDiagram: Selected Case_5.mp4 (Solar+Battery off-grid)');
+      return 'assets/energy_diagram/Case_5.mp4';
+    }
+
+    // Case 3: Grid + Battery → Home (no solar)
+    // Also covers Grid only → Home when battery is minimal/dead
+    // Solar is not producing, grid is supplying, battery may be discharging
+    if (!solarActive &&
+        gridSupplying &&
+        (batteryDischarging || batteryDead || loadActive)) {
+      print('EnergyFlowDiagram: Selected Case_3.mp4 (Grid+Battery or Grid only)');
+      return 'assets/energy_diagram/Case_3.mp4';
+    }
+
+    // Case 4: Battery capacity exists and load is on (or load voltage is not 0)
+    // This covers:
+    // 1. Battery only → Home (island mode) - no grid, no solar involvement
+    // 2. Any scenario where battery has meaningful capacity (>5%) and load is active
+    // Battery can show low power when at 100% SOC and just maintaining
+    // Changed from batterySoc > 0 to batteryAvailable && !batteryDead to exclude near-zero capacity
+    if (batteryAvailable && !batteryDead && loadActive) {
+      print('EnergyFlowDiagram: Selected Case_4.mp4 (Battery has meaningful capacity and load is active)');
       return 'assets/energy_diagram/Case_4.mp4';
     }
 
-    // Grid only → Home (IMPORTANT: When load exists but no solar/battery)
-    if (!solarToInverter && !batteryToInverter && gridToInverter) {
-      return 'assets/energy_diagram/Case_3.mp4'; // Use Case 3 video (grid powering home)
-    }
+    // Additional fallback cases for edge scenarios:
 
-    // Solar only → Home
-    if (solarToInverter && !batteryToInverter && !gridToInverter) {
+    // Solar only powering home (battery not involved significantly)
+    if (solarActive &&
+        !batteryDischarging &&
+        !batteryCharging &&
+        !gridSupplying &&
+        !gridReceiving) {
+      print('EnergyFlowDiagram: Selected Case_5.mp4 (Solar only fallback)');
       return 'assets/energy_diagram/Case_5.mp4';
     }
 
-    // Case 2: Minimal/standby (no sources, very low or no load)
-    if (!solarToInverter && !batteryToInverter && !gridToInverter) {
-      return 'assets/energy_diagram/Case_2.mp4';
-    }
-
-    // Final fallback based on load
-    if (loadPower > 100) {
-      // If there's significant load, grid must be active
+    // Grid only (when there's load but no other sources are active)
+    if (loadActive && !solarActive && !batteryDischarging && gridSupplying) {
+      print('EnergyFlowDiagram: Selected Case_3.mp4 (Grid only with load)');
       return 'assets/energy_diagram/Case_3.mp4';
     }
 
-    return 'assets/energy_diagram/Case_2.mp4';
+    // Default fallback: if there's significant load, assume grid is supplying
+    if (loadPower > 100) {
+      print('EnergyFlowDiagram: Selected Case_3.mp4 (High load fallback)');
+      return 'assets/energy_diagram/Case_3.mp4';
+    }
+
+    // Ultimate fallback: if battery has meaningful capacity (>5%) and load exists, use Case 4
+    // Otherwise default to Case 3 (grid supplying)
+    if (batteryAvailable && !batteryDead && loadActive) {
+      print('EnergyFlowDiagram: Selected Case_4.mp4 (Ultimate fallback - battery+load)');
+      return 'assets/energy_diagram/Case_4.mp4';
+    }
+    
+    print('EnergyFlowDiagram: Selected Case_3.mp4 (Ultimate fallback - grid)');
+    return 'assets/energy_diagram/Case_3.mp4';
   }
 
   Future<void> _initControllerFor(String asset) async {
+    print('EnergyFlowDiagram: _initControllerFor called with asset: $asset');
     if (_currentAsset == asset &&
         _controller != null &&
         _controller!.value.isInitialized) {
+      print(
+          'EnergyFlowDiagram: Controller already initialized for $asset, skipping');
       return;
     }
     if (_isInitializing) {
+      print('EnergyFlowDiagram: Already initializing, skipping');
       return; // Prevent concurrent initialization
     }
 
@@ -2644,13 +3067,17 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
     final old = _controller;
 
     try {
+      print('EnergyFlowDiagram: Creating VideoPlayerController for $asset');
       // Create controller
       _controller = VideoPlayerController.asset(asset);
       _currentAsset = asset;
 
+      print('EnergyFlowDiagram: Initializing controller...');
       // Initialize
       await _controller!.initialize();
 
+      print(
+          'EnergyFlowDiagram: Controller initialized: ${_controller!.value.isInitialized}');
       // Check if initialized
       if (!_controller!.value.isInitialized) {
         throw Exception('Controller not initialized after initialize() call');
@@ -2658,12 +3085,15 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
 
       // Set looping
       _controller!.setLooping(true);
+      print('EnergyFlowDiagram: Set looping to true');
 
       // Start playback
       await _controller!.play();
+      print('EnergyFlowDiagram: Started playback');
 
       // Verify playing
     } catch (e) {
+      print('EnergyFlowDiagram: ERROR initializing controller: $e');
       // Set controller to null so PNG fallback shows
       _controller?.dispose();
       _controller = null;
@@ -2671,6 +3101,7 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
     }
 
     _isInitializing = false;
+    print('EnergyFlowDiagram: Initialization complete, updating UI');
 
     // Update UI
     if (mounted) {
@@ -2688,34 +3119,84 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
   void didUpdateWidget(covariant _EnergyFlowDiagram oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // Force init if no controller
-    if (_controller == null && !_isInitializing) {
-      final asset = _selectVideoAsset();
-      _initControllerFor(asset);
-      return;
+    // Check if we need to switch between SVG and video
+    final wasAllZero = _isAllZeroForWidget(oldWidget);
+    final isAllZero = _isAllZero();
+
+    // If transitioning from zero to active, or vice versa, rebuild
+    if (wasAllZero != isAllZero) {
+      if (isAllZero) {
+        // Switching to SVG - dispose video controller
+        _controller?.dispose();
+        _controller = null;
+        _currentAsset = null;
+        setState(() {});
+        return;
+      } else {
+        // Switching from SVG to video - initialize controller
+        final asset = _selectVideoAsset();
+        _initControllerFor(asset);
+        return;
+      }
     }
 
-    // Reinit if values changed
-    final pvChanged = (oldWidget.pvW ?? 0) != (widget.pvW ?? 0);
-    final batteryChanged =
-        (oldWidget.batterySoc ?? 0) != (widget.batterySoc ?? 0);
-    final gridChanged = (oldWidget.gridW ?? 0) != (widget.gridW ?? 0);
+    // If showing video, check if we need to update it
+    if (!isAllZero) {
+      // Force init if no controller
+      if (_controller == null && !_isInitializing) {
+        final asset = _selectVideoAsset();
+        _initControllerFor(asset);
+        return;
+      }
 
-    if (pvChanged || batteryChanged || gridChanged) {
-      final asset = _selectVideoAsset();
-      _initControllerFor(asset);
+      // Reinit if values changed
+      final pvChanged = (oldWidget.pvW ?? 0) != (widget.pvW ?? 0);
+      final batteryChanged =
+          (oldWidget.batterySoc ?? 0) != (widget.batterySoc ?? 0);
+      final gridChanged = (oldWidget.gridW ?? 0) != (widget.gridW ?? 0);
+
+      if (pvChanged || batteryChanged || gridChanged) {
+        final asset = _selectVideoAsset();
+        _initControllerFor(asset);
+      }
     }
+  }
+
+  /// Helper to check if widget values are all zero
+  bool _isAllZeroForWidget(_EnergyFlowDiagram w) {
+    final pvZero = !_present(w.pvW, threshold: 10);
+    final batteryZero =
+        (w.batterySoc ?? 0) < 5 && !_present(w.batteryFlowW, threshold: 10);
+    final gridZero = !_present(w.gridW, threshold: 10);
+    final loadZero = !_present(w.loadW, threshold: 10);
+
+    if (w.energyFlow != null) {
+      final pvPower = w.energyFlow?.pvPower ?? 0;
+      final batteryPower = w.energyFlow?.batteryPower?.abs() ?? 0;
+      final gridPower = w.energyFlow?.gridPower?.abs() ?? 0;
+      final loadPower = w.energyFlow?.loadPower ?? 0;
+
+      return pvPower < 10 &&
+          batteryPower < 10 &&
+          gridPower < 10 &&
+          loadPower < 10;
+    }
+
+    return pvZero && batteryZero && gridZero && loadZero;
   }
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        final asset = _selectVideoAsset();
-        _initControllerFor(asset);
-      }
-    });
+    // Only initialize video controller if not showing empty SVG
+    if (!_isAllZero()) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          final asset = _selectVideoAsset();
+          _initControllerFor(asset);
+        }
+      });
+    }
   }
 
   @override
@@ -2726,7 +3207,67 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
 
   @override
   Widget build(BuildContext context) {
-    final ready = _controller != null && _controller!.value.isInitialized;
+    final width = MediaQuery.of(context).size.width - 32; // padding
+    final aspect = 365 / 302; // original design aspect
+    final double height = width.isFinite ? (width / aspect).toDouble() : 240.0;
+
+    // Check if everything is zero - show static SVG instead of video
+    final showEmptySvg = _isAllZero();
+
+    if (showEmptySvg) {
+      print('EnergyFlowDiagram: All values are zero, showing empty_val.png');
+      return Container(
+        width: double.infinity,
+        height: height,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Image.asset(
+                'assets/energy_diagram/empty_val.png',
+                fit: BoxFit.cover,
+              ),
+            ),
+            Positioned(
+              right: 10,
+              bottom: 10,
+              child: Row(
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: Colors.grey,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'No Activity',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -2734,6 +3275,8 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
         final aspect = 365 / 302; // original design aspect
         final double height =
             width.isFinite ? (width / aspect).toDouble() : 240.0;
+
+        final ready = _controller != null && _controller!.value.isInitialized;
 
         if (!ready) {
           // Show loading indicator while video initializes

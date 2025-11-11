@@ -9,6 +9,7 @@ import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
 import 'package:crown_micro_solar/core/services/report_download_service.dart';
 import 'package:crown_micro_solar/presentation/repositories/device_repository.dart';
 import 'package:crown_micro_solar/presentation/repositories/energy_repository.dart';
+import 'package:crown_micro_solar/presentation/repositories/plant_repository.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/auth_viewmodel.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/plant_view_model.dart';
@@ -16,6 +17,11 @@ import 'package:crown_micro_solar/presentation/viewmodels/dashboard_view_model.d
 import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/overview_graph_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/alarm_view_model.dart';
+import 'package:crown_micro_solar/core/network/api_client.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:crypto/crypto.dart';
+import 'dart:convert';
+import 'dart:async';
 import '../common/bordered_icon_button.dart';
 import '../profile/profile_screen.dart';
 import 'app_bottom_nav_bar.dart';
@@ -62,7 +68,8 @@ class _HomeScreenState extends State<HomeScreen> {
         try {
           // 1) Restore cache instantly (blocking)
           await _deviceViewModel.loadDevicesFromCache(firstPlantId);
-          // 2) Fire all network calls in parallel (non-blocking)
+
+          // 2) Fire all other network calls in parallel (non-blocking)
           Future.wait([
             _deviceViewModel.loadDevicesAndCollectors(firstPlantId),
             _alarmViewModel.loadAlarms(firstPlantId),
@@ -79,18 +86,26 @@ class _HomeScreenState extends State<HomeScreen> {
     _dashboardViewModel.loadDashboardData();
   }
 
+  // Extract username after underscore (e.g., "Crown213_bilal" -> "bilal")
+  String _extractUsername(String username) {
+    if (username.contains('_')) {
+      return username.substring(username.indexOf('_') + 1);
+    }
+    return username;
+  }
+
   void _onTabTapped(int index) async {
     if (index == _currentIndex) return; // Avoid redundant rebuilds
-    
+
     // Feature: Conditional device navigation
     // If tapping device tab (index 2) and only one device exists, go directly to device detail
     if (index == 2) {
       await _plantViewModel.loadPlants();
-      
+
       // Check if we have exactly one device (standalone or under collector)
       final standaloneCount = _deviceViewModel.standaloneDevices.length;
       final collectorCount = _deviceViewModel.collectors.length;
-      
+
       // Single standalone device - navigate directly
       if (standaloneCount == 1 && collectorCount == 0) {
         final device = _deviceViewModel.standaloneDevices.first;
@@ -101,12 +116,13 @@ class _HomeScreenState extends State<HomeScreen> {
         );
         return; // Don't change tab index
       }
-      
+
       // Single collector with devices - navigate to first device under collector
       if (standaloneCount == 0 && collectorCount == 1) {
         final collectorPn = _deviceViewModel.collectors.first['pn']?.toString();
         if (collectorPn != null) {
-          final devicesUnderCollector = _deviceViewModel.collectorDevices[collectorPn] ?? [];
+          final devicesUnderCollector =
+              _deviceViewModel.collectorDevices[collectorPn] ?? [];
           if (devicesUnderCollector.length == 1) {
             final device = devicesUnderCollector.first;
             Navigator.of(context).push(
@@ -118,7 +134,7 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         }
       }
-      
+
       // Multiple devices or complex setup - show devices screen
       setState(() => _currentIndex = index);
     } else {
@@ -320,7 +336,7 @@ class _HomeScreenState extends State<HomeScreen> {
         extendBody: true,
         // Always render the drawer so logout/profile remain accessible even if APIs fail
         drawer: AppDrawer(
-          username: userInfo?.usr ?? 'User',
+          username: _extractUsername(userInfo?.usr ?? 'User'),
           email: userInfo?.email ?? '-',
           onProfileTap: () {
             Navigator.pop(context);
@@ -477,7 +493,245 @@ class _OverviewBodyState extends State<_OverviewBody> {
   double?
       _fallbackDailyKwh; // computed via EnergyRepository if realtime is zero
   bool _computingDaily = false;
+  // Device energy data from webQueryDeviceEs (matching old app)
+  double _todayGenerationSum = 0.0;
+  double _totalGenerationSum = 0.0;
+  double _currentPowerSum = 0.0;
+  bool _fetchingDeviceEnergy = false;
+  // New API-based metrics from PlantRepository (matching old app's ALL power stations queries)
+  double? _totalCurrentPowerFromAPI; // From queryPlantsActiveOuputPowerCurrent
+  double? _totalInstalledCapacityFromAPI; // From queryPlantsNominalPower
   // Removed aggregate Load/Grid/Battery cards per request (only in device detail)
+  Timer? _metricsRefreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Fetch energy data immediately when Overview screen loads
+    _fetchEnergyDataOnInit();
+    // Also fetch API-based metrics
+    _fetchAPIBasedMetrics();
+    // Set up periodic refresh for current power values (every 15 seconds)
+    _metricsRefreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted) {
+        _fetchAPIBasedMetrics();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _metricsRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Fetch total current power and total installed capacity from API
+  /// Matches old app's CurrentOuputPowerof_ALLPSQuery() and InstalledCapacity_ALLPSQuery()
+  Future<void> _fetchAPIBasedMetrics() async {
+    print('_OverviewBodyState: _fetchAPIBasedMetrics called');
+    try {
+      final plantRepo = getIt<PlantRepository>();
+      
+      // Fetch both metrics in parallel
+      final results = await Future.wait([
+        plantRepo.getTotalCurrentPower(),
+        plantRepo.getTotalInstalledCapacity(),
+      ]);
+      
+      if (mounted) {
+        setState(() {
+          _totalCurrentPowerFromAPI = results[0]; // in Watts
+          _totalInstalledCapacityFromAPI = results[1]; // in kW
+        });
+        print('_OverviewBodyState: API metrics updated - Current Power: ${results[0]}W, Installed Capacity: ${results[1]}kW');
+      }
+    } catch (e) {
+      print('_OverviewBodyState: Failed to fetch API metrics: $e');
+    }
+  }
+
+  Future<void> _fetchEnergyDataOnInit() async {
+    print('_OverviewBodyState: _fetchEnergyDataOnInit called');
+    final plantViewModel = getIt<PlantViewModel>();
+    if (plantViewModel.plants.isEmpty) {
+      print('_OverviewBodyState: Plants empty, loading...');
+      await plantViewModel.loadPlants();
+    }
+    if (plantViewModel.plants.isNotEmpty) {
+      final firstPlantId = plantViewModel.plants.first.id;
+      print('_OverviewBodyState: Using plant ID: $firstPlantId');
+      try {
+        final deviceRepo = getIt<DeviceRepository>();
+        final deviceBundle =
+            await deviceRepo.getDevicesAndCollectors(firstPlantId);
+        final allDevices = (deviceBundle['allDevices'] as List?) ?? [];
+        print('_OverviewBodyState: Found ${allDevices.length} devices');
+
+        final deviceSNs = <String>[];
+        for (final d in allDevices) {
+          final sn = (d is Map ? d['sn'] : (d as dynamic).sn)?.toString() ?? '';
+          if (sn.isNotEmpty) {
+            deviceSNs.add(sn);
+            print('_OverviewBodyState: Device SN: $sn');
+          }
+        }
+
+        if (deviceSNs.isNotEmpty) {
+          print(
+              '_OverviewBodyState: Fetching energy data for ${deviceSNs.length} devices on init');
+          await _fetchAllDevicesEnergyData(deviceSNs);
+          print('_OverviewBodyState: Energy data fetch complete');
+        } else {
+          print('_OverviewBodyState: No device SNs found!');
+        }
+      } catch (e) {
+        print('_OverviewBodyState: Failed to fetch energy data on init: $e');
+        print('Stack trace: ${StackTrace.current}');
+      }
+    } else {
+      print('_OverviewBodyState: No plants available after load attempt');
+    }
+  }
+
+  /// Fetch energy data for all devices using webQueryDeviceEs with SN
+  /// This matches the old app's implementation to get energyToday, energyTotal, and outpower
+  /// OLD APP APPROACH: Use collector SN to get ALL devices in one API call
+  Future<void> _fetchAllDevicesEnergyData(List<String> deviceSNs) async {
+    if (_fetchingDeviceEnergy) return;
+    _fetchingDeviceEnergy = true;
+
+    print(
+        '=== Starting _fetchAllDevicesEnergyData for ${deviceSNs.length} devices ===');
+    print('Device SNs: $deviceSNs');
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token') ?? '';
+      final secret = prefs.getString('Secret') ?? '';
+
+      if (token.isEmpty || secret.isEmpty) {
+        print('Error: Missing authentication tokens');
+        _fetchingDeviceEnergy = false;
+        return;
+      }
+
+      const salt = '12345678';
+      const postaction =
+          '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+
+      double todaySum = 0.0;
+      double totalSum = 0.0;
+      double powerSum = 0.0;
+
+      // OLD APP APPROACH: Use the first collector/datalogger SN to get ALL devices at once
+      String? collectorSN;
+      if (deviceSNs.isNotEmpty) {
+        // Find collector (shorter SN, typically 15-17 chars) or use first device
+        final collectors = deviceSNs.where((sn) => sn.length <= 17).toList();
+        collectorSN =
+            collectors.isNotEmpty ? collectors.first : deviceSNs.first;
+        print(
+            'Using SN for energy query: $collectorSN (collector: ${collectors.isNotEmpty})');
+      }
+
+      if (collectorSN == null || collectorSN.isEmpty) {
+        print('Error: No valid SN found');
+        _fetchingDeviceEnergy = false;
+        return;
+      }
+
+      try {
+        final action = '&action=webQueryDeviceEs&source=1&sn=$collectorSN';
+        final data = salt + secret + token + action + postaction;
+        final sign = sha1.convert(utf8.encode(data)).toString();
+        final url =
+            'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
+        print('Fetching energy data with SN: $collectorSN');
+        print('URL: $url');
+
+        final response = await getIt<ApiClient>().signedPost(url).timeout(
+              const Duration(seconds: 15),
+              onTimeout: () =>
+                  throw TimeoutException('Request timeout for SN $collectorSN'),
+            );
+
+        final jsonData = json.decode(response.body);
+
+        print('webQueryDeviceEs Response: $jsonData');
+
+        if (jsonData['err'] == 0 && jsonData['dat'] != null) {
+          final dat = jsonData['dat'];
+          print('dat keys: ${dat.keys.toList()}');
+          print('Full dat content: $dat');
+
+          // The API returns device data in dat['device'] as an array
+          List<dynamic> devices;
+          if (dat['device'] != null) {
+            devices =
+                dat['device'] is List ? dat['device'] as List : [dat['device']];
+            print('Found dat["device"] array with ${devices.length} items');
+          } else {
+            // Single device response - data is directly in dat
+            devices = [dat];
+            print('No dat["device"], using dat directly as single device');
+          }
+
+          print('Processing ${devices.length} device(s) from response');
+
+          for (var device in devices) {
+            print('Device keys: ${device.keys.toList()}');
+            print('Raw device data: $device');
+
+            // Parse energyToday
+            final energyTodayStr = device['energyToday']?.toString() ?? '0';
+            final energyToday = double.tryParse(energyTodayStr) ?? 0.0;
+            print(
+                'Device SN: ${device['sn']}, energyToday: "$energyTodayStr" = $energyToday kWh');
+            todaySum += energyToday;
+
+            // Parse energyTotal
+            final energyTotalStr = device['energyTotal']?.toString() ?? '0';
+            final energyTotal = double.tryParse(energyTotalStr) ?? 0.0;
+            print(
+                'Device SN: ${device['sn']}, energyTotal: "$energyTotalStr" = $energyTotal kWh');
+            totalSum += energyTotal;
+
+            // Parse outpower (current power generation)
+            final outpowerStr = device['outpower']?.toString() ?? '0';
+            final outpower = double.tryParse(outpowerStr) ?? 0.0;
+            print(
+                'Device SN: ${device['sn']}, outpower: "$outpowerStr" = $outpower W');
+            powerSum += outpower;
+          }
+        } else {
+          print(
+              'Error in webQueryDeviceEs response: err=${jsonData['err']}, desc=${jsonData['desc']}');
+        }
+      } catch (e) {
+        print('Error fetching energy data: $e');
+      }
+
+      if (mounted) {
+        setState(() {
+          _todayGenerationSum = todaySum;
+          _totalGenerationSum = totalSum;
+          _currentPowerSum = powerSum;
+        });
+        print('=== FINAL SUMS ===');
+        print(
+            'Today: $todaySum kWh, Total: $totalSum kWh, Current: $powerSum W');
+        print(
+            'State updated: _todayGenerationSum=$_todayGenerationSum, _totalGenerationSum=$_totalGenerationSum, _currentPowerSum=$_currentPowerSum');
+      }
+    } catch (e) {
+      print('Error in _fetchAllDevicesEnergyData: $e');
+      print('Stack trace: ${StackTrace.current}');
+    } finally {
+      _fetchingDeviceEnergy = false;
+      print('=== Finished _fetchAllDevicesEnergyData ===');
+    }
+  }
 
   Future<void> _resolveCurrentPower(String plantId) async {
     if (_resolvingMetrics) return;
@@ -641,6 +895,23 @@ class _OverviewBodyState extends State<_OverviewBody> {
               print('HomeScreen: Failed to fetch profit statistics: $e');
             }
             try {
+              // Fetch device energy data (energyToday, energyTotal, outpower)
+              final deviceRepo = getIt<DeviceRepository>();
+              final deviceBundle =
+                  await deviceRepo.getDevicesAndCollectors(firstId);
+              final allDevices =
+                  (deviceBundle['allDevices'] as List<Device>?) ?? [];
+              final deviceSNs = allDevices
+                  .map((d) => d.sn)
+                  .where((sn) => sn.isNotEmpty)
+                  .toList();
+              if (deviceSNs.isNotEmpty) {
+                await _fetchAllDevicesEnergyData(deviceSNs);
+              }
+            } catch (e) {
+              print('HomeScreen: Failed to fetch device energy data: $e');
+            }
+            try {
               // Ensure dashboard aggregates run after plants arrive
               await dashboardViewModel.loadDashboardData();
             } catch (e) {
@@ -681,10 +952,18 @@ class _OverviewBodyState extends State<_OverviewBody> {
         if (totalDailyGenerationKwh == 0 && (_fallbackDailyKwh ?? 0) > 0) {
           totalDailyGenerationKwh = _fallbackDailyKwh!;
         }
-        // Installed capacity should match Plant Info's Installed Capacity (first plant)
-        final installedCapacity =
-            plants.isNotEmpty ? plants.first.capacity : 0.0;
-        // Current power generation: prefer resolved metric sum, then realtime service, then legacy per-device sum
+        
+        // FIXED: Installed capacity from API instead of just first plant
+        // Uses new getTotalInstalledCapacity() API that queries all power stations
+        // Use API value if available and > 0, otherwise fall back to first plant capacity
+        final installedCapacity = (_totalInstalledCapacityFromAPI != null && _totalInstalledCapacityFromAPI! > 0)
+            ? _totalInstalledCapacityFromAPI!
+            : (plants.isNotEmpty ? plants.first.capacity : 0.0);
+        
+        print('Overview: Installed Capacity - API: $_totalInstalledCapacityFromAPI, Using: $installedCapacity');
+        
+        // FIXED: Current power generation from API
+        // Prefer API value from getTotalCurrentPower(), then fall back to existing logic
         double devicesSumLegacy = 0.0;
         if (deviceVM.allDevices.isNotEmpty) {
           for (final d in deviceVM.allDevices) {
@@ -692,12 +971,22 @@ class _OverviewBodyState extends State<_OverviewBody> {
                 (d.currentPower.isFinite ? d.currentPower : 0.0);
           }
         }
-        final totalOutput = _resolvedCurrentPowerKw != null
-            ? _resolvedCurrentPowerKw! *
-                1000 // convert kW back to W for consistency below then format
-            : (realtimeService.totalCurrentPower > 0
-                ? realtimeService.totalCurrentPower
-                : (devicesSumLegacy > 0 ? devicesSumLegacy : 0.0));
+        
+        print('Overview: Current Power Sources - API: $_totalCurrentPowerFromAPI, Energy Sum: $_currentPowerSum, Resolved: $_resolvedCurrentPowerKw, Realtime: ${realtimeService.totalCurrentPower}, Legacy: $devicesSumLegacy');
+        
+        // Priority: API value (if > 0) > device energy sum > resolved metric > realtime service > legacy sum
+        final totalOutput = (_totalCurrentPowerFromAPI != null && _totalCurrentPowerFromAPI! > 0)
+            ? _totalCurrentPowerFromAPI!
+            : (_currentPowerSum > 0
+                ? _currentPowerSum
+                : (_resolvedCurrentPowerKw != null
+                    ? _resolvedCurrentPowerKw! *
+                        1000 // convert kW back to W for consistency below then format
+                    : (realtimeService.totalCurrentPower > 0
+                        ? realtimeService.totalCurrentPower
+                        : (devicesSumLegacy > 0 ? devicesSumLegacy : 0.0))));
+        
+        print('Overview: Total Output Power Using: $totalOutput W (${totalOutput / 1000} kW)');
         final totalCapacity = installedCapacity; // keep old name for UI below
         final totalPlants = plants.length;
         // You can add more aggregations as needed
@@ -779,17 +1068,11 @@ class _OverviewBodyState extends State<_OverviewBody> {
                                             label: _showTotalGeneration
                                                 ? 'Total Power Generation'
                                                 : "Today's Power Generation",
-                                            value: (_showTotalGeneration
-                                                    ? plants.fold<double>(
-                                                        0.0,
-                                                        (a, p) =>
-                                                            a +
-                                                            (p.yearlyGeneration
-                                                                    .isFinite
-                                                                ? p.yearlyGeneration
-                                                                : 0.0))
-                                                    : totalDailyGenerationKwh)
-                                                .toStringAsFixed(1),
+                                            value: _showTotalGeneration
+                                                ? _totalGenerationSum
+                                                    .toStringAsFixed(1)
+                                                : _todayGenerationSum
+                                                    .toStringAsFixed(1),
                                             unit: 'KWH',
                                           ),
                                         ),
@@ -966,7 +1249,17 @@ class _OverviewBodyState extends State<_OverviewBody> {
                       child: _SummaryCard(
                         icon: 'assets/icons/home/thunder.svg',
                         label: 'Profit Today',
-                        value: _dateProfitAll,
+                        value: _dateProfitAll.isNotEmpty &&
+                                _dateProfitAll != '0.00'
+                            ? (_dateProfitAll.contains('.')
+                                ? _dateProfitAll.substring(
+                                    0,
+                                    _dateProfitAll.indexOf('.') + 3 >
+                                            _dateProfitAll.length
+                                        ? _dateProfitAll.length
+                                        : _dateProfitAll.indexOf('.') + 3)
+                                : _dateProfitAll)
+                            : '0.00',
                         unit: _currency,
                       ),
                     ),
@@ -975,7 +1268,17 @@ class _OverviewBodyState extends State<_OverviewBody> {
                       child: _SummaryCard(
                         icon: 'assets/icons/home/thunder.svg',
                         label: 'Total Profit',
-                        value: _totalProfitAll,
+                        value: _totalProfitAll.isNotEmpty &&
+                                _totalProfitAll != '0.00'
+                            ? (_totalProfitAll.contains('.')
+                                ? _totalProfitAll.substring(
+                                    0,
+                                    _totalProfitAll.indexOf('.') + 3 >
+                                            _totalProfitAll.length
+                                        ? _totalProfitAll.length
+                                        : _totalProfitAll.indexOf('.') + 3)
+                                : _totalProfitAll)
+                            : '0.00',
                         unit: _currency,
                       ),
                     ),
@@ -1012,7 +1315,10 @@ class _OverviewBodyState extends State<_OverviewBody> {
                           padding: const EdgeInsets.symmetric(
                             horizontal: 16,
                           ),
-                          value: graphVM.selectedDeviceKey ?? '__ALL__',
+                          value: graphVM.selectedDeviceKey ??
+                              (graphVM.deviceOptions.isNotEmpty
+                                  ? graphVM.deviceOptions.first.key
+                                  : '__ALL__'),
                           isExpanded: true,
                           icon: const Icon(Icons.keyboard_arrow_down),
                           items: [
@@ -1515,10 +1821,11 @@ class _LineChart extends StatelessWidget {
               if (isDaily) {
                 int minute = it.x.round();
                 if (minute < 0) minute = 0;
-                if (minute > 1439) minute = 1439;
+                if (minute >= 1440) minute = 1439;
                 final h = minute ~/ 60;
                 final m = minute % 60;
-                final hour12 = ((h + 11) % 12) + 1;
+                // Convert 24-hour to 12-hour format
+                final hour12 = (h == 0 || h == 12) ? 12 : (h % 12);
                 final ampm = h < 12 ? 'AM' : 'PM';
                 label =
                     '${hour12.toString()}:${m.toString().padLeft(2, '0')} $ampm';
@@ -1600,19 +1907,29 @@ class _LineChart extends StatelessWidget {
       );
     }
     final spots = <FlSpot>[];
-    for (int h = 0; h < hourly.length - 1; h++) {
-      final y0 = hourly[h];
-      final y1 = hourly[h + 1];
-      // minutes within the hour: 0..59
+    // Ensure we have exactly 24 hours of data
+    final hours = hourly.length > 24 ? hourly.sublist(0, 24) : hourly;
+    
+    // Interpolate between each hour
+    for (int h = 0; h < hours.length - 1; h++) {
+      final y0 = hours[h];
+      final y1 = hours[h + 1];
+      // Create 60 data points for this hour (one per minute)
       for (int m = 0; m < 60; m++) {
         final r = m / 60.0;
         final y = y0 + (y1 - y0) * r;
-        final x = h * 60 + m;
+        final x = h * 60 + m;  // Minute of the day: hour 0 = 0-59, hour 1 = 60-119, etc.
         spots.add(FlSpot(x.toDouble(), y));
       }
     }
-    // Add last minute of the day
-    spots.add(FlSpot(1439, hourly.last));
+    // Add the last hour's worth of points (hour 23: minutes 1380-1439)
+    final lastValue = hours.last;
+    for (int m = 0; m < 60; m++) {
+      final x = (hours.length - 1) * 60 + m;
+      if (x < 1440) {
+        spots.add(FlSpot(x.toDouble(), lastValue));
+      }
+    }
     return spots;
   }
 
@@ -1664,7 +1981,7 @@ class _InfoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final primaryColor = theme.colorScheme.primary;
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       width: 160,
@@ -2084,7 +2401,8 @@ void _showCollectorReportDialog() {
                 return;
               }
               try {
-                print('HomeScreen: Starting report download - collector: $selectedCollectorPn, range: $range, date: $anchorDate');
+                print(
+                    'HomeScreen: Starting report download - collector: $selectedCollectorPn, range: $range, date: $anchorDate');
                 final service = ReportDownloadService();
                 Navigator.of(context).pop();
 
@@ -2165,7 +2483,8 @@ void _showCollectorReportDialog() {
                 if (scContext != null) {
                   ScaffoldMessenger.of(scContext).showSnackBar(
                     SnackBar(
-                      content: Text('Report saved to Downloads${filePath != null ? '\n$filePath' : ''}'),
+                      content: Text(
+                          'Report saved to Downloads${filePath != null ? '\n$filePath' : ''}'),
                       duration: const Duration(seconds: 4),
                     ),
                   );

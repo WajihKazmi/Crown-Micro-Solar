@@ -85,41 +85,20 @@ class DeviceViewModel extends ChangeNotifier {
       print(
           'DeviceViewModel: Loading devices and collectors for plant $plantId');
 
-      // 1) Quick path for instant UI paint, but only if list is empty
-      // Skip if cache was already loaded (avoid redundant quick fetch)
-      bool hadAny = _allDevices.isNotEmpty || _collectors.isNotEmpty;
-      if (!hadAny) {
-        print('DeviceViewModel: No data cached, fetching quick data');
-        final quick =
-            await _deviceRepository.getDevicesAndCollectorsQuick(plantId);
-        _standaloneDevices = (quick['standaloneDevices'] ?? []) as List<Device>;
-        _collectors = (quick['collectors'] ?? []) as List<Map<String, dynamic>>;
-        _collectorDevices =
-            (quick['collectorDevices'] ?? {}) as Map<String, List<Device>>;
-        _allDevices = (quick['allDevices'] ?? []) as List<Device>;
-        notifyListeners();
-        // Save quick snapshot for cold starts
-        await _saveDevicesCache(plantId);
-      } else {
-        print('DeviceViewModel: Cache already loaded, skipping quick fetch');
-      }
-
-      // 2) Background enrichment: fetch subordinate devices (does not block UI)
+      // Single fetch - no more quick/full pattern to avoid duplicate cards
       try {
-        final full = await _deviceRepository.getDevicesAndCollectors(plantId);
-        // Only update if the new data is different (avoid flicker/ghosts)
-        bool changed = false;
-        List<Device> nextAll =
-            (full['allDevices'] ?? _allDevices) as List<Device>;
-        List<Device> nextStandalone =
-            (full['standaloneDevices'] ?? _standaloneDevices) as List<Device>;
-        List<Map<String, dynamic>> nextCollectors =
-            (full['collectors'] ?? _collectors) as List<Map<String, dynamic>>;
-        Map<String, List<Device>> nextCollectorDevices =
-            (full['collectorDevices'] ?? _collectorDevices)
-                as Map<String, List<Device>>;
+        final result = await _deviceRepository.getDevicesAndCollectors(plantId);
 
-        // Sort consistently by PN to stabilize ordering
+        // Extract data with null safety
+        List<Device> nextAll = (result['allDevices'] ?? []) as List<Device>;
+        List<Device> nextStandalone =
+            (result['standaloneDevices'] ?? []) as List<Device>;
+        List<Map<String, dynamic>> nextCollectors =
+            (result['collectors'] ?? []) as List<Map<String, dynamic>>;
+        Map<String, List<Device>> nextCollectorDevices =
+            (result['collectorDevices'] ?? {}) as Map<String, List<Device>>;
+
+        // Sort consistently by PN to stabilize ordering and prevent unnecessary rebuilds
         int byPn(Device a, Device b) => a.pn.compareTo(b.pn);
         nextAll.sort(byPn);
         nextStandalone.sort(byPn);
@@ -127,44 +106,24 @@ class DeviceViewModel extends ChangeNotifier {
           v.sort(byPn);
         }
 
-        String keyDevices(List<Device> list) => list.map((d) => d.pn).join('|');
-        String keyCollectors(List<Map<String, dynamic>> list) =>
-            list.map((c) => (c['pn'] ?? '').toString()).join('|');
-        String keyCollectorMap(Map<String, List<Device>> m) {
-          final keys = m.keys.toList()..sort();
-          final parts = <String>[];
-          for (final k in keys) {
-            final devices = m[k]!..sort(byPn);
-            parts.add('$k:${keyDevices(devices)}');
-          }
-          return parts.join('#');
-        }
+        // Update all lists at once to trigger only one notifyListeners
+        _allDevices = nextAll;
+        _standaloneDevices = nextStandalone;
+        _collectors = nextCollectors;
+        _collectorDevices = nextCollectorDevices;
 
-        if (keyDevices(nextAll) != keyDevices(_allDevices)) {
-          _allDevices = nextAll;
-          changed = true;
-        }
-        if (keyDevices(nextStandalone) != keyDevices(_standaloneDevices)) {
-          _standaloneDevices = nextStandalone;
-          changed = true;
-        }
-        if (keyCollectors(nextCollectors) != keyCollectors(_collectors)) {
-          _collectors = nextCollectors;
-          changed = true;
-        }
-        if (keyCollectorMap(nextCollectorDevices) !=
-            keyCollectorMap(_collectorDevices)) {
-          _collectorDevices = nextCollectorDevices;
-          changed = true;
-        }
-        if (changed) notifyListeners();
-        if (changed) await _saveDevicesCache(plantId);
+        // Save to cache for next cold start
+        await _saveDevicesCache(plantId);
 
         // Update cache metadata
         _cachedPlantId = plantId;
         _lastDevicesFetch = DateTime.now();
+
+        print(
+            'DeviceViewModel: Loaded ${_allDevices.length} devices, ${_collectors.length} collectors');
       } catch (e) {
-        // keep quick results if full fails
+        print('DeviceViewModel: Error loading devices: $e');
+        _error = e.toString();
       } finally {
         _isLoading = false;
         notifyListeners();

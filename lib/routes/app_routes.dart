@@ -39,7 +39,11 @@ class AppRoutes {
         verification: (context) => const VerificationScreen(),
         resetPassword: (context) => const ResetPasswordScreen(),
         changeUserId: (context) => const ChangeUserIdScreen(),
-        registration: (context) => const RegistrationScreen(),
+        registration: (context) {
+          final args = ModalRoute.of(context)?.settings.arguments as Map?;
+          final emailAddress = args?['emailAddress'] as String? ?? '';
+          return RegistrationScreen(emailAddress: emailAddress);
+        },
         about: (context) => const AboutScreen(),
         accountInfo: (context) => const AccountInfoScreen(),
         whatsapp: (context) => const WhatsAppSupportScreen(),

@@ -97,19 +97,55 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
   List<Map<String, dynamic>> _parseFields(Map<String, dynamic>? dat) {
     if (dat == null) return [];
     final list = (dat['field'] as List?)?.whereType<Map>().toList() ?? [];
+    print(
+        'DeviceSettings: Parsing ${list.length} fields for device ${widget.device.sn}');
+    print(
+        'DeviceSettings: Device details - PN: ${widget.device.pn}, devcode: ${widget.device.devcode}, name: ${widget.device.name}, alias: ${widget.device.alias}');
     final res = <Map<String, dynamic>>[];
     for (final raw in list) {
       final f = Map<String, dynamic>.from(raw);
       f['__label'] = _fieldLabel(f);
       f['__displayVal'] = _currentDisplayValue(f);
       f['__category'] = _settingsCategory(f);
+      print(
+          '  Field: id=${f['id']}, name=${f['name']}, label=${f['__label']}, category=${f['__category']}');
       res.add(f);
     }
+    print('DeviceSettings: Parsed ${res.length} total fields');
     return res;
   }
 
   // Determine high-level category card
   String _settingsCategory(Map f) {
+    // ARCEUS DEVICES: All fields go to "Other Settings" ONLY
+    // Arceus devices have exactly 15 fields, all under "Other Settings"
+    // Detect Arceus by checking:
+    // 1. Device devcode is 2304 (Energy storage machine - Arceus specific)
+    // 2. OR PN pattern starts with F60000220592415
+    // 3. OR name/alias contains "arceus"
+    final deviceName = widget.device.name.toLowerCase();
+    final devicePn = widget.device.pn.toLowerCase();
+    final deviceAlias = widget.device.alias.toLowerCase();
+    final deviceDevcode = widget.device.devcode;
+
+    final isArceusByName = deviceName.contains('arceus') ||
+        devicePn.contains('arceus') ||
+        deviceAlias.contains('arceus');
+
+    final isArceusByPN = widget.device.pn.startsWith('F60000220592415');
+
+    // Devcode 2304 or similar for Energy storage machines - need to verify exact Arceus devcode
+    final isArceusByDevcode = deviceDevcode == 2304 ||
+        deviceDevcode == 2400 ||
+        deviceDevcode == 2449 ||
+        deviceDevcode == 2452;
+
+    if (isArceusByName || isArceusByPN || isArceusByDevcode) {
+      print(
+          'DeviceSettings: Arceus device detected (name=$isArceusByName, PN=$isArceusByPN, devcode=$isArceusByDevcode) - forcing all fields to Other Settings');
+      return 'Other Settings';
+    }
+
     // Build a searchable text from label + name + id for broader matching
     final label = (f['__label']?.toString() ?? '').toLowerCase();
     final name = (f['name']?.toString() ?? '').toLowerCase();
@@ -118,6 +154,35 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
 
     bool hasAny(Iterable<String> keys) =>
         keys.any((k) => k.isNotEmpty && text.contains(k));
+
+    // FIRST: Check Other Settings for Arceus devices
+    // Arceus devices have ALL 15 fields in Other Settings category
+    // Must check this BEFORE battery/basic/standard to avoid misclassification
+    const otherKeys = [
+      'led', 'rgb', 'color', 'brightness', 'lighting', 'effect', 'speed',
+      'output voltage', 'output frequency',
+      'led status', 'led data',
+      // Arceus specific - ALL Arceus fields go to Other Settings
+      'system time', 'input field',
+      'restore settings', 'restore option',
+      'power generation statistics', 'statistics time',
+      'maximum charging current',
+      'inverter output voltage', '100-240', 'increment',
+      'controls the inverter', 'inverter switch', 'open/close',
+      'output priority', 'mains output', 'photovoltaic output', 'preferred',
+      'priority from high to low', 'photovoltaic>battery>mains',
+      'charging priority', 'photovoltaic charging', 'mains and pv',
+      'pv charging is allowed',
+      'mains charging current', 'mains charging',
+      'parallel state', 'single machine', 'parallel machine', 'single phase',
+      'three phase',
+      '12v battery input', '24v battery', '48v battery',
+      'battery mode', 'lead-acid battery', 'water-injection battery',
+      'lithium battery', 'curtom',
+      'battery under voltage', 'under voltage point', 'voltage point',
+      'output mode', 'home appliance model', 'home appliance mode', 'ups mode',
+    ];
+    if (hasAny(otherKeys)) return 'Other Settings';
 
     // First, explicit mapping for Standard Settings requested items
     const standardExplicit = [
@@ -191,6 +256,15 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
       'eco mode',
       'eco',
       'sleep mode',
+      // Overload Bypass Function
+      'overload bypass function',
+      'overload bypass',
+      'bypass on overload',
+      // Display Escape
+      'display escape', 'escape to default', 'default page', 'timeout',
+      'auto return', 'return to main',
+      // Alarm when primary source interrupt
+      'alarm on', 'alarm when', 'alarm onn',
     ];
     const standardIdHints = [
       'std_', // vendor ids for this group often start with std_
@@ -242,7 +316,8 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
       'battery type',
       'cell',
       'pack',
-      'soh'
+      'soh',
+      // Note: Arceus battery fields are in Other Settings (see otherKeys)
     ];
     if (hasAny(batteryKeys)) return 'Battery Settings';
 
@@ -271,20 +346,35 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
     ];
     if (hasAny(systemKeys)) return 'System Settings';
 
-    // Basic Settings (time windows and simple schedules)
+    // Basic Settings (time windows, simple schedules, AC charger settings, and priority settings)
     const basicKeys = [
       'time', 'start', 'end', 'schedule', 'period', 'window', 'slot', 'tou',
       // Often paired with charge/discharge context
       'charge time', 'discharge time', 'grid charge time', 'pv charge time',
-      'min reserve', 'reserve capacity'
+      'min reserve', 'reserve capacity',
+      // AC charger and priority settings from Nova/Elego
+      'ac charger', 'charger working', 'enable ac charger', 'ac supply',
+      'ac output mode',
+      'input voltage range', 'voltage range', 'ac input range',
+      // Additional settings that should be in Basic
+      'solar supply priority', 'pv supply priority',
+      'li-battery auto turn', 'li-battery turn', 'li battery',
+      // AC2 timing settings
+      'turn on ac2', 'turn off ac2', 'ac2 on', 'ac2 off',
+      'battery capacity to turn', 'discharge time to turn',
+      'battery voltage to turn',
+      // Xavier specific
+      'charge time to turn', 'time interval to turn',
+      // Note: Arceus output/priority fields are in Other Settings (see otherKeys)
     ];
     if (hasAny(basicKeys)) return 'Basic Settings';
 
     // Standard Settings (operating modes, electrical parameters)
     const standardKeys = [
-      'voltage',
+      'input voltage', 'battery voltage', 'charging voltage', 'grid voltage',
+      'ac voltage', 'pv voltage',
       'current',
-      'frequency',
+      'input frequency', 'grid frequency', 'ac frequency',
       'power',
       'range',
       'threshold',
@@ -303,7 +393,9 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
       'ups',
       'ac input range',
       'pv only',
-      'grid only'
+      'grid only',
+      // Additional from Nova/Elego
+      'ac output rating',
     ];
     if (hasAny(standardKeys)) return 'Standard Settings';
 
@@ -325,6 +417,19 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
     for (final f in _fields) {
       byCat[f['__category']]?.add(f);
     }
+
+    // Debug logging for Arcues and other devices
+    print('DeviceSettings: Category breakdown for ${widget.device.sn}:');
+    for (final cat in order) {
+      final count = (byCat[cat] ?? []).length;
+      print('  $cat: $count fields');
+      if (count > 0 && count <= 5) {
+        for (final f in byCat[cat]!) {
+          print('    - ${f['__label']}');
+        }
+      }
+    }
+
     return ListView(
       padding: const EdgeInsets.all(8),
       children: [
@@ -1501,44 +1606,7 @@ class _CategoryDetailScreen extends StatefulWidget {
 
 class _CategoryDetailScreenState extends State<_CategoryDetailScreen> {
   List<Map<String, dynamic>> _fields = [];
-  // Explicit whitelist for Battery Settings (match by id, fallback by label when id varies)
-  static const Set<String> _batteryIds = {
-    'bat_battery_type',
-    'bat_charging_bulk_voltage',
-    'bat_charging_float_voltage',
-    'bat_max_charging_current',
-    'bat_maximum_battery_discharge_current',
-    'bat_ac_charging_current',
-    'bat_charging_source',
-    'bat_battery_equalization',
-    'bat_activate_battery_equalization',
-    'bat_equalization_time_out',
-    'bat_equalization_time',
-    'bat_equalization_period',
-    'bat_equalization_voltage',
-    'bat_battery_recharge_capacity',
-    'bat_battery_redischarge_capacity',
-    'bat_battery_under_capacity',
-  };
-  static const List<String> _batteryLabelWhitelist = [
-    // Ordered to match the UI provided
-    'battery type',
-    'bulk charging voltage',
-    'float charging voltage',
-    'maximum charging current',
-    'maximum battery discharge current',
-    'maximum ac charging current',
-    'charging source priority',
-    'battery equalization',
-    'real-time activate battery equalization',
-    'battery equalization time-out',
-    'battery equalization time',
-    'equalization period',
-    'equalization voltage',
-    'back to grid capacity',
-    'back to discharge capacity',
-    'battery cut-off capacity',
-  ];
+
   @override
   void initState() {
     super.initState();
@@ -1781,35 +1849,21 @@ class _CategoryDetailScreenState extends State<_CategoryDetailScreen> {
         }
         f['__category'] = cat;
         if (cat == widget.title) {
-          // If Battery Settings, apply strict whitelist to match design
-          if (cat == 'Battery Settings') {
-            final id = f['id']?.toString().toLowerCase() ?? '';
-            final lname = (f['__label']?.toString() ?? '').toLowerCase();
-            final allow = _batteryIds.contains(id) ||
-                _batteryLabelWhitelist.contains(lname);
-            if (!allow) {
-              // Skip extra battery fields not in whitelist
-              continue;
-            }
-          }
+          // Note: Battery Settings whitelist disabled to show all battery fields
+          // Different device types (Nova, Elego, Xavier) have different field IDs/names
+          // The whitelist was filtering out valid fields from some device types
           parsed.add(f);
         }
       }
       if (!mounted) return;
       setState(() {
         _fields = parsed;
-        if (widget.title == 'Battery Settings') {
-          final order = _CategoryDetailScreenState._batteryLabelWhitelist;
-          _fields.sort((a, b) {
-            final ai =
-                order.indexOf((a['__label']?.toString() ?? '').toLowerCase());
-            final bi =
-                order.indexOf((b['__label']?.toString() ?? '').toLowerCase());
-            final aa = ai == -1 ? 999 : ai;
-            final bb = bi == -1 ? 999 : bi;
-            return aa.compareTo(bb);
-          });
-        }
+        // Sort fields alphabetically by label for consistent display
+        _fields.sort((a, b) {
+          final aLabel = (a['__label']?.toString() ?? '').toLowerCase();
+          final bLabel = (b['__label']?.toString() ?? '').toLowerCase();
+          return aLabel.compareTo(bLabel);
+        });
       });
     } catch (e) {
       // Silent; keep existing fields

@@ -46,6 +46,10 @@ class AccountRepository {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     final secret = prefs.getString('Secret') ?? '';
     const salt = '12345678';
+    
+    print('=== Password Change Debug ===');
+    print('Secret: $secret');
+    
     // Build postaction metadata like the old app: source/app/version/platform
     String postaction = '';
     try {
@@ -58,29 +62,51 @@ class AccountRepository {
       // Fallback: no postaction if package info unavailable
       postaction = '';
     }
+    
+    print('Postaction: $postaction');
+    
     // Hash old password
     var oldpass = utf8.encode(oldPassword);
     var sha1_conv_oldpass = sha1.convert(oldpass).toString();
+    print('Old password SHA1: $sha1_conv_oldpass');
+    
     // Hash new password
     var newpass = utf8.encode(newPassword);
     var sha1_conv_newpass = sha1.convert(newpass).toString();
+    print('New password SHA1: $sha1_conv_newpass');
+    
     // RC4 encode new password with old password hash
     var rc4 = RC4.fromBytes(utf8.encode(sha1_conv_oldpass));
     var rc4encoded = rc4.encodeBytes(utf8.encode(sha1_conv_newpass));
     var sha1newpass = hex.encode(rc4encoded);
+    print('RC4 encoded password: $sha1newpass');
+    
     // Build action and URL
     String action = "&action=updatePassword&newpwd=" + sha1newpass;
+    print('Action: $action');
+    
     var data = salt + secret + action + postaction;
+    print('Sign data: $data');
+    
     var output = utf8.encode(data);
     var sign = sha1.convert(output).toString();
+    print('Sign: $sign');
+    
     String url = 'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt' +
         action +
         postaction;
+    print('URL: $url');
     try {
       final response = await Dio().post(url);
+      print('Response status: ${response.statusCode}');
+      print('Response data: ${response.data}');
+      
       if (response.statusCode == 200) {
         final err = response.data['err'];
         final desc = response.data['desc']?.toString();
+        print('Error code: $err');
+        print('Description: $desc');
+        
         if (err == 0) {
           return {'success': true, 'message': 'Password changed successfully'};
         } else {
@@ -186,6 +212,7 @@ class AccountRepository {
   }
 
   Future<Map<String, dynamic>> register({
+    required String name,
     required String email,
     required String mobileNo,
     required String username,
@@ -199,8 +226,7 @@ class AccountRepository {
       final response = await Dio().post(
         'https://apis.crown-micro.net/api/MonitoringApp/Register',
         data: {
-          // Legacy accepts either Name or FullName; include Name explicitly
-          "Name": username,
+          "Name": name, // User's full name
           "Email": email,
           "MobileNo": mobileNo,
           "Username": username,
@@ -336,6 +362,11 @@ class AccountRepository {
       final prefs = await SharedPreferences.getInstance();
       final userIdStr = prefs.getString('UserID');
       final token = prefs.getString('token');
+
+      print('====== DELETE ACCOUNT DEBUG ======');
+      print('UserID from storage: $userIdStr');
+      print('Token available: ${token != null && token.isNotEmpty}');
+
       if (userIdStr == null || userIdStr.isEmpty) {
         print('deleteAccount: No UserID found in storage');
         return {'success': false, 'message': 'No user id in session'};
@@ -348,18 +379,34 @@ class AccountRepository {
       if (token != null && token.isNotEmpty) {
         headers['Authorization'] = 'Bearer $token';
       }
+
+      // Parse UserID - try as int first, fallback to string if parse fails
+      dynamic userId;
+      try {
+        userId = int.parse(userIdStr);
+        print('Parsed UserID as int: $userId');
+      } catch (e) {
+        userId = userIdStr; // Keep as string if not a valid integer
+        print('Using UserID as string: $userId');
+      }
+
       final body = {
-        'UserID': int.parse(userIdStr),
+        'UserID': userId,
       };
 
-      // Try DeleteAccount first, then DeactivateAccount as fallback
+      print('Request body: $body');
+      print('Request headers: ${headers.keys.toList()}');
+
+      // Try DeactivateAccount first (old app uses this), then DeleteAccount as fallback
       final endpoints = <String>[
-        'https://apis.crown-micro.net/api/MonitoringApp/DeleteAccount',
         'https://apis.crown-micro.net/api/MonitoringApp/DeactivateAccount',
+        'https://apis.crown-micro.net/api/MonitoringApp/DeleteAccount',
       ];
 
       for (final url in endpoints) {
         try {
+          print('Attempting endpoint: $url');
+
           final resp = await Dio().post(
             url,
             data: body,
@@ -368,28 +415,30 @@ class AccountRepository {
               validateStatus: (s) => s != null && s < 500,
             ),
           );
+
+          print('Response status: ${resp.statusCode}');
+          print('Response data: ${resp.data}');
+          print('Response type: ${resp.data.runtimeType}');
+
           if (resp.statusCode == 200) {
             final data = resp.data;
-            if (data is Map<String, dynamic>) {
-              final rc = data['ResponseCode']?.toString();
-              final desc = data['Description']?.toString().toLowerCase();
-              if (rc == '00' ||
-                  (desc != null &&
-                      (desc.contains('success') ||
-                          desc.contains('deleted') ||
-                          desc.contains('deactivated')))) {
-                return {'success': true, 'message': 'Account deleted'};
-              }
-              // Return backend description if provided
-              final msg = data['Description']?.toString() ?? 'Delete failed';
-              return {'success': false, 'message': msg};
-            }
-            // If 200 but unexpected payload, treat as failure and try next
-            print(
-                'deleteAccount: 200 but unexpected payload from $url: ${resp.data}');
+
+            // Old app behavior: if we get 200, consider it success
+            // This matches the old working app which doesn't check response body
+            print('Got 200 response - treating as success (old app behavior)');
+            return {'success': true, 'message': 'Account deleted successfully'};
           } else if (resp.statusCode == 404) {
             // Endpoint not found; try next candidate
+            print('Endpoint not found (404), trying next...');
             continue;
+          } else if (resp.statusCode == 400) {
+            print('Bad request (400) - may indicate invalid UserID format');
+            final msg = resp.data is Map<String, dynamic>
+                ? (resp.data['Description']?.toString() ??
+                    resp.data['message']?.toString() ??
+                    'Invalid request')
+                : 'Bad request';
+            return {'success': false, 'message': msg};
           } else {
             print('deleteAccount: HTTP ${resp.statusCode} from $url');
             return {
@@ -397,13 +446,21 @@ class AccountRepository {
               'message': 'Server error: ${resp.statusCode}'
             };
           }
-        } catch (e) {
+        } catch (e, stackTrace) {
           print('deleteAccount: Error calling $url -> $e');
+          print('Stack trace: $stackTrace');
+          // Continue to next endpoint
         }
       }
+
+      print('All endpoints tried, none succeeded');
       return {'success': false, 'message': 'Delete endpoint not available'};
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('deleteAccount: Outer error -> $e');
+      print('Stack trace: $stackTrace');
       return {'success': false, 'message': 'Network error: $e'};
+    } finally {
+      print('====== DELETE ACCOUNT END ======');
     }
   }
 }

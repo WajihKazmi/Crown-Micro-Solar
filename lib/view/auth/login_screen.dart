@@ -291,7 +291,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 Expanded(
                     child: OutlinedButton(
                         onPressed: () async {
-                          Navigator.pop(ctx);
+                          print('Open Wi-Fi Settings button tapped');
+                          Navigator.of(ctx).pop();
                           await AppSettings.openAppSettingsPanel(
                               AppSettingsPanelType.wifi);
                         },
@@ -305,7 +306,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             foregroundColor:
                                 Theme.of(context).colorScheme.onPrimary),
                         onPressed: () {
-                          Navigator.pop(ctx);
+                          print('Open Network Page button tapped');
+                          Navigator.of(ctx).pop();
                           Navigator.of(context).push(MaterialPageRoute(
                               builder: (_) => const WifiModuleWebView()));
                         },

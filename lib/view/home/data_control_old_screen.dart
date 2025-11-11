@@ -36,6 +36,7 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
   Map<String, dynamic>? _resp;
   static const List<String> _tabsOrder = <String>[
     'Battery Settings',
+    'Energy Storage Machine Settings',
     'System Settings',
     'Basic Settings',
     'Standard Settings',
@@ -168,31 +169,150 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
 
   // Strict grouping and ordering
   Map<String, List<Field>> _strictGrouped(List<Field> all) {
-    // Canonical label lists per category, ordered
+    print(
+        'DataControlOld: Grouping ${all.length} fields for device - PN: ${widget.pn}, devcode: ${widget.devcode}, SN: ${widget.sn}');
+
+    // DETECT DEVICE TYPE using DeviceModel (same detection used elsewhere)
+    // Note: We don't have alias here, so detection is based on devcode and PN
+    
+    // 1. Arceus devices: devcode 6451 OR PN starts with F6000022
+    final isArceusByDevcode = widget.devcode == 6451;
+    final isArceusByPN = widget.pn.startsWith('F6000022');
+    final isArceus = isArceusByDevcode || isArceusByPN;
+    
+    // 2. Detect other device types by devcode patterns
+    // Nova: devcode 2304, 2449, 2452, 2400
+    final isNova = [2304, 2449, 2452, 2400].contains(widget.devcode);
+    
+    // Elego: Typically devcode 512 with single PV input
+    final isElego = widget.devcode == 512 && widget.pn.contains('ELEGO');
+    
+    // Xavier: Energy storage machine variants
+    final isXavier = widget.devcode == 2048 || widget.devcode == 2560;
+    
+    print('DataControlOld: Device detection - devcode: ${widget.devcode}');
+    print('DataControlOld: Device type - Arceus: $isArceus, Nova: $isNova, Elego: $isElego, Xavier: $isXavier');
+
+    // ARCEUS DEVICES: All fields go to "Other Settings" ONLY
+    if (isArceus) {
+      print(
+          'DataControlOld: Arceus device detected (devcode=$isArceusByDevcode, PN=$isArceusByPN) - forcing all ${all.length} fields to Other Settings');
+      for (final f in all) {
+        print('  - Field: id=${f.id}, name=${f.name}');
+      }
+      final result = <String, List<Field>>{
+        'Battery Settings': <Field>[],
+        'Energy Storage Machine Settings': <Field>[],
+        'System Settings': <Field>[],
+        'Basic Settings': <Field>[],
+        'Standard Settings': <Field>[],
+        'Other Settings':
+            List<Field>.from(all), // Copy all fields to Other Settings
+      };
+      print(
+          'DataControlOld: Returning only Other Settings with ${result['Other Settings']!.length} fields');
+      return result;
+    }
+
+    // Canonical label lists per category, ordered by device type
+    // BATTERY SETTINGS - Comprehensive list covering all device models
     final batteryList = [
+      // Core battery parameters (all devices)
       'Battery Type',
+      'Battery Capacity',
+      
+      // Voltage settings (Nova, Elego, Xavier)
       'Bulk Charging Voltage',
       'Float Charging Voltage',
+      'Equalization Voltage',
+      'Battery Cut off Voltage',
+      'Back To Grid Voltage',
+      'Back To Discharge Voltage',
+      
+      // Current settings (Nova, Elego, Xavier)
       'Max. Charging Current',
       'Max Battery Discharge Current',
       'Max. AC Charging Current',
+      'Battery Charging Current',
+      
+      // Capacity/SOC settings (Nova, Xavier)
+      'Back to Grid Capacity',
+      'Back to Discharge Capacity',
+      'Battery Cut-off Capacity',
+      
+      // Charging priority and source (Nova, Elego)
       'Charging Source Priority',
+      'Solar Supply Priority',
+      'Charger Source Priority',
+      
+      // Equalization settings (Nova, Elego, Xavier)
       'Battery Equalization',
       'Real-time Activate Battery Equalization',
       'Battery Equalization Time-out',
       'Battery Equalization Time',
       'Equalization Period',
-      'Equalization Voltage',
-      'Back to Grid Capacity',
-      'Back to Discharge Capacity',
-      'Battery Cut-off Capacity',
-      // Old-app variants seen on Energy Storage devices
-      'Battery Cut off Voltage',
-      'Back To Grid Voltage',
-      'Back To Discharge Voltage',
+      
+      // Lithium battery specific (Xavier, Nova)
       'Li-BattreyAuto Turnon',
       'Li-Battrey Immediately Turnon',
+      'Lithium Battery Auto Turn On',
+      'Lithium Battery Immediately Turn On',
+      
+      // Battery protection (all devices)
+      'Battery Under Voltage',
+      'Battery Over Voltage',
+      'Battery Low Voltage Warning',
+      'Battery Temperature Protection',
+      
+      // BMS settings (advanced devices)
+      'BMS Protocol',
+      'BMS Communication',
+      'Battery Series Number',
+      
+      // Additional battery parameters
+      'Battery Voltage Calibration',
+      'Battery Current Calibration',
+      'Battery Manufacturer',
+      'Battery Model',
+      
+      // Elego specific battery extras
+      'Battery Bulk Voltage',
+      'Battery Float Voltage',
+      'Charger Source Priority',
+      
+      // Nova specific battery extras - missing fields
+      'Maximum Battery Discharge Current',
+      'Battery Equalization Time out',
+      'Battery Voltage to Turn On AC2',
+      'Battery Voltage to Turn Off AC2',
+      'Discharge Time to Turn Off AC2',
+      'Discharge Time to Turn On AC2',
     ];
+    
+    // ENERGY STORAGE MACHINE SETTINGS - New category for Elego and similar devices
+    final energyStorageMachineList = [
+      'Solar supply priority (battery>load>utility or load>battery>utility)',
+      'Solar Supply Priority',
+      'reset pv energy storage (reset option)',
+      'Reset PV energy storage',
+      'country customized regulations(india germany or south-america)',
+      'Country Customized Regulations',
+      'start time for enabling AC charger working(input feild for time)',
+      'Start Time For Enable AC Charger Working',
+      'Start time for enable AC charger working',
+      'ending time for enabling ac charger working(input feild for time)',
+      'Ending Time For Enable AC Charger Working',
+      'Ending time for enable AC charger working',
+      'start time for anabling ac supply to load(input feild for time)',
+      'Start time for enable AC supply the load',
+      'Start Time for enable AC Supply to Load',
+      'ending time for enabling ac supply to load(input feild for time)',
+      'Ending time for enable AC supply the load',
+      'Ending Time for enable AC Supply to Load',
+      'set date time(caledar input feild)',
+      'Set Date Time',
+    ];
+    
     final basicList = [
       'Output Source Priority',
       'AC Input Range',
@@ -206,12 +326,12 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
       'Time Interval to Turn On AC2',
       'Charge Time to turn off AC2',
       'Battery Capacity to turn On AC2',
-      // Old-app scheduling and priority variants
-      'Start Time For Enable AC Charger Working',
-      'Ending Time For Enable AC Charger Working',
-      'Start time for enable AC supply the load',
-      'Ending time for enable AC supply the load',
-      'Solar Supply Priority',
+      // Old-app scheduling and priority variants (moved some to Energy Storage)
+      'Input Voltage range',
+      'Input Voltage Range',
+      // Nova specific - missing fields
+      'Time Turn On AC2',
+      'Time Turn Off AC2',
     ];
     final standardList = [
       'LCD Auto-return to Main Screen',
@@ -224,9 +344,19 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
       'Beeps While Primary Source Interrupt',
       'Over Temperature Auto Restart',
       'Power Saving Function',
+      'Overload Restart',
+      'Overload Bypass Function',
+      'Alarm omn when primary source interuput',
+      'Alarm omn when primary source interrupt',
+      'Display Escape to default page after 1 min timeout',
+      'Fault code record',
+      'Solar Feed to Grid',
+      'Li-Battery Auto Turn On',
+      'Li-Battery Immediately TurnOn',
     ];
     final systemList = [
       'Restore to Default',
+      'System Settings(Restore to default*)',
     ];
     final otherList = [
       'Output Voltage',
@@ -257,34 +387,103 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
 
     // Synonym maps: canonical -> variants
     Map<String, List<String>> batterySyn() => {
-          'Battery Type': ['battery type'],
-          'Bulk Charging Voltage': ['bulk charge voltage', 'bulk voltage'],
-          'Float Charging Voltage': ['float charge voltage', 'float voltage'],
+          // Core battery parameters
+          'Battery Type': ['battery type', 'bat type'],
+          'Battery Capacity': ['battery capacity', 'bat capacity'],
+          
+          // Voltage settings
+          'Bulk Charging Voltage': ['bulk charge voltage', 'bulk voltage', 'bulk charging voltage'],
+          'Float Charging Voltage': ['float charge voltage', 'float voltage', 'float charging voltage'],
+          'Equalization Voltage': ['equalisation voltage', 'equalization voltage'],
+          'Battery Cut off Voltage': [
+            'battery cut-off voltage',
+            'battery cutoff voltage',
+            'battery cut off voltage',
+            'cut off voltage'
+          ],
+          'Back To Grid Voltage': [
+            'back to grid voltage',
+            'return to grid voltage',
+            'back to utility voltage'
+          ],
+          'Back To Discharge Voltage': [
+            'back to discharge voltage',
+            'return to discharge voltage',
+            'back to battery voltage'
+          ],
+          'Battery Under Voltage': ['battery under voltage', 'under voltage', 'low voltage cutoff'],
+          'Battery Over Voltage': ['battery over voltage', 'over voltage', 'high voltage cutoff'],
+          'Battery Low Voltage Warning': ['battery low voltage warning', 'low voltage warning'],
+          
+          // Current settings
           'Max. Charging Current': [
             'max charging current',
             'maximum charging current',
-            'max charge current'
+            'max charge current',
+            'max. charging current'
           ],
           'Max Battery Discharge Current': [
             'max. battery discharge current',
             'max discharge current',
-            'maximum discharge current'
+            'maximum discharge current',
+            'max. discharge current'
           ],
           'Max. AC Charging Current': [
             'max ac charging current',
-            'maximum ac charging current'
+            'maximum ac charging current',
+            'max. ac charging current'
           ],
+          'Battery Charging Current': [
+            'battery charging current',
+            'charging current',
+            'charge current'
+          ],
+          
+          // Capacity/SOC settings
+          'Back to Grid Capacity': [
+            'return to grid capacity',
+            'back to utility capacity',
+            'back to grid capacity',
+            'return to grid soc'
+          ],
+          'Back to Discharge Capacity': [
+            'return to discharge capacity',
+            'back to discharge',
+            'back to discharge capacity',
+            'return to discharge soc'
+          ],
+          'Battery Cut-off Capacity': [
+            'battery cut off capacity',
+            'battery cutoff capacity',
+            'battery cut-off capacity',
+            'cut off capacity',
+            'cutoff soc'
+          ],
+          
+          // Charging priority
           'Charging Source Priority': [
             'charge source priority',
             'charging priority',
             'source priority (charging)',
             'charger source priority',
-            'solar supply priority',
           ],
+          'Solar Supply Priority': [
+            'solar supply priority',
+            'solar priority',
+            'pv priority'
+          ],
+          'Charger Source Priority': [
+            'charger source priority',
+            'charger priority',
+            'ac charger priority'
+          ],
+          
+          // Equalization settings
           'Battery Equalization': [
             'battery equalisation',
             'equalization',
-            'equalisation'
+            'equalisation',
+            'battery equalization enable'
           ],
           'Real-time Activate Battery Equalization': [
             'realtime activate battery equalization',
@@ -292,59 +491,229 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
             'activate battery equalization',
             'activation battery equalization',
             'start equalization',
+            'real-time activate battery equalization'
           ],
           'Battery Equalization Time-out': [
             'battery equalization timeout',
             'equalization timeout',
             'equalisation timeout',
-            'equalization time out'
+            'equalization time out',
+            'battery equalization time-out'
           ],
           'Battery Equalization Time': [
             'equalization time',
             'equalisation time',
-            'equalization duration'
+            'equalization duration',
+            'battery equalization time'
           ],
           'Equalization Period': [
             'equalization cycle',
             'equalisation cycle',
-            'equalization interval'
+            'equalization interval',
+            'equalization period'
           ],
-          'Equalization Voltage': ['equalisation voltage'],
-          'Back to Grid Capacity': [
-            'return to grid capacity',
-            'back to utility capacity'
-          ],
-          'Back to Discharge Capacity': [
-            'return to discharge capacity',
-            'back to discharge'
-          ],
-          'Battery Cut-off Capacity': [
-            'battery cut off capacity',
-            'battery cutoff capacity'
-          ],
-          'Battery Cut off Voltage': [
-            'battery cut-off voltage',
-            'battery cutoff voltage'
-          ],
-          'Back To Grid Voltage': [
-            'back to grid voltage',
-            'return to grid voltage'
-          ],
-          'Back To Discharge Voltage': [
-            'back to discharge voltage',
-            'return to discharge voltage'
-          ],
+          
+          // Lithium battery specific
           'Li-BattreyAuto Turnon': [
             'li-battery auto turn on',
             'li battery auto turn on',
             'li-battery auto turnon',
+            'lithium auto turn on',
+            'li-battreyauto turnon'
           ],
           'Li-Battrey Immediately Turnon': [
             'li-battery immediately turn on',
             'li battery immediately turn on',
             'li-battery immediately turnon',
+            'lithium immediately turn on',
+            'li-battrey immediately turnon'
+          ],
+          'Lithium Battery Auto Turn On': [
+            'lithium battery auto turn on',
+            'lithium auto turn on',
+            'li battery auto on'
+          ],
+          'Lithium Battery Immediately Turn On': [
+            'lithium battery immediately turn on',
+            'lithium immediately turn on',
+            'li battery immediate on'
+          ],
+          
+          // Battery protection
+          'Battery Temperature Protection': [
+            'battery temperature protection',
+            'battery temp protection',
+            'temperature protection'
+          ],
+          
+          // BMS settings
+          'BMS Protocol': ['bms protocol', 'battery management protocol'],
+          'BMS Communication': ['bms communication', 'bms comm'],
+          'Battery Series Number': ['battery series number', 'battery series', 'cell series'],
+          
+          // Additional parameters
+          'Battery Voltage Calibration': ['battery voltage calibration', 'voltage calibration'],
+          'Battery Current Calibration': ['battery current calibration', 'current calibration'],
+          'Battery Manufacturer': ['battery manufacturer', 'battery brand', 'bat manufacturer'],
+          'Battery Model': ['battery model', 'bat model'],
+          
+          // Elego specific extras
+          'Battery Bulk Voltage': ['battery bulk voltage', 'bulk voltage', 'bulk charge voltage'],
+          'Battery Float Voltage': ['battery float voltage', 'float voltage', 'float charge voltage'],
+          
+          // Nova specific battery extras
+          'Maximum Battery Discharge Current': [
+            'maximum battery discharge current',
+            'max battery discharge current',
+            'max. battery discharge current',
+            'maximum discharge current',
+          ],
+          'Battery Equalization Time out': [
+            'battery equalization time out',
+            'battery equalization timeout',
+            'equalization time out',
+            'equalization timeout',
+          ],
+          'Battery Voltage to Turn On AC2': [
+            'battery voltage to turn on ac2',
+            'battery voltage to turn on ac 2',
+            'voltage to turn on ac2',
+            'turn on ac2 voltage',
+          ],
+          'Battery Voltage to Turn Off AC2': [
+            'battery voltage to turn off ac2',
+            'battery voltage to turn off ac 2',
+            'voltage to turn off ac2',
+            'turn off ac2 voltage',
+          ],
+          'Discharge Time to Turn Off AC2': [
+            'discharge time to turn off ac2',
+            'discharge time to turn off ac 2',
+            'discharge time turn off ac2',
+          ],
+          'Discharge Time to Turn On AC2': [
+            'discharge time to turn on ac2',
+            'discharge time to turn on ac 2',
+            'discharge time turn on ac2',
           ],
         };
+    
+    // ENERGY STORAGE MACHINE SETTINGS synonyms
+    Map<String, List<String>> energyStorageMachineSyn() => {
+          'Solar supply priority (battery>load>utility or load>battery>utility)': [
+            'solar supply priority (battery>load>utility or load>battery>utility)',
+            'solar supply priority',
+            'solar priority (battery>load>utility or load>battery>utility)',
+            'solar priority',
+            'pv supply priority',
+          ],
+          'Solar Supply Priority': [
+            'solar supply priority',
+            'solar priority',
+            'pv priority',
+            'solar first priority'
+          ],
+          'reset pv energy storage (reset option)': [
+            'reset pv energy storage (reset option)',
+            'reset pv energy storage',
+            'reset pv energy',
+            'reset energy storage',
+          ],
+          'Reset PV energy storage': [
+            'reset pv energy storage',
+            'reset pv energy',
+            'reset energy storage',
+          ],
+          'country customized regulations(india germany or south-america)': [
+            'country customized regulations(india germany or south-america)',
+            'country customized regulations',
+            'country regulations',
+            'regional regulations',
+          ],
+          'Country Customized Regulations': [
+            'country customized regulations',
+            'country regulations',
+            'regional regulations',
+          ],
+          'start time for enabling AC charger working(input feild for time)': [
+            'start time for enabling ac charger working(input feild for time)',
+            'start time for enabling ac charger working',
+            'start time for enable ac charger working',
+            'ac charger start time',
+          ],
+          'Start Time For Enable AC Charger Working': [
+            'start time for enable ac charger working',
+            'ac charger start time',
+            'ac charger working start time',
+          ],
+          'Start time for enable AC charger working': [
+            'start time for enable ac charger working',
+            'ac charger start time',
+          ],
+          'ending time for enabling ac charger working(input feild for time)': [
+            'ending time for enabling ac charger working(input feild for time)',
+            'ending time for enabling ac charger working',
+            'ending time for enable ac charger working',
+            'ac charger end time',
+            'ac charger ending time',
+          ],
+          'Ending Time For Enable AC Charger Working': [
+            'ending time for enable ac charger working',
+            'ac charger end time',
+            'ac charger working end time',
+          ],
+          'Ending time for enable AC charger working': [
+            'ending time for enable ac charger working',
+            'ac charger end time',
+          ],
+          'start time for anabling ac supply to load(input feild for time)': [
+            'start time for anabling ac supply to load(input feild for time)',
+            'start time for enabling ac supply to load',
+            'start time for enable ac supply to load',
+            'start time for enable ac supply the load',
+            'ac supply start time',
+          ],
+          'Start time for enable AC supply the load': [
+            'start time for enable ac supply the load',
+            'start time for enable ac supply to load',
+            'ac supply start time',
+            'ac supply to load start time',
+          ],
+          'Start Time for enable AC Supply to Load': [
+            'start time for enable ac supply to load',
+            'ac supply start time',
+          ],
+          'ending time for enabling ac supply to load(input feild for time)': [
+            'ending time for enabling ac supply to load(input feild for time)',
+            'ending time for enabling ac supply to load',
+            'ending time for enable ac supply to load',
+            'ending time for enable ac supply the load',
+            'ac supply end time',
+            'ac supply ending time',
+          ],
+          'Ending time for enable AC supply the load': [
+            'ending time for enable ac supply the load',
+            'ending time for enable ac supply to load',
+            'ac supply end time',
+            'ac supply to load end time',
+          ],
+          'Ending Time for enable AC Supply to Load': [
+            'ending time for enable ac supply to load',
+            'ac supply end time',
+          ],
+          'set date time(caledar input feild)': [
+            'set date time(caledar input feild)',
+            'set date time',
+            'set datetime',
+            'date time setting',
+          ],
+          'Set Date Time': [
+            'set date time',
+            'set datetime',
+            'date time setting',
+          ],
+        };
+    
     Map<String, List<String>> basicSyn() => {
           'Output Source Priority': [
             'output priority',
@@ -405,6 +774,19 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
             'solar supply priority',
             'solar priority',
             'solar first priority'
+          ],
+          // Nova specific basic settings
+          'Time Turn On AC2': [
+            'time turn on ac2',
+            'time turn on ac 2',
+            'ac2 turn on time',
+            'turn on time ac2',
+          ],
+          'Time Turn Off AC2': [
+            'time turn off ac2',
+            'time turn off ac 2',
+            'ac2 turn off time',
+            'turn off time ac2',
           ],
         };
     Map<String, List<String>> standardSyn() => {
@@ -510,6 +892,10 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
           syn = batterySyn();
           canon = batteryList;
           break;
+        case 'Energy Storage Machine Settings':
+          syn = energyStorageMachineSyn();
+          canon = energyStorageMachineList;
+          break;
         case 'Basic Settings':
           syn = basicSyn();
           canon = basicList;
@@ -557,6 +943,7 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
     }
 
     addIfMatch('Battery Settings', batteryList);
+    addIfMatch('Energy Storage Machine Settings', energyStorageMachineList);
     addIfMatch('Basic Settings', basicList);
     addIfMatch('Standard Settings', standardList);
     addIfMatch('System Settings', systemList);
@@ -577,6 +964,17 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
   }
 
   List<Field> _orderCategoryFields(String category, List<Field> fields) {
+    // ARCEUS DEVICES: Return all fields as-is without filtering
+    // Detect Arceus by devcode 6451 or PN pattern
+    final isArceusByDevcode = widget.devcode == 6451;
+    final isArceusByPN = widget.pn.startsWith('F6000022');
+
+    if ((isArceusByDevcode || isArceusByPN) && category == 'Other Settings') {
+      print(
+          'DataControlOld: Arceus device - returning all ${fields.length} fields for Other Settings without filtering');
+      return fields; // Return all fields as-is for Arceus
+    }
+
     List<String> order;
     switch (category) {
       case 'Battery Settings':
@@ -603,12 +1001,49 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
           'Back To Discharge Voltage',
           'Li-BattreyAuto Turnon',
           'Li-Battrey Immediately Turnon',
+          // Elego specific
+          'Battery Bulk Voltage',
+          'Battery Float Voltage',
+          'Charger Source Priority',
+          // Nova specific
+          'Maximum Battery Discharge Current',
+          'Battery Equalization Time out',
+          'Battery Voltage to Turn On AC2',
+          'Battery Voltage to Turn Off AC2',
+          'Discharge Time to Turn Off AC2',
+          'Discharge Time to Turn On AC2',
+        ];
+        break;
+      case 'Energy Storage Machine Settings':
+        order = [
+          'Solar supply priority (battery>load>utility or load>battery>utility)',
+          'Solar Supply Priority',
+          'reset pv energy storage (reset option)',
+          'Reset PV energy storage',
+          'country customized regulations(india germany or south-america)',
+          'Country Customized Regulations',
+          'start time for enabling AC charger working(input feild for time)',
+          'Start Time For Enable AC Charger Working',
+          'Start time for enable AC charger working',
+          'ending time for enabling ac charger working(input feild for time)',
+          'Ending Time For Enable AC Charger Working',
+          'Ending time for enable AC charger working',
+          'start time for anabling ac supply to load(input feild for time)',
+          'Start time for enable AC supply the load',
+          'Start Time for enable AC Supply to Load',
+          'ending time for enabling ac supply to load(input feild for time)',
+          'Ending time for enable AC supply the load',
+          'Ending Time for enable AC Supply to Load',
+          'set date time(caledar input feild)',
+          'Set Date Time',
         ];
         break;
       case 'Basic Settings':
         order = [
           'Output Source Priority',
           'AC Input Range',
+          'Input Voltage range',
+          'Input Voltage Range',
           'AC Output Mode',
           'Phase 1 Of 3 Phase Output',
           'Phase 2 Of 3 Phase Output',
@@ -619,30 +1054,35 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
           'Time Interval to Turn On AC2',
           'Charge Time to turn off AC2',
           'Battery Capacity to turn On AC2',
-          // Expanded scheduling/priorities
-          'Start Time For Enable AC Charger Working',
-          'Ending Time For Enable AC Charger Working',
-          'Start time for enable AC supply the load',
-          'Ending time for enable AC supply the load',
-          'Solar Supply Priority',
+          // Nova specific
+          'Time Turn On AC2',
+          'Time Turn Off AC2',
         ];
         break;
       case 'Standard Settings':
         order = [
           'LCD Auto-return to Main Screen',
           'Overload Auto Restart',
+          'Overload Restart',
           'Buzzer',
           'Fault Code Record',
+          'Fault code record',
           'Backlight',
           'Bypass Function',
+          'Overload Bypass Function',
           'Solar Feed to Grid',
           'Beeps While Primary Source Interrupt',
+          'Alarm omn when primary source interuput',
+          'Alarm omn when primary source interrupt',
           'Over Temperature Auto Restart',
           'Power Saving Function',
+          'Display Escape to default page after 1 min timeout',
+          'Li-Battery Auto Turn On',
+          'Li-Battery Immediately TurnOn',
         ];
         break;
       case 'System Settings':
-        order = ['Restore to Default'];
+        order = ['Restore to Default', 'System Settings(Restore to default*)'];
         break;
       default: // Other Settings
         order = [

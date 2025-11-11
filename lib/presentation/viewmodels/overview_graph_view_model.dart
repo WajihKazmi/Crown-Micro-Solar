@@ -20,6 +20,22 @@ enum GraphMetric {
   acOutputVoltage,
   acOutputCurrent,
   batterySoc,
+  batteryCapacity,
+  batteryVoltage,
+  batteryChargingCurrent,
+  batteryDischargeCurrent,
+  generatorAcVoltage,
+  utilityAcVoltage,
+  pv1ChargingPower,
+  pv2ChargingPower,
+  acOutputActivePower,
+  pv1InputVoltage,
+  pv2InputVoltage,
+  pv1InputCurrent,
+  pv2InputCurrent,
+  todayGeneration,
+  totalGeneration,
+  inputPower,
 }
 
 enum GraphPeriod { day, month, year, total }
@@ -68,7 +84,7 @@ class OverviewGraphViewModel extends ChangeNotifier {
   final _energyRepo = getIt<EnergyRepository>();
   final _deviceRepo = getIt<DeviceRepository>();
 
-  GraphMetric _metric = GraphMetric.pvInputCurrent;
+  GraphMetric _metric = GraphMetric.outputPower; // Changed from pvInputCurrent to show power generation
   GraphPeriod _period = GraphPeriod.day;
   DateTime _anchor = DateTime.now();
   String? _error;
@@ -107,6 +123,22 @@ class OverviewGraphViewModel extends ChangeNotifier {
     GraphMetric.acOutputVoltage: 'AC2_OUTPUT_VOLTAGE',
     GraphMetric.acOutputCurrent: 'AC2_OUTPUT_CURRENT',
     GraphMetric.batterySoc: 'BATTERY_SOC',
+    GraphMetric.batteryCapacity: 'BATTERY_CAPACITY',
+    GraphMetric.batteryVoltage: 'BATTERY_VOLTAGE',
+    GraphMetric.batteryChargingCurrent: 'BATTERY_CHARGING_CURRENT',
+    GraphMetric.batteryDischargeCurrent: 'BATTERY_DISCHARGE_CURRENT',
+    GraphMetric.generatorAcVoltage: 'GENERATOR_AC_VOLTAGE',
+    GraphMetric.utilityAcVoltage: 'UTILITY_AC_VOLTAGE',
+    GraphMetric.pv1ChargingPower: 'PV1_CHARGING_POWER',
+    GraphMetric.pv2ChargingPower: 'PV2_CHARGING_POWER',
+    GraphMetric.acOutputActivePower: 'AC_OUTPUT_ACTIVE_POWER',
+    GraphMetric.pv1InputVoltage: 'PV1_INPUT_VOLTAGE',
+    GraphMetric.pv2InputVoltage: 'PV2_INPUT_VOLTAGE',
+    GraphMetric.pv1InputCurrent: 'PV1_INPUT_CURRENT',
+    GraphMetric.pv2InputCurrent: 'PV2_INPUT_CURRENT',
+    GraphMetric.todayGeneration: 'TODAY_GENERATION',
+    GraphMetric.totalGeneration: 'TOTAL_GENERATION',
+    GraphMetric.inputPower: 'INPUT_POWER',
   };
 
   // Determine which metrics are supported for a given device by consulting DeviceRepository capability map
@@ -134,7 +166,8 @@ class OverviewGraphViewModel extends ChangeNotifier {
     print('OverviewGraphViewModel: Initializing for plantId: $plantId');
     try {
       await _loadDevices(plantId);
-      print('OverviewGraphViewModel: Devices loaded, count: ${_devices.length}');
+      print(
+          'OverviewGraphViewModel: Devices loaded, count: ${_devices.length}');
       await refresh(plantId: plantId);
       print('OverviewGraphViewModel: Initial refresh complete');
     } catch (e, stackTrace) {
@@ -193,11 +226,13 @@ class OverviewGraphViewModel extends ChangeNotifier {
     _state = OverviewGraphState.loading();
     notifyListeners();
 
-    print('OverviewGraphViewModel: Refreshing graph - Period: $_period, Metric: $_metric, PlantId: $plantId');
+    print(
+        'OverviewGraphViewModel: Refreshing graph - Period: $_period, Metric: $_metric, PlantId: $plantId');
 
     try {
       if (_period == GraphPeriod.day) {
-        print('OverviewGraphViewModel: Loading daily data for ${_anchor.toIso8601String().substring(0, 10)}');
+        print(
+            'OverviewGraphViewModel: Loading daily data for ${_anchor.toIso8601String().substring(0, 10)}');
         await _loadDaily(plantId);
       } else if (_period == GraphPeriod.month) {
         print('OverviewGraphViewModel: Loading monthly data');
@@ -209,7 +244,8 @@ class OverviewGraphViewModel extends ChangeNotifier {
         print('OverviewGraphViewModel: Loading total data');
         await _loadTotal(plantId);
       }
-      print('OverviewGraphViewModel: Data loaded successfully - ${_state.series.length} series, ${_state.labels.length} labels');
+      print(
+          'OverviewGraphViewModel: Data loaded successfully - ${_state.series.length} series, ${_state.labels.length} labels');
     } catch (e, stackTrace) {
       print('OverviewGraphViewModel: Error loading graph data: $e');
       print('StackTrace: $stackTrace');
@@ -1100,56 +1136,118 @@ class OverviewGraphViewModel extends ChangeNotifier {
         return 'AC Output Current';
       case GraphMetric.batterySoc:
         return 'Battery SOC';
+      case GraphMetric.batteryCapacity:
+        return 'Battery Capacity';
+      case GraphMetric.batteryVoltage:
+        return 'Battery Voltage';
+      case GraphMetric.batteryChargingCurrent:
+        return 'Battery Charging Current';
+      case GraphMetric.batteryDischargeCurrent:
+        return 'Battery Discharge Current';
+      case GraphMetric.generatorAcVoltage:
+        return 'Generator AC Voltage';
+      case GraphMetric.utilityAcVoltage:
+        return 'Utility AC Voltage';
+      case GraphMetric.pv1ChargingPower:
+        return 'PV1 Charging Power';
+      case GraphMetric.pv2ChargingPower:
+        return 'PV2 Charging Power';
+      case GraphMetric.acOutputActivePower:
+        return 'AC Output Active Power';
+      case GraphMetric.pv1InputVoltage:
+        return 'PV1 Input Voltage';
+      case GraphMetric.pv2InputVoltage:
+        return 'PV2 Input Voltage';
+      case GraphMetric.pv1InputCurrent:
+        return 'PV1 Input Current';
+      case GraphMetric.pv2InputCurrent:
+        return 'PV2 Input Current';
+      case GraphMetric.todayGeneration:
+        return 'Today Generation';
+      case GraphMetric.totalGeneration:
+        return 'Total Generation';
+      case GraphMetric.inputPower:
+        return 'Input Power';
     }
   }
 
   String _unitForMetric(GraphMetric m) {
     switch (m) {
       case GraphMetric.outputPower:
-        return 'kW';
       case GraphMetric.loadPower:
-        return 'kW';
       case GraphMetric.gridPower:
+      case GraphMetric.pv1ChargingPower:
+      case GraphMetric.pv2ChargingPower:
+      case GraphMetric.acOutputActivePower:
+      case GraphMetric.inputPower:
         return 'kW';
       case GraphMetric.gridVoltage:
+      case GraphMetric.pvInputVoltage:
+      case GraphMetric.acOutputVoltage:
+      case GraphMetric.batteryVoltage:
+      case GraphMetric.generatorAcVoltage:
+      case GraphMetric.utilityAcVoltage:
+      case GraphMetric.pv1InputVoltage:
+      case GraphMetric.pv2InputVoltage:
         return 'V';
       case GraphMetric.gridFrequency:
         return 'Hz';
-      case GraphMetric.pvInputVoltage:
-        return 'V';
       case GraphMetric.pvInputCurrent:
-        return 'A';
-      case GraphMetric.acOutputVoltage:
-        return 'V';
       case GraphMetric.acOutputCurrent:
+      case GraphMetric.batteryChargingCurrent:
+      case GraphMetric.batteryDischargeCurrent:
+      case GraphMetric.pv1InputCurrent:
+      case GraphMetric.pv2InputCurrent:
         return 'A';
       case GraphMetric.batterySoc:
+      case GraphMetric.batteryCapacity:
         return '%';
+      case GraphMetric.todayGeneration:
+      case GraphMetric.totalGeneration:
+        return 'kWh';
     }
   }
 
   Color _colorForMetric(GraphMetric m) {
     switch (m) {
       case GraphMetric.outputPower:
+      case GraphMetric.pv1ChargingPower:
+      case GraphMetric.pv2ChargingPower:
+      case GraphMetric.inputPower:
         return Colors.orange;
       case GraphMetric.loadPower:
-        return Colors.blue;
-      case GraphMetric.gridPower:
-        return Colors.purple;
       case GraphMetric.gridVoltage:
         return Colors.blue;
+      case GraphMetric.gridPower:
       case GraphMetric.gridFrequency:
         return Colors.purple;
       case GraphMetric.pvInputVoltage:
+      case GraphMetric.pv1InputVoltage:
+      case GraphMetric.pv2InputVoltage:
         return Colors.amber;
       case GraphMetric.pvInputCurrent:
+      case GraphMetric.pv1InputCurrent:
+      case GraphMetric.pv2InputCurrent:
         return Colors.deepOrange;
       case GraphMetric.acOutputVoltage:
+      case GraphMetric.acOutputActivePower:
         return Colors.red;
       case GraphMetric.acOutputCurrent:
         return Colors.teal;
       case GraphMetric.batterySoc:
+      case GraphMetric.batteryCapacity:
         return Colors.green;
+      case GraphMetric.batteryVoltage:
+      case GraphMetric.batteryChargingCurrent:
+      case GraphMetric.batteryDischargeCurrent:
+        return Colors.lightGreen;
+      case GraphMetric.generatorAcVoltage:
+        return Colors.brown;
+      case GraphMetric.utilityAcVoltage:
+        return Colors.indigo;
+      case GraphMetric.todayGeneration:
+      case GraphMetric.totalGeneration:
+        return Colors.cyan;
     }
   }
 
@@ -1202,6 +1300,38 @@ class OverviewGraphViewModel extends ChangeNotifier {
         return 'AC2_OUTPUT_CURRENT';
       case GraphMetric.batterySoc:
         return 'BATTERY_SOC';
+      case GraphMetric.batteryCapacity:
+        return 'BATTERY_CAPACITY';
+      case GraphMetric.batteryVoltage:
+        return 'BATTERY_VOLTAGE';
+      case GraphMetric.batteryChargingCurrent:
+        return 'BATTERY_CHARGING_CURRENT';
+      case GraphMetric.batteryDischargeCurrent:
+        return 'BATTERY_DISCHARGE_CURRENT';
+      case GraphMetric.generatorAcVoltage:
+        return 'GENERATOR_AC_VOLTAGE';
+      case GraphMetric.utilityAcVoltage:
+        return 'UTILITY_AC_VOLTAGE';
+      case GraphMetric.pv1ChargingPower:
+        return 'PV1_CHARGING_POWER';
+      case GraphMetric.pv2ChargingPower:
+        return 'PV2_CHARGING_POWER';
+      case GraphMetric.acOutputActivePower:
+        return 'AC_OUTPUT_ACTIVE_POWER';
+      case GraphMetric.pv1InputVoltage:
+        return 'PV1_INPUT_VOLTAGE';
+      case GraphMetric.pv2InputVoltage:
+        return 'PV2_INPUT_VOLTAGE';
+      case GraphMetric.pv1InputCurrent:
+        return 'PV1_INPUT_CURRENT';
+      case GraphMetric.pv2InputCurrent:
+        return 'PV2_INPUT_CURRENT';
+      case GraphMetric.todayGeneration:
+        return 'TODAY_GENERATION';
+      case GraphMetric.totalGeneration:
+        return 'TOTAL_GENERATION';
+      case GraphMetric.inputPower:
+        return 'INPUT_POWER';
     }
   }
 
@@ -1219,10 +1349,20 @@ class OverviewGraphViewModel extends ChangeNotifier {
       case GraphMetric.pvInputCurrent:
       case GraphMetric.acOutputVoltage:
       case GraphMetric.acOutputCurrent:
+      case GraphMetric.pv1InputVoltage:
+      case GraphMetric.pv2InputVoltage:
+      case GraphMetric.pv1InputCurrent:
+      case GraphMetric.pv2InputCurrent:
+      case GraphMetric.pv1ChargingPower:
+      case GraphMetric.pv2ChargingPower:
+      case GraphMetric.inputPower:
+      case GraphMetric.todayGeneration:
+      case GraphMetric.totalGeneration:
         return isInverter ||
             isStorage ||
             isCollector; // collectors sometimes proxy
       case GraphMetric.loadPower:
+      case GraphMetric.acOutputActivePower:
         return isInverter || isStorage || isSmart || isCollector;
       case GraphMetric.gridPower:
       case GraphMetric.gridVoltage:
@@ -1231,7 +1371,14 @@ class OverviewGraphViewModel extends ChangeNotifier {
             isSmart ||
             isInverter; // grid metrics likely from collector/smart meter/inverter
       case GraphMetric.batterySoc:
+      case GraphMetric.batteryCapacity:
+      case GraphMetric.batteryVoltage:
+      case GraphMetric.batteryChargingCurrent:
+      case GraphMetric.batteryDischargeCurrent:
         return isStorage || isBattery || isInverter; // inverter with battery
+      case GraphMetric.generatorAcVoltage:
+      case GraphMetric.utilityAcVoltage:
+        return isStorage || isInverter; // typically on storage/hybrid systems
     }
   }
 
@@ -1271,6 +1418,24 @@ class OverviewGraphViewModel extends ChangeNotifier {
       case GraphMetric.batterySoc:
         list.addAll(['BATTERY_SOC_PERCENT', 'SOC']);
         break;
+      case GraphMetric.batteryCapacity:
+      case GraphMetric.batteryVoltage:
+      case GraphMetric.batteryChargingCurrent:
+      case GraphMetric.batteryDischargeCurrent:
+      case GraphMetric.generatorAcVoltage:
+      case GraphMetric.utilityAcVoltage:
+      case GraphMetric.pv1ChargingPower:
+      case GraphMetric.pv2ChargingPower:
+      case GraphMetric.acOutputActivePower:
+      case GraphMetric.pv1InputVoltage:
+      case GraphMetric.pv2InputVoltage:
+      case GraphMetric.pv1InputCurrent:
+      case GraphMetric.pv2InputCurrent:
+      case GraphMetric.todayGeneration:
+      case GraphMetric.totalGeneration:
+      case GraphMetric.inputPower:
+        // Use base parameter only for these new metrics
+        break;
     }
     // Deduplicate while preserving order
     final seen = <String>{};
@@ -1288,12 +1453,28 @@ class OverviewGraphViewModel extends ChangeNotifier {
       case GraphMetric.gridPower:
       case GraphMetric.pvInputCurrent:
       case GraphMetric.acOutputCurrent:
+      case GraphMetric.pv1ChargingPower:
+      case GraphMetric.pv2ChargingPower:
+      case GraphMetric.acOutputActivePower:
+      case GraphMetric.inputPower:
+      case GraphMetric.pv1InputCurrent:
+      case GraphMetric.pv2InputCurrent:
+      case GraphMetric.batteryChargingCurrent:
+      case GraphMetric.batteryDischargeCurrent:
+      case GraphMetric.todayGeneration:
+      case GraphMetric.totalGeneration:
         return _Agg.sum;
       case GraphMetric.gridVoltage:
       case GraphMetric.gridFrequency:
       case GraphMetric.pvInputVoltage:
       case GraphMetric.acOutputVoltage:
       case GraphMetric.batterySoc:
+      case GraphMetric.batteryCapacity:
+      case GraphMetric.batteryVoltage:
+      case GraphMetric.generatorAcVoltage:
+      case GraphMetric.utilityAcVoltage:
+      case GraphMetric.pv1InputVoltage:
+      case GraphMetric.pv2InputVoltage:
         return _Agg.avg;
     }
   }
@@ -1337,8 +1518,14 @@ class OverviewGraphViewModel extends ChangeNotifier {
       return DeviceRef(
           sn: sn, pn: pn, devcode: devcode, devaddr: devaddr, alias: alias);
     }).toList();
-    // Preserve selection if still present
-    if (_selectedDevice != null) {
+
+    // FIX: Auto-select first device if no device is selected and devices are available
+    if (_selectedDevice == null && _devices.isNotEmpty) {
+      _selectedDevice = _devices.first;
+      print(
+          'OverviewGraphViewModel: Auto-selected first device: ${_selectedDevice!.pn}');
+    } else if (_selectedDevice != null) {
+      // Preserve selection if still present
       _selectedDevice = _devices.firstWhere(
           (x) => x.key == _selectedDevice!.key,
           orElse: () =>

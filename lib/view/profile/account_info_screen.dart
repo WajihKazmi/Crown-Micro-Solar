@@ -8,6 +8,14 @@ class AccountInfoScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user = Provider.of<AuthViewModel>(context).userInfo;
+
+    // Extract username after underscore (e.g., "Crown213_bilal" -> "bilal")
+    String displayUsername = user?.usr ?? '';
+    if (displayUsername.contains('_')) {
+      displayUsername =
+          displayUsername.substring(displayUsername.indexOf('_') + 1);
+    }
+
     return Scaffold(
       appBar: AppBar(title: const Text('Account Info')),
       body: user == null
@@ -15,7 +23,7 @@ class AccountInfoScreen extends StatelessWidget {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                _infoCard('Username', user.usr, Icons.person),
+                _infoCard('Username', displayUsername, Icons.person),
                 _infoCard('Email', user.email, Icons.email),
                 _infoCard('Mobile', user.mobile, Icons.phone),
                 _infoCard('Role', _roleLabel(user.role), Icons.badge),

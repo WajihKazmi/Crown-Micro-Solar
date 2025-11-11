@@ -107,9 +107,17 @@ class _DevicesScreenState extends State<DevicesScreen>
           _loading = false;
           _initialLoadDone = true;
         });
+
+        // Then refresh from network in background WITHOUT blocking UI
+        _deviceVM.loadDevicesAndCollectors(plantId).then((_) {
+          // ViewModel will notify listeners when done
+        }).catchError((e) {
+          print('Background refresh error: $e');
+        });
+        return; // Exit early to prevent duplicate loading
       }
 
-      // Then refresh from network in background
+      // No cache available, load from network
       await _deviceVM.loadDevicesAndCollectors(plantId);
       if (!mounted) return;
       setState(() {
@@ -467,7 +475,123 @@ class _DevicesScreenState extends State<DevicesScreen>
     final statusColor = _getStatusColor(status);
     final theme = Theme.of(context);
     final surface = theme.colorScheme.surface;
-    return GestureDetector(
+
+    // Get devcode and devaddr from first subordinate device (needed for deletion)
+    final devcode = firstSub?.devcode ?? 0;
+    final devaddr = firstSub?.devaddr ?? 0;
+
+    // Wrap with Dismissible for swipe-to-delete
+    return Dismissible(
+      key: Key('collector_${pn}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: const Icon(
+          Icons.delete,
+          color: Colors.white,
+          size: 32,
+        ),
+      ),
+      confirmDismiss: (direction) async {
+        // Show confirmation dialog before deleting
+        return await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
+                title: const Text('Delete Datalogger'),
+                content: Text(
+                  'Are you sure you want to delete this datalogger?\n\n'
+                  'Alias: $alias\n'
+                  'PN: $pn\n'
+                  'Load: $load device(s)',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: const Text('Delete'),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+      },
+      onDismissed: (direction) async {
+        // Perform delete operation
+        try {
+          final repo = getIt<DeviceRepository>();
+          final plantId = plant.isNotEmpty
+              ? plant
+              : (_plantVM.plants.isNotEmpty ? _plantVM.plants.first.id : '');
+
+          print('Deleting collector: $pn, plantId: $plantId');
+
+          // Use the first subordinate device's info for deletion if available
+          final result = await repo.deleteDevice(
+            plantId: plantId,
+            pn: pn,
+            sn: sn.isNotEmpty ? sn : pn, // Use pn if sn is empty
+            devcode: devcode,
+            devaddr: devaddr,
+          );
+
+          if (result['err'] == 0 || result['err'] == 258) {
+            // Success (258 is also considered success) - reload devices
+            await _loadDevices(force: true);
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Datalogger $alias deleted successfully'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          } else {
+            // Failed - show error and reload to restore collector
+            final errorMsg = result['desc'] ?? 'Unknown error';
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Failed to delete datalogger: $errorMsg'),
+                  backgroundColor: Colors.red,
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            }
+            // Reload to restore collector in list
+            await _loadDevices(force: true);
+          }
+        } catch (e) {
+          print('Error deleting collector: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Error: $e'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+          // Reload to restore collector in list
+          await _loadDevices(force: true);
+        }
+      },
+      child: GestureDetector(
         onTap: () async {
           // If exactly one subordinate device, open its detail directly; else open collector details
           if (subDevices.length == 1) {
@@ -614,7 +738,9 @@ class _DevicesScreenState extends State<DevicesScreen>
                       );
                     },
                   )
-                ]))));
+                ]))),
+      ),
+    );
   }
 
   Widget _buildDeviceCard(Device device) {
@@ -622,7 +748,7 @@ class _DevicesScreenState extends State<DevicesScreen>
     final surface = theme.colorScheme.surface;
     final statusText = device.getStatusText();
     final statusColor = _getStatusColor(device.status);
-    
+
     // Wrap card in Dismissible for swipe-to-delete functionality
     return Dismissible(
       key: Key('device_${device.sn}_${device.pn}'),
@@ -644,41 +770,45 @@ class _DevicesScreenState extends State<DevicesScreen>
       confirmDismiss: (direction) async {
         // Show confirmation dialog before deleting
         return await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Text('Delete Device'),
-            content: Text(
-              'Are you sure you want to delete this device?\n\n'
-              'Alias: ${device.alias.isNotEmpty ? device.alias : device.pn}\n'
-              'SN: ${device.sn}\n'
-              'PN: ${device.pn}',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  foregroundColor: Colors.white,
+              context: context,
+              builder: (context) => AlertDialog(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
+                title: const Text('Delete Device'),
+                content: Text(
+                  'Are you sure you want to delete this device?\n\n'
+                  'Alias: ${device.alias.isNotEmpty ? device.alias : device.pn}\n'
+                  'SN: ${device.sn}\n'
+                  'PN: ${device.pn}',
                 ),
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Delete'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: const Text('Delete'),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ) ?? false;
+            ) ??
+            false;
       },
       onDismissed: (direction) async {
         // Perform delete operation
         try {
           final repo = getIt<DeviceRepository>();
-          final plantId = device.plantId.isNotEmpty ? device.plantId : device.pid.toString();
-          
+          final plantId = device.plantId.isNotEmpty
+              ? device.plantId
+              : device.pid.toString();
+
           print('Deleting device: ${device.sn}, plantId: $plantId');
-          
+
           final result = await repo.deleteDevice(
             plantId: plantId,
             pn: device.pn,
@@ -686,15 +816,16 @@ class _DevicesScreenState extends State<DevicesScreen>
             devcode: device.devcode,
             devaddr: device.devaddr,
           );
-          
+
           if (result['err'] == 0) {
             // Success - reload devices
             await _loadDevices(force: true);
-            
+
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Device ${device.alias.isNotEmpty ? device.alias : device.sn} deleted successfully'),
+                  content: Text(
+                      'Device ${device.alias.isNotEmpty ? device.alias : device.sn} deleted successfully'),
                   backgroundColor: Colors.green,
                 ),
               );
@@ -742,107 +873,108 @@ class _DevicesScreenState extends State<DevicesScreen>
                   builder: (_) => DeviceDetailScreen(device: device)));
         },
         child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: surface,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            if (theme.brightness == Brightness.light)
-              BoxShadow(
-                  color: Colors.black.withOpacity(0.06),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2))
-          ],
-          border: Border.all(color: Colors.black.withOpacity(0.04)),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(children: [
-            Image.asset('assets/images/device1.png', width: 56, height: 56),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                        'ALIAS: ${device.alias.isNotEmpty ? device.alias : device.pn}',
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 4),
-                    Text('PN: ${device.pn}',
-                        style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black54)),
-                    const SizedBox(height: 4),
-                    Text('SN: ${device.sn}',
-                        style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black54)),
-                    const SizedBox(height: 4),
-                    Text('LOAD: ${device.load ?? 0}',
-                        style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black54)),
-                    const SizedBox(height: 4),
-                    Row(children: [
-                      const Text('STATUS: ',
-                          style: TextStyle(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: surface,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              if (theme.brightness == Brightness.light)
+                BoxShadow(
+                    color: Colors.black.withOpacity(0.06),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2))
+            ],
+            border: Border.all(color: Colors.black.withOpacity(0.04)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(children: [
+              Image.asset('assets/images/device1.png', width: 56, height: 56),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                          'ALIAS: ${device.alias.isNotEmpty ? device.alias : device.pn}',
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      Text('PN: ${device.pn}',
+                          style: const TextStyle(
                               fontSize: 12,
-                              fontWeight: FontWeight.bold,
+                              fontWeight: FontWeight.w600,
                               color: Colors.black54)),
-                      Text(statusText,
-                          style: TextStyle(
+                      const SizedBox(height: 4),
+                      Text('SN: ${device.sn}',
+                          style: const TextStyle(
                               fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: statusColor)),
-                    ]),
-                    if (device.signal != null && device.signal! > 0) ...[
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black54)),
+                      const SizedBox(height: 4),
+                      Text('LOAD: ${device.load ?? 0}',
+                          style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black54)),
                       const SizedBox(height: 4),
                       Row(children: [
-                        const Text('SIGNAL: ',
+                        const Text('STATUS: ',
                             style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.black54)),
-                        RatingBarIndicator(
-                          rating: device.signal! / 20.0,
-                          itemBuilder: (_, __) => Icon(Icons.circle,
-                              color: _getSignalColor(device.signal!), size: 10),
-                          itemCount: 5,
-                          itemSize: 10,
-                          unratedColor: Colors.grey.withAlpha(40),
-                          direction: Axis.horizontal,
-                        ),
-                        const SizedBox(width: 4),
-                        Text('${device.signal!.toStringAsFixed(1)}%',
+                        Text(statusText,
                             style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
-                                color: _getSignalColor(device.signal!)))
-                      ])
-                    ],
-                    const SizedBox(height: 4),
-                    Text(
-                        'PLANT: ${device.plantId.isEmpty ? "null" : device.plantId}',
-                        style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black54)),
-                    const SizedBox(height: 4),
-                    Text('DEVICE TYPE: ${device.type}',
-                        style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.green,
-                            fontWeight: FontWeight.bold)),
-                  ]),
-            ),
-            Icon(Icons.keyboard_double_arrow_right, color: Colors.grey[600])
-          ]),
-        ),
-      ), // closing GestureDetector child (Container)
-    ), // closing GestureDetector
+                                color: statusColor)),
+                      ]),
+                      if (device.signal != null && device.signal! > 0) ...[
+                        const SizedBox(height: 4),
+                        Row(children: [
+                          const Text('SIGNAL: ',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black54)),
+                          RatingBarIndicator(
+                            rating: device.signal! / 20.0,
+                            itemBuilder: (_, __) => Icon(Icons.circle,
+                                color: _getSignalColor(device.signal!),
+                                size: 10),
+                            itemCount: 5,
+                            itemSize: 10,
+                            unratedColor: Colors.grey.withAlpha(40),
+                            direction: Axis.horizontal,
+                          ),
+                          const SizedBox(width: 4),
+                          Text('${device.signal!.toStringAsFixed(1)}%',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: _getSignalColor(device.signal!)))
+                        ])
+                      ],
+                      const SizedBox(height: 4),
+                      Text(
+                          'PLANT: ${device.plantId.isEmpty ? "null" : device.plantId}',
+                          style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black54)),
+                      const SizedBox(height: 4),
+                      Text('DEVICE TYPE: ${device.type}',
+                          style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.green,
+                              fontWeight: FontWeight.bold)),
+                    ]),
+              ),
+              Icon(Icons.keyboard_double_arrow_right, color: Colors.grey[600])
+            ]),
+          ),
+        ), // closing GestureDetector child (Container)
+      ), // closing GestureDetector
     ); // closing Dismissible
   }
 

@@ -34,14 +34,16 @@ class ReportDownloadService {
     String filePrefix = 'crown_report',
     void Function(int received, int total)? onProgress,
   }) async {
-    print('ReportDownloadService: Starting download - collectorPn: $collectorPn, range: $range, date: $anchorDate');
-    
+    print(
+        'ReportDownloadService: Starting download - collectorPn: $collectorPn, range: $range, date: $anchorDate');
+
     // Permissions (Android only)
     if (Platform.isAndroid) {
       print('ReportDownloadService: Requesting storage permissions...');
       final manage = await Permission.manageExternalStorage.request();
       if (!manage.isGranted) {
-        print('ReportDownloadService: Manage external storage not granted, trying regular storage...');
+        print(
+            'ReportDownloadService: Manage external storage not granted, trying regular storage...');
         final storage = await Permission.storage.request();
         if (!storage.isGranted) {
           print('ReportDownloadService: Storage permission denied');
@@ -56,11 +58,12 @@ class ReportDownloadService {
     final token = prefs.getString('token') ?? '';
     final secret = prefs.getString('Secret') ?? '';
     if (token.isEmpty || secret.isEmpty) {
-      print('ReportDownloadService: Missing credentials - token: ${token.isEmpty ? "empty" : "present"}, secret: ${secret.isEmpty ? "empty" : "present"}');
+      print(
+          'ReportDownloadService: Missing credentials - token: ${token.isEmpty ? "empty" : "present"}, secret: ${secret.isEmpty ? "empty" : "present"}');
       throw Exception('Missing token/secret');
     }
     print('ReportDownloadService: Credentials loaded');
-    
+
     final pkg = await PackageInfo.fromPlatform();
     final String appId = pkg.packageName;
     final String appVersion = pkg.version;
@@ -121,7 +124,7 @@ class ReportDownloadService {
 
     print('ReportDownloadService: Download completed successfully');
     print('ReportDownloadService: File saved at: $filePath');
-    
+
     // Verify file exists
     final file = File(filePath);
     if (await file.exists()) {

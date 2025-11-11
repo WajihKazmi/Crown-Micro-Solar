@@ -87,7 +87,8 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> login(String userId, String password, {bool rememberMe = false}) async {
+  Future<bool> login(String userId, String password,
+      {bool rememberMe = false}) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
@@ -318,7 +319,8 @@ class AuthViewModel extends ChangeNotifier {
     print('AuthViewModel: Fetching user info...');
     try {
       _userInfo = await _accountRepository.fetchAccountInfo();
-      print('AuthViewModel: User info fetched successfully - usr: ${_userInfo?.usr}');
+      print(
+          'AuthViewModel: User info fetched successfully - usr: ${_userInfo?.usr}');
     } catch (e, stackTrace) {
       // Do not block UI on token or network errors; leave userInfo as null and continue
       _userInfo = null;
@@ -355,6 +357,7 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   Future<bool> register({
+    required String name,
     required String email,
     required String mobileNo,
     required String username,
@@ -367,6 +370,7 @@ class AuthViewModel extends ChangeNotifier {
       // Normalize SN similar to legacy: trim and uppercase
       final normalizedSn = sn.trim().toUpperCase();
       final result = await _accountRepository.register(
+        name: name,
         email: email,
         mobileNo: mobileNo,
         username: username,

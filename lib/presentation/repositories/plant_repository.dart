@@ -191,4 +191,96 @@ class PlantRepository {
       return false;
     }
   }
+
+  /// Get total current output power across all power stations
+  /// Matches old app's CurrentOuputPowerof_ALLPSQuery()
+  /// API: action=queryPlantsActiveOuputPowerCurrent
+  /// Returns: double (current power in Watts)
+  Future<double> getTotalCurrentPower() async {
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+
+    if (token.isEmpty || secret.isEmpty) {
+      print('PlantRepository: Token or Secret is empty for getTotalCurrentPower');
+      return 0.0;
+    }
+
+    final package = await PackageInfo.fromPlatform();
+    final platform = Platform.isAndroid ? 'android' : 'ios';
+    
+    const action = '&action=queryPlantsActiveOuputPowerCurrent';
+    final postaction =
+        '&source=1&app_id=${package.packageName}&app_version=${package.version}&app_client=$platform';
+    
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url =
+        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
+    try {
+      final response = await http.post(Uri.parse(url));
+      print('getTotalCurrentPower response: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final jsonResponse = json.decode(response.body);
+        if (jsonResponse['err'] == 0) {
+          final outputPower = jsonResponse['dat']['outputPower'];
+          return double.tryParse(outputPower.toString()) ?? 0.0;
+        } else {
+          print('getTotalCurrentPower API error: ${jsonResponse['desc']}');
+        }
+      }
+    } catch (e) {
+      print('PlantRepository: Exception in getTotalCurrentPower: $e');
+    }
+    return 0.0;
+  }
+
+  /// Get total installed capacity (nominal power) across all power stations
+  /// Matches old app's InstalledCapacity_ALLPSQuery()
+  /// API: action=queryPlantsNominalPower
+  /// Returns: double (installed capacity in kW)
+  Future<double> getTotalInstalledCapacity() async {
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+
+    if (token.isEmpty || secret.isEmpty) {
+      print('PlantRepository: Token or Secret is empty for getTotalInstalledCapacity');
+      return 0.0;
+    }
+
+    final package = await PackageInfo.fromPlatform();
+    final platform = Platform.isAndroid ? 'android' : 'ios';
+    
+    const action = '&action=queryPlantsNominalPower';
+    final postaction =
+        '&source=1&app_id=${package.packageName}&app_version=${package.version}&app_client=$platform';
+    
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url =
+        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
+    try {
+      final response = await http.post(Uri.parse(url));
+      print('getTotalInstalledCapacity response: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final jsonResponse = json.decode(response.body);
+        if (jsonResponse['err'] == 0) {
+          final nominalPower = jsonResponse['dat']['nominalPower'];
+          return double.tryParse(nominalPower.toString()) ?? 0.0;
+        } else {
+          print('getTotalInstalledCapacity API error: ${jsonResponse['desc']}');
+        }
+      }
+    } catch (e) {
+      print('PlantRepository: Exception in getTotalInstalledCapacity: $e');
+    }
+    return 0.0;
+  }
 }

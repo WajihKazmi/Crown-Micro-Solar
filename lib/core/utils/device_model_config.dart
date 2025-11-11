@@ -19,19 +19,19 @@ enum DeviceModel {
   /// Detect device model from devcode and alias
   static DeviceModel detect({required int devcode, required String alias}) {
     final aliasLower = alias.toLowerCase().trim();
-    
+
     // Check alias first (most specific)
     if (aliasLower.contains('nova')) return DeviceModel.nova;
     if (aliasLower.contains('elego')) return DeviceModel.elego;
     if (aliasLower.contains('xavier')) return DeviceModel.xavier;
     if (aliasLower.contains('arceus')) return DeviceModel.arceus;
-    
+
     // Fallback to devcode patterns
     if (devcode == 2451) return DeviceModel.elego;
     if (devcode == 2452 || (devcode >= 2400 && devcode < 2450)) {
       return DeviceModel.nova;
     }
-    
+
     return DeviceModel.unknown;
   }
 }
@@ -86,85 +86,212 @@ class DeviceModelPopupConfig {
     model: DeviceModel.nova,
     pvFields: [
       PopupFieldConfig(
-        label: 'PV1 Input Voltage',
+        label: 'PV1 Input volts',
         unit: 'V',
-        apiCandidates: ['PV1 Input Voltage', 'PV1 Input voltage', 'PV1 Voltage'],
+        apiCandidates: [
+          'PV1 Input Voltage',
+          'PV1 Input voltage',
+          'PV1 Voltage',
+          'PV1 input voltage',
+          'pv1_input_voltage'
+        ],
       ),
       PopupFieldConfig(
-        label: 'PV2 Input Voltage',
+        label: 'PV2 Input volts',
         unit: 'V',
-        apiCandidates: ['PV2 Input Voltage', 'PV2 Input voltage', 'PV2 Voltage'],
+        apiCandidates: [
+          'PV2 Input Voltage',
+          'PV2 Input voltage',
+          'PV2 Voltage',
+          'PV2 input voltage',
+          'pv2_input_voltage'
+        ],
       ),
       PopupFieldConfig(
-        label: 'PV1 Input Power',
+        label: 'PV1 watts',
         unit: 'W',
-        apiCandidates: ['PV1 Charging Power', 'PV1 Input Power', 'PV1 Active Power', 'PV1 Power'],
+        apiCandidates: [
+          'PV1 Charging Power',
+          'PV1 Input Power',
+          'PV1 Input power',
+          'PV1 Active Power',
+          'PV1 Power',
+          'PV1 input power',
+          'pv1_input_power'
+        ],
       ),
       PopupFieldConfig(
-        label: 'PV2 Input Power',
+        label: 'PV2 watts',
         unit: 'W',
-        apiCandidates: ['PV2 Charging power', 'PV2 Input Power', 'PV2 Active Power', 'PV2 Power'],
+        apiCandidates: [
+          'PV2 Charging power',
+          'PV2 Charging Power',
+          'PV2 Input Power',
+          'PV2 Input power',
+          'PV2 Active Power',
+          'PV2 Power',
+          'PV2 input power',
+          'pv2_input_power'
+        ],
       ),
       PopupFieldConfig(
         label: 'PV1 Input Current',
         unit: 'A',
-        apiCandidates: ['PV1 Input Current', 'PV1 Input current', 'PV1 Current'],
+        apiCandidates: [
+          'PV1 Input Current',
+          'PV1 Input current',
+          'PV1 Current',
+          'PV1 input current',
+          'pv1_input_current'
+        ],
       ),
       PopupFieldConfig(
         label: 'PV2 Input Current',
         unit: 'A',
-        apiCandidates: ['PV2 Input Current', 'PV2 Input current', 'PV2 Current'],
+        apiCandidates: [
+          'PV2 Input Current',
+          'PV2 Input current',
+          'PV2 Current',
+          'PV2 input current',
+          'pv2_input_current'
+        ],
+      ),
+      PopupFieldConfig(
+        label: 'PV Output Power',
+        unit: 'W',
+        apiCandidates: [
+          'PV Output Power',
+          'PV output power',
+          'Total PV Power',
+          'PV Total Power',
+          'pv_output_power'
+        ],
       ),
     ],
     batteryFields: [
       PopupFieldConfig(
         label: 'Battery Voltage',
         unit: 'V',
-        apiCandidates: ['Battery Voltage', 'Bat Voltage', 'Battery Vol'],
+        apiCandidates: [
+          'Battery Voltage',
+          'Battery voltage',
+          'Bat Voltage',
+          'Battery Vol',
+          'battery_voltage'
+        ],
       ),
       PopupFieldConfig(
-        label: 'Battery Percentage',
-        unit: '%',
-        apiCandidates: ['Battery Capacity', 'Battery SOC', 'SOC', 'Battery Percentage'],
-      ),
-      PopupFieldConfig(
-        label: 'Charging Current',
+        label: 'Battery Charging Current',
         unit: 'A',
-        apiCandidates: ['Battery charging current', 'Charging Current', 'Battery Current', 'Charge Current'],
+        apiCandidates: [
+          'Battery charging current',
+          'Battery Charging Current',
+          'Charging Current',
+          'Battery Current',
+          'Charge Current',
+          'Battery current',
+          'battery_charging_current'
+        ],
       ),
       PopupFieldConfig(
         label: 'Battery Type',
         unit: '',
-        apiCandidates: ['Battery Type', 'Bat Type'],
+        apiCandidates: [
+          'Battery Type', 
+          'Bat Type', 
+          'Battery type',
+          'battery_type'
+        ],
+      ),
+      PopupFieldConfig(
+        label: 'Battery Capacity',
+        unit: '%',
+        apiCandidates: [
+          'Battery Capacity',
+          'Battery capacity',
+          'Battery SOC',
+          'SOC',
+          'Battery Percentage',
+          'battery_capacity'
+        ],
       ),
     ],
     loadFields: [
       PopupFieldConfig(
-        label: 'Output Voltage',
+        label: 'AC Output Voltage',
         unit: 'V',
-        apiCandidates: ['AC Output Voltage', 'AC2 Output Voltage', 'Output Voltage', 'Load Voltage'],
+        apiCandidates: [
+          'AC Output Voltage',
+          'AC Output voltage',
+          'AC1 Output Voltage',
+          'AC output voltage',
+          'Output Voltage',
+          'Load Voltage',
+          'ac_output_voltage'
+        ],
       ),
       PopupFieldConfig(
-        label: 'Load Power',
+        label: 'Load Watts',
         unit: 'W',
-        apiCandidates: ['AC Output Active Power', 'Load Power', 'Output Power', 'AC Power'],
+        apiCandidates: [
+          'AC Output Active Power',
+          'AC Output Active power',
+          'AC output active power',
+          'Load Active Power',
+          'Output Active Power',
+          'Load Power',
+          'Load Watts',
+          'Output Power',
+          'AC Power',
+          'load_watts'
+        ],
       ),
       PopupFieldConfig(
-        label: 'Load Percentage',
+        label: 'Output Load Percentage',
         unit: '%',
-        apiCandidates: ['Output Load Percentage', 'Load Percentage', 'Load %'],
+        apiCandidates: [
+          'Output Load Percentage',
+          'Output load percentage',
+          'Load Percentage',
+          'Load %',
+          'output_load_percentage'
+        ],
+      ),
+      PopupFieldConfig(
+        label: 'Load Active Power',
+        unit: 'W',
+        apiCandidates: [
+          'Load Active Power',
+          'Load active power',
+          'AC Active Power',
+          'Active Power',
+          'load_active_power'
+        ],
       ),
     ],
     gridFields: [
       PopupFieldConfig(
         label: 'Grid Voltage',
         unit: 'V',
-        apiCandidates: ['Grid Voltage', 'AC Input Voltage', 'Input Voltage'],
+        apiCandidates: [
+          'Grid Voltage',
+          'Grid voltage',
+          'AC Input Voltage',
+          'Input Voltage',
+          'grid_voltage'
+        ],
       ),
       PopupFieldConfig(
         label: 'Grid Frequency',
         unit: 'Hz',
-        apiCandidates: ['Grid Frequency', 'AC Input Frequency', 'Frequency'],
+        apiCandidates: [
+          'Grid Frequency',
+          'Grid frequency',
+          'AC Grid Frequency',
+          'AC Input Frequency',
+          'Frequency',
+          'grid_frequency'
+        ],
       ),
     ],
   );
@@ -176,17 +303,32 @@ class DeviceModelPopupConfig {
       PopupFieldConfig(
         label: 'Input Voltage',
         unit: 'V',
-        apiCandidates: ['PV1 Input Voltage', 'PV Input Voltage', 'Input Voltage', 'PV Voltage'],
+        apiCandidates: [
+          'PV1 Input Voltage',
+          'PV Input Voltage',
+          'Input Voltage',
+          'PV Voltage'
+        ],
       ),
       PopupFieldConfig(
         label: 'Input Current',
         unit: 'A',
-        apiCandidates: ['PV1 Input Current', 'PV Input Current', 'Input Current', 'PV Current'],
+        apiCandidates: [
+          'PV1 Input Current',
+          'PV Input Current',
+          'Input Current',
+          'PV Current'
+        ],
       ),
       PopupFieldConfig(
         label: 'Input Power',
         unit: 'W',
-        apiCandidates: ['PV1 Charging Power', 'PV Input Power', 'Input Power', 'PV Power'],
+        apiCandidates: [
+          'PV1 Charging Power',
+          'PV Input Power',
+          'Input Power',
+          'PV Power'
+        ],
       ),
     ],
     batteryFields: [
@@ -198,12 +340,21 @@ class DeviceModelPopupConfig {
       PopupFieldConfig(
         label: 'Battery Percentage',
         unit: '%',
-        apiCandidates: ['Battery Capacity', 'Battery SOC', 'SOC', 'Battery Percentage'],
+        apiCandidates: [
+          'Battery Capacity',
+          'Battery SOC',
+          'SOC',
+          'Battery Percentage'
+        ],
       ),
       PopupFieldConfig(
         label: 'Charging Current',
         unit: 'A',
-        apiCandidates: ['Battery charging current', 'Charging Current', 'Battery Current'],
+        apiCandidates: [
+          'Battery charging current',
+          'Charging Current',
+          'Battery Current'
+        ],
       ),
       PopupFieldConfig(
         label: 'Battery Type',
@@ -215,7 +366,11 @@ class DeviceModelPopupConfig {
       PopupFieldConfig(
         label: 'Output Voltage',
         unit: 'V',
-        apiCandidates: ['AC Output Voltage', 'AC2 Output Voltage', 'Output Voltage'],
+        apiCandidates: [
+          'AC Output Voltage',
+          'AC2 Output Voltage',
+          'Output Voltage'
+        ],
       ),
       PopupFieldConfig(
         label: 'Load Power',
@@ -249,17 +404,32 @@ class DeviceModelPopupConfig {
       PopupFieldConfig(
         label: 'Input Voltage',
         unit: 'V',
-        apiCandidates: ['PV1 Input Voltage', 'PV Input Voltage', 'Input Voltage', 'PV Voltage'],
+        apiCandidates: [
+          'PV1 Input Voltage',
+          'PV Input Voltage',
+          'Input Voltage',
+          'PV Voltage'
+        ],
       ),
       PopupFieldConfig(
         label: 'Input Current',
         unit: 'A',
-        apiCandidates: ['PV1 Input Current', 'PV Input Current', 'Input Current', 'PV Current'],
+        apiCandidates: [
+          'PV1 Input Current',
+          'PV Input Current',
+          'Input Current',
+          'PV Current'
+        ],
       ),
       PopupFieldConfig(
         label: 'Input Power',
         unit: 'W',
-        apiCandidates: ['PV1 Charging Power', 'PV Input Power', 'Input Power', 'PV Power'],
+        apiCandidates: [
+          'PV1 Charging Power',
+          'PV Input Power',
+          'Input Power',
+          'PV Power'
+        ],
       ),
     ],
     batteryFields: [
@@ -271,12 +441,21 @@ class DeviceModelPopupConfig {
       PopupFieldConfig(
         label: 'Battery Percentage',
         unit: '%',
-        apiCandidates: ['Battery Capacity', 'Battery SOC', 'SOC', 'Battery Percentage'],
+        apiCandidates: [
+          'Battery Capacity',
+          'Battery SOC',
+          'SOC',
+          'Battery Percentage'
+        ],
       ),
       PopupFieldConfig(
         label: 'Charging Current',
         unit: 'A',
-        apiCandidates: ['Battery charging current', 'Charging Current', 'Battery Current'],
+        apiCandidates: [
+          'Battery charging current',
+          'Charging Current',
+          'Battery Current'
+        ],
       ),
       PopupFieldConfig(
         label: 'Battery Type',
@@ -288,7 +467,11 @@ class DeviceModelPopupConfig {
       PopupFieldConfig(
         label: 'Output Voltage',
         unit: 'V',
-        apiCandidates: ['AC Output Voltage', 'AC2 Output Voltage', 'Output Voltage'],
+        apiCandidates: [
+          'AC Output Voltage',
+          'AC2 Output Voltage',
+          'Output Voltage'
+        ],
       ),
       PopupFieldConfig(
         label: 'Load Power',
@@ -322,17 +505,32 @@ class DeviceModelPopupConfig {
       PopupFieldConfig(
         label: 'PV Voltage',
         unit: 'V',
-        apiCandidates: ['PV1 Input Voltage', 'PV Input Voltage', 'PV Voltage', 'Input Voltage'],
+        apiCandidates: [
+          'PV1 Input Voltage',
+          'PV Input Voltage',
+          'PV Voltage',
+          'Input Voltage'
+        ],
       ),
       PopupFieldConfig(
         label: 'PV Current',
         unit: 'A',
-        apiCandidates: ['PV1 Input Current', 'PV Input Current', 'PV Current', 'Input Current'],
+        apiCandidates: [
+          'PV1 Input Current',
+          'PV Input Current',
+          'PV Current',
+          'Input Current'
+        ],
       ),
       PopupFieldConfig(
         label: 'PV Power',
         unit: 'W',
-        apiCandidates: ['PV1 Charging Power', 'PV Input Power', 'PV Power', 'Input Power'],
+        apiCandidates: [
+          'PV1 Charging Power',
+          'PV Input Power',
+          'PV Power',
+          'Input Power'
+        ],
       ),
     ],
     batteryFields: [
@@ -349,7 +547,11 @@ class DeviceModelPopupConfig {
       PopupFieldConfig(
         label: 'Charging Current',
         unit: 'A',
-        apiCandidates: ['Battery charging current', 'Charging Current', 'Battery Current'],
+        apiCandidates: [
+          'Battery charging current',
+          'Charging Current',
+          'Battery Current'
+        ],
       ),
       // No Battery Type for Arceus
     ],
@@ -357,7 +559,11 @@ class DeviceModelPopupConfig {
       PopupFieldConfig(
         label: 'Output Voltage',
         unit: 'V',
-        apiCandidates: ['AC Output Voltage', 'AC2 Output Voltage', 'Output Voltage'],
+        apiCandidates: [
+          'AC Output Voltage',
+          'AC2 Output Voltage',
+          'Output Voltage'
+        ],
       ),
       PopupFieldConfig(
         label: 'Load Power',

@@ -8,7 +8,9 @@ import 'package:provider/provider.dart';
 import '../../presentation/viewmodels/auth_viewmodel.dart';
 
 class RegistrationScreen extends StatefulWidget {
-  const RegistrationScreen({Key? key}) : super(key: key);
+  final String emailAddress; // Verified email from OTP screen
+  
+  const RegistrationScreen({Key? key, required this.emailAddress}) : super(key: key);
 
   static const String routeName = AppRoutes.registration;
 
@@ -17,7 +19,9 @@ class RegistrationScreen extends StatefulWidget {
 }
 
 class _RegistrationScreenState extends State<RegistrationScreen> {
+  // Add email controller so email field is editable
   final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _fullNameController = TextEditingController();
   final TextEditingController _mobileNoController = TextEditingController();
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -25,12 +29,22 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       TextEditingController();
   final TextEditingController _snController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
-  bool _isAgreed = false;
-  String? _selectedRole;
+  
+  // State variables
+  String _selectedRole = 'user'; // Default role
+  bool _isAgreed = false; // Terms and conditions agreement
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-fill email from OTP verification
+    _emailController.text = widget.emailAddress;
+  }
 
   @override
   void dispose() {
     _emailController.dispose();
+    _fullNameController.dispose();
     _mobileNoController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
@@ -41,24 +55,18 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
   void _register() async {
     if (_formKey.currentState?.validate() ?? false) {
-      if (!_isAgreed) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please agree to the Terms & Conditions'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-
       final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
-      final email = _emailController.text;
-      final mobileNo = _mobileNoController.text;
-      final username = _usernameController.text;
+      // Use the email from the controller (can be edited)
+      final email = _emailController.text.trim();
+      final fullName = _fullNameController.text.trim();
+      final mobileNo = _mobileNoController.text.trim();
+      final username = _usernameController.text.trim();
       final password = _passwordController.text;
-      final sn = _snController.text;
+      final sn = _snController.text.trim().toUpperCase();
 
+      // Match old app: send Name, Email, MobileNo, Username, Password, SN
       final success = await authViewModel.register(
+        name: fullName,
         email: email,
         mobileNo: mobileNo,
         username: username,
@@ -68,16 +76,21 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
       if (success) {
         // Show success message like old app
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('User Registered Successfully, Please Login'),
             backgroundColor: Colors.green,
           ),
         );
-        // Navigate directly to login like the old app (no email verification required after registration)
-        Navigator.of(context).pushReplacementNamed(AppRoutes.login);
+        // Navigate directly to login like the old app
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          AppRoutes.login,
+          (route) => false,
+        );
       } else {
         // Show specific error from viewmodel
+        if (!mounted) return;
         final errorMessage =
             authViewModel.error ?? 'Registration failed. Please try again.';
         ScaffoldMessenger.of(context).showSnackBar(
@@ -137,6 +150,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        // Email - Editable field with same style as others
                         Text('Email',
                             style: theme.textTheme.titleMedium
                                 ?.copyWith(fontWeight: FontWeight.bold)),
@@ -146,13 +160,29 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           hintText: 'Enter your email',
                           keyboardType: TextInputType.emailAddress,
                           validator: (value) {
-                            if (value == null || value.isEmpty) {
+                            if (value == null || value.trim().isEmpty) {
                               return 'Please enter your email';
                             }
-                            // Basic email format validation (anchor end correctly; allow modern TLDs)
-                            if (!RegExp(r'^[\w.-]+@([\w-]+\.)+[\w-]{2,63}$')
-                                .hasMatch(value)) {
-                              return 'Please enter a valid email address';
+                            // Basic email validation
+                            if (!value.contains('@') || !value.contains('.')) {
+                              return 'Please enter a valid email';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 15.0),
+                        // Full Name
+                        Text('Full Name',
+                            style: theme.textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 5.0),
+                        AppTextField(
+                          controller: _fullNameController,
+                          hintText: 'Enter your full name',
+                          keyboardType: TextInputType.name,
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Please enter your full name';
                             }
                             return null;
                           },
@@ -167,7 +197,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           hintText: 'Enter your mobile number',
                           keyboardType: TextInputType.phone,
                           validator: (value) {
-                            if (value == null || value.isEmpty) {
+                            if (value == null || value.trim().isEmpty) {
                               return 'Please enter your mobile number';
                             }
                             return null;
@@ -182,7 +212,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           controller: _usernameController,
                           hintText: 'Enter your username',
                           validator: (value) {
-                            if (value == null || value.isEmpty) {
+                            if (value == null || value.trim().isEmpty) {
                               return 'Please enter your username';
                             }
                             return null;
@@ -251,7 +281,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           ],
                           onChanged: (value) {
                             setState(() {
-                              _selectedRole = value;
+                              _selectedRole = value ?? 'user';
                             });
                           },
                           validator: (value) {

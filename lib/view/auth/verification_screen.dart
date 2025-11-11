@@ -122,8 +122,13 @@ class _VerificationScreenState extends State<VerificationScreen> {
         } else if (_recoveryMode == RecoveryMode.userId) {
           Navigator.of(context).pushReplacementNamed(AppRoutes.changeUserId);
         } else if (_recoveryMode == RecoveryMode.registration) {
-          // Navigate directly to home screen after successful registration verification
-          Navigator.of(context).pushReplacementNamed(AppRoutes.homeInternal);
+          // Navigate to registration screen with verified email
+          Navigator.of(context).pushReplacementNamed(
+            AppRoutes.registration,
+            arguments: {
+              'emailAddress': _email,
+            },
+          );
         } else {
           Navigator.of(context).pushReplacementNamed(AppRoutes.login);
         }

@@ -398,7 +398,8 @@ class CollectorDetailScreen extends StatelessWidget {
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () async {
-                        Navigator.pop(ctx);
+                        print('Open Wi-Fi Settings button tapped');
+                        Navigator.of(ctx).pop();
                         await AppSettings.openAppSettingsPanel(
                             AppSettingsPanelType.wifi);
                       },
@@ -416,7 +417,8 @@ class CollectorDetailScreen extends StatelessWidget {
                   Expanded(
                     child: ElevatedButton(
                       onPressed: () {
-                        Navigator.pop(ctx);
+                        print('Open Network Page button tapped');
+                        Navigator.of(ctx).pop();
                         Navigator.of(context).push(
                           MaterialPageRoute(
                               builder: (_) => const WifiModuleWebView()),

@@ -30,7 +30,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
         print('ProfileScreen: User info is null, fetching...');
         authViewModel.fetchUserInfo();
       }
+      
+      // Load dashboard data to get totals
+      final dashboardViewModel = Provider.of<DashboardViewModel>(context, listen: false);
+      if (dashboardViewModel.totalDevices == 0 && 
+          dashboardViewModel.totalPlants == 0 && 
+          dashboardViewModel.totalAlarms == 0) {
+        print('ProfileScreen: Dashboard data not loaded, fetching...');
+        dashboardViewModel.loadDashboardData();
+      }
     });
+  }
+
+  /// Extract username after underscore (e.g., "Crown213_bilal" -> "bilal")
+  String _extractUsername(String username) {
+    if (username.contains('_')) {
+      return username.substring(username.indexOf('_') + 1);
+    }
+    return username;
   }
 
   void _showChangePasswordDialog(BuildContext context) {
@@ -190,7 +207,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final green = const Color(0xFF22C55E);
     final red = Theme.of(context).colorScheme.primary;
     // Do not block the profile screen if user info isn't loaded; use placeholders
-    final displayName = userInfo?.usr ?? 'User';
+    final displayName = _extractUsername(userInfo?.usr ?? 'User');
     final displayEmail = userInfo?.email ?? '-';
     return SingleChildScrollView(
       child: Column(
@@ -419,20 +436,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await authViewModel.logout();
       print('Logout completed successfully from profile screen');
 
-      // Refresh auth state
-      authViewModel.refreshAuthState();
-      print('Auth state refreshed from profile');
-
       // Check final state
       print('Final isLoggedIn state from profile: ${authViewModel.isLoggedIn}');
 
-      // Add a small delay to ensure all state changes are processed
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      // Navigate to login screen
+      // Navigate to login screen using root navigator to escape bottom nav stack
       if (context.mounted) {
         print('Navigating to login screen from profile screen...');
-        Navigator.of(context)
+        Navigator.of(context, rootNavigator: true)
             .pushNamedAndRemoveUntil('/login', (route) => false);
       }
     } catch (e) {
