@@ -35,7 +35,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
 
       final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
       final email = _emailController.text.trim();
-      
+
       // Send OTP to email using PushShortCode API
       bool success = await authViewModel.forgotPassword(email);
 
@@ -55,7 +55,8 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Failed to send verification code. Please try again.'),
+            content:
+                Text('Failed to send verification code. Please try again.'),
             backgroundColor: Colors.red,
           ),
         );
@@ -104,9 +105,9 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     ),
                   ),
                   const SizedBox(height: 40.0),
-                  
+
                   // Email Field
-                  Text('Email Address', 
+                  Text('Email Address',
                       style: theme.textTheme.titleMedium
                           ?.copyWith(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 5.0),
@@ -140,9 +141,9 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                           text: 'Continue',
                           isFilled: true,
                         ),
-                  
+
                   const Spacer(),
-                  
+
                   // Logo at bottom
                   Center(
                     child: Image.asset(

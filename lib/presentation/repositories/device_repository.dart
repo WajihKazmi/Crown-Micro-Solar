@@ -2418,20 +2418,10 @@ class DeviceRepository {
         ];
         break;
       case 'PV1_INPUT_CURRENT':
-        base = [
-          'PV1_INPUT_CURRENT',
-          'PV1_CURRENT',
-          'PV1_CUR',
-          'PV1_INPUT_CUR'
-        ];
+        base = ['PV1_INPUT_CURRENT', 'PV1_CURRENT', 'PV1_CUR', 'PV1_INPUT_CUR'];
         break;
       case 'PV2_INPUT_CURRENT':
-        base = [
-          'PV2_INPUT_CURRENT',
-          'PV2_CURRENT',
-          'PV2_CUR',
-          'PV2_INPUT_CUR'
-        ];
+        base = ['PV2_INPUT_CURRENT', 'PV2_CURRENT', 'PV2_CUR', 'PV2_INPUT_CUR'];
         break;
       case 'TODAY_GENERATION':
         base = [

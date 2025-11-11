@@ -9,8 +9,9 @@ import '../../presentation/viewmodels/auth_viewmodel.dart';
 
 class RegistrationScreen extends StatefulWidget {
   final String emailAddress; // Verified email from OTP screen
-  
-  const RegistrationScreen({Key? key, required this.emailAddress}) : super(key: key);
+
+  const RegistrationScreen({Key? key, required this.emailAddress})
+      : super(key: key);
 
   static const String routeName = AppRoutes.registration;
 
@@ -29,7 +30,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       TextEditingController();
   final TextEditingController _snController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
-  
+
   // State variables
   String _selectedRole = 'user'; // Default role
   bool _isAgreed = false; // Terms and conditions agreement

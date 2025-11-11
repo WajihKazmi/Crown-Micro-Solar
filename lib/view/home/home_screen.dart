@@ -531,19 +531,20 @@ class _OverviewBodyState extends State<_OverviewBody> {
     print('_OverviewBodyState: _fetchAPIBasedMetrics called');
     try {
       final plantRepo = getIt<PlantRepository>();
-      
+
       // Fetch both metrics in parallel
       final results = await Future.wait([
         plantRepo.getTotalCurrentPower(),
         plantRepo.getTotalInstalledCapacity(),
       ]);
-      
+
       if (mounted) {
         setState(() {
           _totalCurrentPowerFromAPI = results[0]; // in Watts
           _totalInstalledCapacityFromAPI = results[1]; // in kW
         });
-        print('_OverviewBodyState: API metrics updated - Current Power: ${results[0]}W, Installed Capacity: ${results[1]}kW');
+        print(
+            '_OverviewBodyState: API metrics updated - Current Power: ${results[0]}W, Installed Capacity: ${results[1]}kW');
       }
     } catch (e) {
       print('_OverviewBodyState: Failed to fetch API metrics: $e');
@@ -952,16 +953,18 @@ class _OverviewBodyState extends State<_OverviewBody> {
         if (totalDailyGenerationKwh == 0 && (_fallbackDailyKwh ?? 0) > 0) {
           totalDailyGenerationKwh = _fallbackDailyKwh!;
         }
-        
+
         // FIXED: Installed capacity from API instead of just first plant
         // Uses new getTotalInstalledCapacity() API that queries all power stations
         // Use API value if available and > 0, otherwise fall back to first plant capacity
-        final installedCapacity = (_totalInstalledCapacityFromAPI != null && _totalInstalledCapacityFromAPI! > 0)
+        final installedCapacity = (_totalInstalledCapacityFromAPI != null &&
+                _totalInstalledCapacityFromAPI! > 0)
             ? _totalInstalledCapacityFromAPI!
             : (plants.isNotEmpty ? plants.first.capacity : 0.0);
-        
-        print('Overview: Installed Capacity - API: $_totalInstalledCapacityFromAPI, Using: $installedCapacity');
-        
+
+        print(
+            'Overview: Installed Capacity - API: $_totalInstalledCapacityFromAPI, Using: $installedCapacity');
+
         // FIXED: Current power generation from API
         // Prefer API value from getTotalCurrentPower(), then fall back to existing logic
         double devicesSumLegacy = 0.0;
@@ -971,11 +974,13 @@ class _OverviewBodyState extends State<_OverviewBody> {
                 (d.currentPower.isFinite ? d.currentPower : 0.0);
           }
         }
-        
-        print('Overview: Current Power Sources - API: $_totalCurrentPowerFromAPI, Energy Sum: $_currentPowerSum, Resolved: $_resolvedCurrentPowerKw, Realtime: ${realtimeService.totalCurrentPower}, Legacy: $devicesSumLegacy');
-        
+
+        print(
+            'Overview: Current Power Sources - API: $_totalCurrentPowerFromAPI, Energy Sum: $_currentPowerSum, Resolved: $_resolvedCurrentPowerKw, Realtime: ${realtimeService.totalCurrentPower}, Legacy: $devicesSumLegacy');
+
         // Priority: API value (if > 0) > device energy sum > resolved metric > realtime service > legacy sum
-        final totalOutput = (_totalCurrentPowerFromAPI != null && _totalCurrentPowerFromAPI! > 0)
+        final totalOutput = (_totalCurrentPowerFromAPI != null &&
+                _totalCurrentPowerFromAPI! > 0)
             ? _totalCurrentPowerFromAPI!
             : (_currentPowerSum > 0
                 ? _currentPowerSum
@@ -985,8 +990,9 @@ class _OverviewBodyState extends State<_OverviewBody> {
                     : (realtimeService.totalCurrentPower > 0
                         ? realtimeService.totalCurrentPower
                         : (devicesSumLegacy > 0 ? devicesSumLegacy : 0.0))));
-        
-        print('Overview: Total Output Power Using: $totalOutput W (${totalOutput / 1000} kW)');
+
+        print(
+            'Overview: Total Output Power Using: $totalOutput W (${totalOutput / 1000} kW)');
         final totalCapacity = installedCapacity; // keep old name for UI below
         final totalPlants = plants.length;
         // You can add more aggregations as needed
@@ -1909,7 +1915,7 @@ class _LineChart extends StatelessWidget {
     final spots = <FlSpot>[];
     // Ensure we have exactly 24 hours of data
     final hours = hourly.length > 24 ? hourly.sublist(0, 24) : hourly;
-    
+
     // Interpolate between each hour
     for (int h = 0; h < hours.length - 1; h++) {
       final y0 = hours[h];
@@ -1918,7 +1924,8 @@ class _LineChart extends StatelessWidget {
       for (int m = 0; m < 60; m++) {
         final r = m / 60.0;
         final y = y0 + (y1 - y0) * r;
-        final x = h * 60 + m;  // Minute of the day: hour 0 = 0-59, hour 1 = 60-119, etc.
+        final x = h * 60 +
+            m; // Minute of the day: hour 0 = 0-59, hour 1 = 60-119, etc.
         spots.add(FlSpot(x.toDouble(), y));
       }
     }

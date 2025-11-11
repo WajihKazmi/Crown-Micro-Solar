@@ -174,24 +174,25 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
 
     // DETECT DEVICE TYPE using DeviceModel (same detection used elsewhere)
     // Note: We don't have alias here, so detection is based on devcode and PN
-    
+
     // 1. Arceus devices: devcode 6451 OR PN starts with F6000022
     final isArceusByDevcode = widget.devcode == 6451;
     final isArceusByPN = widget.pn.startsWith('F6000022');
     final isArceus = isArceusByDevcode || isArceusByPN;
-    
+
     // 2. Detect other device types by devcode patterns
     // Nova: devcode 2304, 2449, 2452, 2400
     final isNova = [2304, 2449, 2452, 2400].contains(widget.devcode);
-    
+
     // Elego: Typically devcode 512 with single PV input
     final isElego = widget.devcode == 512 && widget.pn.contains('ELEGO');
-    
+
     // Xavier: Energy storage machine variants
     final isXavier = widget.devcode == 2048 || widget.devcode == 2560;
-    
+
     print('DataControlOld: Device detection - devcode: ${widget.devcode}');
-    print('DataControlOld: Device type - Arceus: $isArceus, Nova: $isNova, Elego: $isElego, Xavier: $isXavier');
+    print(
+        'DataControlOld: Device type - Arceus: $isArceus, Nova: $isNova, Elego: $isElego, Xavier: $isXavier');
 
     // ARCEUS DEVICES: All fields go to "Other Settings" ONLY
     if (isArceus) {
@@ -220,7 +221,7 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
       // Core battery parameters (all devices)
       'Battery Type',
       'Battery Capacity',
-      
+
       // Voltage settings (Nova, Elego, Xavier)
       'Bulk Charging Voltage',
       'Float Charging Voltage',
@@ -228,58 +229,58 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
       'Battery Cut off Voltage',
       'Back To Grid Voltage',
       'Back To Discharge Voltage',
-      
+
       // Current settings (Nova, Elego, Xavier)
       'Max. Charging Current',
       'Max Battery Discharge Current',
       'Max. AC Charging Current',
       'Battery Charging Current',
-      
+
       // Capacity/SOC settings (Nova, Xavier)
       'Back to Grid Capacity',
       'Back to Discharge Capacity',
       'Battery Cut-off Capacity',
-      
+
       // Charging priority and source (Nova, Elego)
       'Charging Source Priority',
       'Solar Supply Priority',
       'Charger Source Priority',
-      
+
       // Equalization settings (Nova, Elego, Xavier)
       'Battery Equalization',
       'Real-time Activate Battery Equalization',
       'Battery Equalization Time-out',
       'Battery Equalization Time',
       'Equalization Period',
-      
+
       // Lithium battery specific (Xavier, Nova)
       'Li-BattreyAuto Turnon',
       'Li-Battrey Immediately Turnon',
       'Lithium Battery Auto Turn On',
       'Lithium Battery Immediately Turn On',
-      
+
       // Battery protection (all devices)
       'Battery Under Voltage',
       'Battery Over Voltage',
       'Battery Low Voltage Warning',
       'Battery Temperature Protection',
-      
+
       // BMS settings (advanced devices)
       'BMS Protocol',
       'BMS Communication',
       'Battery Series Number',
-      
+
       // Additional battery parameters
       'Battery Voltage Calibration',
       'Battery Current Calibration',
       'Battery Manufacturer',
       'Battery Model',
-      
+
       // Elego specific battery extras
       'Battery Bulk Voltage',
       'Battery Float Voltage',
       'Charger Source Priority',
-      
+
       // Nova specific battery extras - missing fields
       'Maximum Battery Discharge Current',
       'Battery Equalization Time out',
@@ -288,7 +289,7 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
       'Discharge Time to Turn Off AC2',
       'Discharge Time to Turn On AC2',
     ];
-    
+
     // ENERGY STORAGE MACHINE SETTINGS - New category for Elego and similar devices
     final energyStorageMachineList = [
       'Solar supply priority (battery>load>utility or load>battery>utility)',
@@ -312,7 +313,7 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
       'set date time(caledar input feild)',
       'Set Date Time',
     ];
-    
+
     final basicList = [
       'Output Source Priority',
       'AC Input Range',
@@ -390,11 +391,22 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
           // Core battery parameters
           'Battery Type': ['battery type', 'bat type'],
           'Battery Capacity': ['battery capacity', 'bat capacity'],
-          
+
           // Voltage settings
-          'Bulk Charging Voltage': ['bulk charge voltage', 'bulk voltage', 'bulk charging voltage'],
-          'Float Charging Voltage': ['float charge voltage', 'float voltage', 'float charging voltage'],
-          'Equalization Voltage': ['equalisation voltage', 'equalization voltage'],
+          'Bulk Charging Voltage': [
+            'bulk charge voltage',
+            'bulk voltage',
+            'bulk charging voltage'
+          ],
+          'Float Charging Voltage': [
+            'float charge voltage',
+            'float voltage',
+            'float charging voltage'
+          ],
+          'Equalization Voltage': [
+            'equalisation voltage',
+            'equalization voltage'
+          ],
           'Battery Cut off Voltage': [
             'battery cut-off voltage',
             'battery cutoff voltage',
@@ -411,10 +423,21 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
             'return to discharge voltage',
             'back to battery voltage'
           ],
-          'Battery Under Voltage': ['battery under voltage', 'under voltage', 'low voltage cutoff'],
-          'Battery Over Voltage': ['battery over voltage', 'over voltage', 'high voltage cutoff'],
-          'Battery Low Voltage Warning': ['battery low voltage warning', 'low voltage warning'],
-          
+          'Battery Under Voltage': [
+            'battery under voltage',
+            'under voltage',
+            'low voltage cutoff'
+          ],
+          'Battery Over Voltage': [
+            'battery over voltage',
+            'over voltage',
+            'high voltage cutoff'
+          ],
+          'Battery Low Voltage Warning': [
+            'battery low voltage warning',
+            'low voltage warning'
+          ],
+
           // Current settings
           'Max. Charging Current': [
             'max charging current',
@@ -438,7 +461,7 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
             'charging current',
             'charge current'
           ],
-          
+
           // Capacity/SOC settings
           'Back to Grid Capacity': [
             'return to grid capacity',
@@ -459,7 +482,7 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
             'cut off capacity',
             'cutoff soc'
           ],
-          
+
           // Charging priority
           'Charging Source Priority': [
             'charge source priority',
@@ -477,7 +500,7 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
             'charger priority',
             'ac charger priority'
           ],
-          
+
           // Equalization settings
           'Battery Equalization': [
             'battery equalisation',
@@ -512,7 +535,7 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
             'equalization interval',
             'equalization period'
           ],
-          
+
           // Lithium battery specific
           'Li-BattreyAuto Turnon': [
             'li-battery auto turn on',
@@ -538,29 +561,51 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
             'lithium immediately turn on',
             'li battery immediate on'
           ],
-          
+
           // Battery protection
           'Battery Temperature Protection': [
             'battery temperature protection',
             'battery temp protection',
             'temperature protection'
           ],
-          
+
           // BMS settings
           'BMS Protocol': ['bms protocol', 'battery management protocol'],
           'BMS Communication': ['bms communication', 'bms comm'],
-          'Battery Series Number': ['battery series number', 'battery series', 'cell series'],
-          
+          'Battery Series Number': [
+            'battery series number',
+            'battery series',
+            'cell series'
+          ],
+
           // Additional parameters
-          'Battery Voltage Calibration': ['battery voltage calibration', 'voltage calibration'],
-          'Battery Current Calibration': ['battery current calibration', 'current calibration'],
-          'Battery Manufacturer': ['battery manufacturer', 'battery brand', 'bat manufacturer'],
+          'Battery Voltage Calibration': [
+            'battery voltage calibration',
+            'voltage calibration'
+          ],
+          'Battery Current Calibration': [
+            'battery current calibration',
+            'current calibration'
+          ],
+          'Battery Manufacturer': [
+            'battery manufacturer',
+            'battery brand',
+            'bat manufacturer'
+          ],
           'Battery Model': ['battery model', 'bat model'],
-          
+
           // Elego specific extras
-          'Battery Bulk Voltage': ['battery bulk voltage', 'bulk voltage', 'bulk charge voltage'],
-          'Battery Float Voltage': ['battery float voltage', 'float voltage', 'float charge voltage'],
-          
+          'Battery Bulk Voltage': [
+            'battery bulk voltage',
+            'bulk voltage',
+            'bulk charge voltage'
+          ],
+          'Battery Float Voltage': [
+            'battery float voltage',
+            'float voltage',
+            'float charge voltage'
+          ],
+
           // Nova specific battery extras
           'Maximum Battery Discharge Current': [
             'maximum battery discharge current',
@@ -597,10 +642,11 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
             'discharge time turn on ac2',
           ],
         };
-    
+
     // ENERGY STORAGE MACHINE SETTINGS synonyms
     Map<String, List<String>> energyStorageMachineSyn() => {
-          'Solar supply priority (battery>load>utility or load>battery>utility)': [
+          'Solar supply priority (battery>load>utility or load>battery>utility)':
+              [
             'solar supply priority (battery>load>utility or load>battery>utility)',
             'solar supply priority',
             'solar priority (battery>load>utility or load>battery>utility)',
@@ -713,7 +759,7 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
             'date time setting',
           ],
         };
-    
+
     Map<String, List<String>> basicSyn() => {
           'Output Source Priority': [
             'output priority',

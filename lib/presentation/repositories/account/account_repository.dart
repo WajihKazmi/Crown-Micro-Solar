@@ -46,10 +46,10 @@ class AccountRepository {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     final secret = prefs.getString('Secret') ?? '';
     const salt = '12345678';
-    
+
     print('=== Password Change Debug ===');
     print('Secret: $secret');
-    
+
     // Build postaction metadata like the old app: source/app/version/platform
     String postaction = '';
     try {
@@ -62,36 +62,36 @@ class AccountRepository {
       // Fallback: no postaction if package info unavailable
       postaction = '';
     }
-    
+
     print('Postaction: $postaction');
-    
+
     // Hash old password
     var oldpass = utf8.encode(oldPassword);
     var sha1_conv_oldpass = sha1.convert(oldpass).toString();
     print('Old password SHA1: $sha1_conv_oldpass');
-    
+
     // Hash new password
     var newpass = utf8.encode(newPassword);
     var sha1_conv_newpass = sha1.convert(newpass).toString();
     print('New password SHA1: $sha1_conv_newpass');
-    
+
     // RC4 encode new password with old password hash
     var rc4 = RC4.fromBytes(utf8.encode(sha1_conv_oldpass));
     var rc4encoded = rc4.encodeBytes(utf8.encode(sha1_conv_newpass));
     var sha1newpass = hex.encode(rc4encoded);
     print('RC4 encoded password: $sha1newpass');
-    
+
     // Build action and URL
     String action = "&action=updatePassword&newpwd=" + sha1newpass;
     print('Action: $action');
-    
+
     var data = salt + secret + action + postaction;
     print('Sign data: $data');
-    
+
     var output = utf8.encode(data);
     var sign = sha1.convert(output).toString();
     print('Sign: $sign');
-    
+
     String url = 'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt' +
         action +
         postaction;
@@ -100,13 +100,13 @@ class AccountRepository {
       final response = await Dio().post(url);
       print('Response status: ${response.statusCode}');
       print('Response data: ${response.data}');
-      
+
       if (response.statusCode == 200) {
         final err = response.data['err'];
         final desc = response.data['desc']?.toString();
         print('Error code: $err');
         print('Description: $desc');
-        
+
         if (err == 0) {
           return {'success': true, 'message': 'Password changed successfully'};
         } else {

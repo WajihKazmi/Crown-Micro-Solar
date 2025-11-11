@@ -30,11 +30,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         print('ProfileScreen: User info is null, fetching...');
         authViewModel.fetchUserInfo();
       }
-      
+
       // Load dashboard data to get totals
-      final dashboardViewModel = Provider.of<DashboardViewModel>(context, listen: false);
-      if (dashboardViewModel.totalDevices == 0 && 
-          dashboardViewModel.totalPlants == 0 && 
+      final dashboardViewModel =
+          Provider.of<DashboardViewModel>(context, listen: false);
+      if (dashboardViewModel.totalDevices == 0 &&
+          dashboardViewModel.totalPlants == 0 &&
           dashboardViewModel.totalAlarms == 0) {
         print('ProfileScreen: Dashboard data not loaded, fetching...');
         dashboardViewModel.loadDashboardData();

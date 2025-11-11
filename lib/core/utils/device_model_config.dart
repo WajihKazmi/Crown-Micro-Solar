@@ -197,8 +197,8 @@ class DeviceModelPopupConfig {
         label: 'Battery Type',
         unit: '',
         apiCandidates: [
-          'Battery Type', 
-          'Bat Type', 
+          'Battery Type',
+          'Bat Type',
           'Battery type',
           'battery_type'
         ],

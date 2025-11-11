@@ -84,7 +84,8 @@ class OverviewGraphViewModel extends ChangeNotifier {
   final _energyRepo = getIt<EnergyRepository>();
   final _deviceRepo = getIt<DeviceRepository>();
 
-  GraphMetric _metric = GraphMetric.outputPower; // Changed from pvInputCurrent to show power generation
+  GraphMetric _metric = GraphMetric
+      .outputPower; // Changed from pvInputCurrent to show power generation
   GraphPeriod _period = GraphPeriod.day;
   DateTime _anchor = DateTime.now();
   String? _error;

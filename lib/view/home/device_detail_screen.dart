@@ -354,25 +354,41 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       // PV - All required fields
       setBy(['PV1 Input Voltage', 'PV1 Input voltage'], 'PV1 Input volts', 'V');
       setBy(['PV2 Input Voltage', 'PV2 Input voltage'], 'PV2 Input volts', 'V');
-      setBy(['PV1 Charging Power', 'PV1 Input Power', 'PV1 Active Power'], 'PV1 watts', 'W');
-      setBy(['PV2 Charging power', 'PV2 Input Power', 'PV2 Active Power'], 'PV2 watts', 'W');
-      setBy(['PV1 Input Current', 'PV1 Input current'], 'PV1 Input Current', 'A', assumeKWForPower: false);
-      setBy(['PV2 Input Current', 'PV2 Input current'], 'PV2 Input Current', 'A', assumeKWForPower: false);
+      setBy(['PV1 Charging Power', 'PV1 Input Power', 'PV1 Active Power'],
+          'PV1 watts', 'W');
+      setBy(['PV2 Charging power', 'PV2 Input Power', 'PV2 Active Power'],
+          'PV2 watts', 'W');
+      setBy(
+          ['PV1 Input Current', 'PV1 Input current'], 'PV1 Input Current', 'A',
+          assumeKWForPower: false);
+      setBy(
+          ['PV2 Input Current', 'PV2 Input current'], 'PV2 Input Current', 'A',
+          assumeKWForPower: false);
       setBy(['PV Output Power', 'Total PV Power'], 'PV Output Power', 'W');
 
       // Battery - All required fields
       setBy(['Battery Voltage'], 'Battery Voltage', 'V');
-      setBy(['Battery charging current'], 'Battery Charging Current', 'A', assumeKWForPower: false);
+      setBy(['Battery charging current'], 'Battery Charging Current', 'A',
+          assumeKWForPower: false);
       final btTypeIdx = idxOf(['Battery Type']);
       if (btTypeIdx != -1 && btTypeIdx < field.length) {
         res['Battery Type'] = (field[btTypeIdx]?.toString() ?? '--');
       }
-      setBy(['Battery Capacity', 'Battery SOC', 'SOC'], 'Battery Capacity', '%', assumeKWForPower: false);
+      setBy(['Battery Capacity', 'Battery SOC', 'SOC'], 'Battery Capacity', '%',
+          assumeKWForPower: false);
 
       // Load - All required fields
-      setBy(['AC Output Voltage', 'AC1 Output Voltage'], 'AC Output Voltage', 'V');
-      setBy(['AC Output Active Power', 'Load Active Power', 'Output Active Power'], 'Load Watts', 'W');
-      setBy(['Output Load Percentage', 'Load Percentage'], 'Output Load Percentage', '%', assumeKWForPower: false);
+      setBy(['AC Output Voltage', 'AC1 Output Voltage'], 'AC Output Voltage',
+          'V');
+      setBy([
+        'AC Output Active Power',
+        'Load Active Power',
+        'Output Active Power'
+      ], 'Load Watts', 'W');
+      setBy([
+        'Output Load Percentage',
+        'Load Percentage'
+      ], 'Output Load Percentage', '%', assumeKWForPower: false);
       setBy(['Load Active Power', 'AC Active Power'], 'Load Active Power', 'W');
 
       // Grid - All required fields
@@ -654,29 +670,35 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     final loadPower = _energyFlow?.loadPower ??
         loadPowerMetric?.latestValue ??
         _live?.outputPower;
-    
+
     // Grid voltage - try multiple sources including gdStatus items
-    double? gridVoltageVal = _energyFlow?.gridVoltage ?? gridVoltageMetric?.latestValue;
+    double? gridVoltageVal =
+        _energyFlow?.gridVoltage ?? gridVoltageMetric?.latestValue;
     if (gridVoltageVal == null && _energyFlow != null) {
       for (final item in _energyFlow!.gdStatus) {
         final par = item.par.toLowerCase();
         final unit = (item.unit ?? '').toLowerCase();
-        if ((unit == 'v' || par.contains('voltage')) && 
-            (par.contains('grid') || par.contains('utility') || par.contains('ac'))) {
+        if ((unit == 'v' || par.contains('voltage')) &&
+            (par.contains('grid') ||
+                par.contains('utility') ||
+                par.contains('ac'))) {
           gridVoltageVal = item.value;
           break;
         }
       }
     }
-    
+
     // Grid power - try multiple sources including gdStatus items
-    double? gridPowerVal = _energyFlow?.gridPower ?? gridPowerMetric?.latestValue;
+    double? gridPowerVal =
+        _energyFlow?.gridPower ?? gridPowerMetric?.latestValue;
     if (gridPowerVal == null && _energyFlow != null) {
       for (final item in _energyFlow!.gdStatus) {
         final par = item.par.toLowerCase();
         final unit = (item.unit ?? '').toLowerCase();
-        if ((unit == 'w' || unit == 'kw' || par.contains('power')) && 
-            (par.contains('grid') || par.contains('utility') || par.contains('active'))) {
+        if ((unit == 'w' || unit == 'kw' || par.contains('power')) &&
+            (par.contains('grid') ||
+                par.contains('utility') ||
+                par.contains('active'))) {
           gridPowerVal = item.value;
           if (unit == 'kw') gridPowerVal = (gridPowerVal ?? 0) * 1000;
           break;
@@ -1025,14 +1047,16 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       // Try to find battery device from subordinate devices
       final subDevices = _deviceVM.getSubordinateDevices(widget.device.pn);
       final batteryDevice = subDevices.firstWhere(
-        (d) => d.devcode == 1792 || // Standard battery devcode
+        (d) =>
+            d.devcode == 1792 || // Standard battery devcode
             d.devcode == 6451 || // Arceus devices (all have 6451)
             d.type.toLowerCase().contains('battery'),
         orElse: () => widget.device,
       );
       if (batteryDevice.devcode == 1792 || batteryDevice.devcode == 6451) {
         deviceForModel = batteryDevice;
-        print('Found battery device: ${batteryDevice.alias}, devcode: ${batteryDevice.devcode}');
+        print(
+            'Found battery device: ${batteryDevice.alias}, devcode: ${batteryDevice.devcode}');
       }
     }
 
@@ -1071,13 +1095,15 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
 
         print('PV case: pvStatus count=${list.length}');
         for (final item in list) {
-          print('  PV item: par="${item.par}", value=${item.value}, unit=${item.unit}');
+          print(
+              '  PV item: par="${item.par}", value=${item.value}, unit=${item.unit}');
         }
 
         // Build ordered items based on model configuration
         final ordered = <DeviceEnergyFlowItem>[];
         for (final fieldConfig in fieldConfigs) {
-          print('  Looking for fieldConfig: label="${fieldConfig.label}", candidates=${fieldConfig.apiCandidates}');
+          print(
+              '  Looking for fieldConfig: label="${fieldConfig.label}", candidates=${fieldConfig.apiCandidates}');
           final item = findByCandidate(list, fieldConfig.apiCandidates);
           if (item != null) {
             print('    Found match: par="${item.par}", value=${item.value}');
@@ -1095,7 +1121,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             if (pagingValue != null) {
               print('    Found in paging data: $pagingValue');
               // Parse the value from formatted string (e.g., "230 V" -> 230)
-              final match = RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(pagingValue);
+              final match =
+                  RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(pagingValue);
               if (match != null) {
                 final numValue = double.tryParse(match.group(1)!);
                 if (numValue != null) {
@@ -1117,7 +1144,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                 .any((c) => c.toLowerCase() == e.par.toLowerCase())))
             .toList();
 
-        print('PV ordered count: ${ordered.length}, rest count: ${rest.length}');
+        print(
+            'PV ordered count: ${ordered.length}, rest count: ${rest.length}');
         items = [...ordered, ...rest];
         icon = Icons.solar_power;
         break;
@@ -1141,7 +1169,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             final pagingValue = _latestPagingValues[fieldConfig.label];
             if (pagingValue != null) {
               // Parse the value from formatted string
-              final match = RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(pagingValue);
+              final match =
+                  RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(pagingValue);
               if (match != null) {
                 final numValue = double.tryParse(match.group(1)!);
                 if (numValue != null) {
@@ -1157,7 +1186,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                 ordered.add(DeviceEnergyFlowItem(
                   par: fieldConfig.label,
                   value: null,
-                  unit: pagingValue, // Store the string value in unit for display
+                  unit:
+                      pagingValue, // Store the string value in unit for display
                   status: 0,
                 ));
               }
@@ -1204,7 +1234,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             final pagingValue = _latestPagingValues[fieldConfig.label];
             if (pagingValue != null) {
               // Parse the value from formatted string
-              final match = RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(pagingValue);
+              final match =
+                  RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(pagingValue);
               if (match != null) {
                 final numValue = double.tryParse(match.group(1)!);
                 if (numValue != null) {
@@ -1255,7 +1286,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             final pagingValue = _latestPagingValues[fieldConfig.label];
             if (pagingValue != null) {
               // Parse the value from formatted string
-              final match = RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(pagingValue);
+              final match =
+                  RegExp(r'(-?\d+(?:\.\d+)?)').firstMatch(pagingValue);
               if (match != null) {
                 final numValue = double.tryParse(match.group(1)!);
                 if (numValue != null) {
@@ -1295,7 +1327,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     }
     items = deduplicatedItems;
 
-    print('About to show dialog with ${items.length} items (after deduplication)');
+    print(
+        'About to show dialog with ${items.length} items (after deduplication)');
 
     try {
       showDialog(
@@ -1381,10 +1414,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                                 ),
                               // Extras from paging for missing required labels
                               // Pass both formatted and raw labels to ensure proper matching
-                              ..._extraRowsForCategory(
-                                  category,
-                                  items.map((e) => e.par).toSet(),
-                                  ctx),
+                              ..._extraRowsForCategory(category,
+                                  items.map((e) => e.par).toSet(), ctx),
                             ],
                           ),
                         ),
@@ -2881,13 +2912,13 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
       final hasGrid = _present(widget.gridW, threshold: 10);
       final hasLoad = _present(widget.loadW, threshold: 10);
 
-      String selectedCase = 'Case_4.mp4'; // Default to Case 4 when battery has capacity and load exists
+      String selectedCase =
+          'Case_4.mp4'; // Default to Case 4 when battery has capacity and load exists
       if (hasPV && hasBattery)
         selectedCase = 'Case_5.mp4';
       else if (hasBattery && hasGrid)
         selectedCase = 'Case_3.mp4';
-      else if (hasBattery && hasLoad) 
-        selectedCase = 'Case_4.mp4';
+      else if (hasBattery && hasLoad) selectedCase = 'Case_4.mp4';
 
       print(
           'EnergyFlowDiagram: Selected $selectedCase (hasPV: $hasPV, hasBattery: $hasBattery, hasGrid: $hasGrid, hasLoad: $hasLoad)');
@@ -2980,7 +3011,8 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
     // When grid is on, solar is producing, load is active, but battery is effectively dead
     // This prevents Case_4 from incorrectly triggering when battery is at 0%
     if (solarActive && gridSupplying && loadActive && batteryDead) {
-      print('EnergyFlowDiagram: Selected Case_3.mp4 (Grid+Solar+Load, battery dead)');
+      print(
+          'EnergyFlowDiagram: Selected Case_3.mp4 (Grid+Solar+Load, battery dead)');
       return 'assets/energy_diagram/Case_3.mp4';
     }
 
@@ -2998,7 +3030,8 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
     if (!solarActive &&
         gridSupplying &&
         (batteryDischarging || batteryDead || loadActive)) {
-      print('EnergyFlowDiagram: Selected Case_3.mp4 (Grid+Battery or Grid only)');
+      print(
+          'EnergyFlowDiagram: Selected Case_3.mp4 (Grid+Battery or Grid only)');
       return 'assets/energy_diagram/Case_3.mp4';
     }
 
@@ -3009,7 +3042,8 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
     // Battery can show low power when at 100% SOC and just maintaining
     // Changed from batterySoc > 0 to batteryAvailable && !batteryDead to exclude near-zero capacity
     if (batteryAvailable && !batteryDead && loadActive) {
-      print('EnergyFlowDiagram: Selected Case_4.mp4 (Battery has meaningful capacity and load is active)');
+      print(
+          'EnergyFlowDiagram: Selected Case_4.mp4 (Battery has meaningful capacity and load is active)');
       return 'assets/energy_diagram/Case_4.mp4';
     }
 
@@ -3040,10 +3074,11 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
     // Ultimate fallback: if battery has meaningful capacity (>5%) and load exists, use Case 4
     // Otherwise default to Case 3 (grid supplying)
     if (batteryAvailable && !batteryDead && loadActive) {
-      print('EnergyFlowDiagram: Selected Case_4.mp4 (Ultimate fallback - battery+load)');
+      print(
+          'EnergyFlowDiagram: Selected Case_4.mp4 (Ultimate fallback - battery+load)');
       return 'assets/energy_diagram/Case_4.mp4';
     }
-    
+
     print('EnergyFlowDiagram: Selected Case_3.mp4 (Ultimate fallback - grid)');
     return 'assets/energy_diagram/Case_3.mp4';
   }

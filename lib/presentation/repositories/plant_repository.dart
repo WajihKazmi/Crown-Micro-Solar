@@ -203,17 +203,18 @@ class PlantRepository {
     final secret = prefs.getString('Secret') ?? '';
 
     if (token.isEmpty || secret.isEmpty) {
-      print('PlantRepository: Token or Secret is empty for getTotalCurrentPower');
+      print(
+          'PlantRepository: Token or Secret is empty for getTotalCurrentPower');
       return 0.0;
     }
 
     final package = await PackageInfo.fromPlatform();
     final platform = Platform.isAndroid ? 'android' : 'ios';
-    
+
     const action = '&action=queryPlantsActiveOuputPowerCurrent';
     final postaction =
         '&source=1&app_id=${package.packageName}&app_version=${package.version}&app_client=$platform';
-    
+
     final data = salt + secret + token + action + postaction;
     final sign = sha1.convert(utf8.encode(data)).toString();
     final url =
@@ -249,17 +250,18 @@ class PlantRepository {
     final secret = prefs.getString('Secret') ?? '';
 
     if (token.isEmpty || secret.isEmpty) {
-      print('PlantRepository: Token or Secret is empty for getTotalInstalledCapacity');
+      print(
+          'PlantRepository: Token or Secret is empty for getTotalInstalledCapacity');
       return 0.0;
     }
 
     final package = await PackageInfo.fromPlatform();
     final platform = Platform.isAndroid ? 'android' : 'ios';
-    
+
     const action = '&action=queryPlantsNominalPower';
     final postaction =
         '&source=1&app_id=${package.packageName}&app_version=${package.version}&app_client=$platform';
-    
+
     final data = salt + secret + token + action + postaction;
     final sign = sha1.convert(utf8.encode(data)).toString();
     final url =
