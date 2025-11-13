@@ -559,12 +559,12 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Delete!',
+                  'Delete Alarm',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Are you sure this will delete the device with all of its data?',
+                  'Are you sure you want to delete this alarm?',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                       fontSize: 13, color: Colors.black54, height: 1.3),

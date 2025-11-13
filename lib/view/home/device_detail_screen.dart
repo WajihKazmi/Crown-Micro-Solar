@@ -112,8 +112,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     }
     // Warm cache for energy flow immediately to speed up grid/pv cards
     _realtime.prefetchEnergyFlow(widget.device);
-    // Kick fast phase: if we have cached flow, avoid spinner flicker
-    _fetch(silent: cached != null);
+    // Kick fast phase: bypass cache for initial load to get fresh data
+    _fetch(silent: cached != null, bypassCache: true);
     // Schedule a one-off heavy phase after UI settles
     _heavyOnceTimer = Timer(const Duration(milliseconds: 1200), () {
       if (!mounted) return;
@@ -122,9 +122,9 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       _fetchHeavy(date: date);
       setState(() {});
     });
-    // Lightweight periodic refresh for live/flow; avoid heavy calls every tick
+    // Lightweight periodic refresh for live/flow; bypass cache to get fresh data
     _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (mounted) _fetch(silent: true);
+      if (mounted) _fetch(silent: true, bypassCache: true);
     });
   }
 
@@ -151,7 +151,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     });
   }
 
-  Future<void> _fetch({bool silent = false}) async {
+  Future<void> _fetch({bool silent = false, bool bypassCache = false}) async {
     if (_isFetching) return; // skip if a fetch is already in flight
     _isFetching = true;
     if (!silent) {
@@ -163,27 +163,30 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
 
     final repo = getIt<DeviceRepository>();
 
-    // OPTIMIZED: Show cached data INSTANTLY (like old app)
-    final cached = _realtime.snapshotEnergyFlow(widget.device.pn);
-    if (cached != null && mounted) {
-      setState(() {
-        _energyFlow = cached;
-        _lastFlowKey = _computeFlowKey(cached);
-        _hasData = true;
-        _loading = false; // Show UI immediately with cached data
-      });
+    // OPTIMIZED: Show cached data INSTANTLY only if not bypassing cache
+    if (!bypassCache) {
+      final cached = _realtime.snapshotEnergyFlow(widget.device.pn);
+      if (cached != null && mounted) {
+        setState(() {
+          _energyFlow = cached;
+          _lastFlowKey = _computeFlowKey(cached);
+          _hasData = true;
+          _loading = false; // Show UI immediately with cached data
+        });
+      }
     }
 
     // FAST PATH: Use energy flow endpoint (single call, all data)
     try {
       final now = DateTime.now();
       print(
-          '_fetch: Requesting energy flow for pn=${widget.device.pn} at $now');
+          '_fetch: Requesting energy flow for pn=${widget.device.pn} at $now (bypassCache=$bypassCache)');
       final flow = await repo.fetchDeviceEnergyFlow(
         sn: widget.device.sn,
         pn: widget.device.pn,
         devcode: widget.device.devcode,
         devaddr: widget.device.devaddr,
+        bypassCache: bypassCache,
       );
 
       final afterFetch = DateTime.now();
@@ -1691,8 +1694,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                 )
               : RefreshIndicator(
                   onRefresh: () async {
-                    // Fetch latest data and force a heavy fetch
-                    await _fetch();
+                    // Fetch latest data and force a heavy fetch, bypass cache for fresh data
+                    await _fetch(bypassCache: true);
                     final dateStr =
                         DateFormat('yyyy-MM-dd').format(_anchorDate);
                     await _fetchHeavy(date: dateStr);

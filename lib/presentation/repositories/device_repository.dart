@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:crown_micro_solar/core/network/api_client.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:crypto/crypto.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_data_one_day_query_model.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_live_signal_model.dart';
@@ -1390,15 +1392,25 @@ class DeviceRepository {
     return result['allDevices'] ?? [];
   }
 
-  // Add a datalogger (collector) to a plant (legacy endpoint: webManageDeviceEs opt=add_collectors)
+  // Add a datalogger (collector) to a plant - matches old app addCollectorEs action
   Future<Map<String, dynamic>> addDataLogger(
       String plantId, String pn, String name) async {
     const salt = '12345678';
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
     final secret = prefs.getString('Secret') ?? '';
-    const postaction =
-        '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+    
+    // Build postaction metadata like the old app
+    String postaction = '';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final platform = Platform.isAndroid ? 'android' : 'ios';
+      const source = '1';
+      postaction =
+          '&source=$source&app_id=${info.packageName}&app_version=${info.version}&app_client=$platform';
+    } catch (e) {
+      postaction = '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+    }
 
     if (plantId.isEmpty) {
       throw Exception('Plant ID is required');
@@ -1413,19 +1425,27 @@ class DeviceRepository {
       throw Exception('Authentication required. Please log in again.');
     }
 
+    // Remove spaces from name like old app
+    final cleanName = name.replaceAll(RegExp(r' '), '');
+    // Get timezone offset in seconds like old app
+    final timezone = DateTime.now().timeZoneOffset.inSeconds;
+
+    // Use old app's action format: addCollectorEs with timezone
     final action =
-        '&action=webManageDeviceEs&plantid=$plantId&opt=add_collectors&pn=$pn&name=$name';
+        '&action=addCollectorEs&pn=$pn&alias=$cleanName&plantid=$plantId&timezone=$timezone';
     final data = salt + secret + token + action + postaction;
     final sign = sha1.convert(utf8.encode(data)).toString();
     final url =
         'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
 
+    print('Add collector URL: $url');
     final response = await _apiClient.signedPost(url);
     final jsonData = json.decode(response.body);
+    print('Add collector response: $jsonData');
     return Map<String, dynamic>.from(jsonData);
   }
 
-  // Delete a device from a plant (endpoint: webManageDeviceEs opt=delete_device)
+  // Delete a device from a plant - matches old app delDeviceFromPlant action
   Future<Map<String, dynamic>> deleteDevice({
     required String plantId,
     required String pn,
@@ -1437,12 +1457,19 @@ class DeviceRepository {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
     final secret = prefs.getString('Secret') ?? '';
-    const postaction =
-        '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
-
-    if (plantId.isEmpty) {
-      throw Exception('Plant ID is required');
+    
+    // Build postaction metadata like the old app
+    String postaction = '';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final platform = Platform.isAndroid ? 'android' : 'ios';
+      const source = '1';
+      postaction =
+          '&source=$source&app_id=${info.packageName}&app_version=${info.version}&app_client=$platform';
+    } catch (e) {
+      postaction = '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
     }
+
     if (pn.isEmpty) {
       throw Exception('PN is required');
     }
@@ -1453,14 +1480,16 @@ class DeviceRepository {
     print(
         'DeviceRepository.deleteDevice: plantId=$plantId, pn=$pn, sn=$sn, devcode=$devcode, devaddr=$devaddr');
 
+    // Use old app's action format: delDeviceFromPlant (not webManageDeviceEs)
     final action =
-        '&action=webManageDeviceEs&plantid=$plantId&opt=delete_device&pn=$pn&sn=$sn&devcode=$devcode&devaddr=$devaddr';
+        '&action=delDeviceFromPlant&pn=$pn&sn=$sn&devaddr=$devaddr&devcode=$devcode';
     final data = salt + secret + token + action + postaction;
     final sign = sha1.convert(utf8.encode(data)).toString();
     final url =
         'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
 
     try {
+      print('Delete device URL: $url');
       final response = await _apiClient.signedPost(url);
       final jsonData = json.decode(response.body);
       print('DeviceRepository.deleteDevice response: $jsonData');
@@ -1890,14 +1919,17 @@ class DeviceRepository {
     required String pn,
     required int devcode,
     required int devaddr,
+    bool bypassCache = false,
   }) async {
-    // Hot cache: avoid duplicate calls within 5 seconds for same PN
+    // Hot cache: avoid duplicate calls within 2 seconds for same PN (reduced from 5 seconds)
     _flowCache ??=
-        _TimedCache<DeviceEnergyFlowModel>(const Duration(seconds: 5));
+        _TimedCache<DeviceEnergyFlowModel>(const Duration(seconds: 2));
     final cacheKey = pn;
-    final cached = _flowCache!.get(cacheKey);
-    if (cached != null) {
-      return cached;
+    if (!bypassCache) {
+      final cached = _flowCache!.get(cacheKey);
+      if (cached != null) {
+        return cached;
+      }
     }
     const salt = '12345678';
     final prefs = await SharedPreferences.getInstance();
@@ -1910,42 +1942,60 @@ class DeviceRepository {
         '&action=webQueryDeviceEnergyFlowEs&devcode=$devcode&pn=$pn&devaddr=$devaddr&sn=$validSn';
     final data = salt + secret + token + action + postaction;
     final sign = sha1.convert(utf8.encode(data)).toString();
-    final url =
-        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
-    try {
-      final response = await _apiClient.signedPost(url);
-      final j = json.decode(response.body);
-      if (j['err'] != 0) {
-        return null;
-      }
-      final dat = j['dat'] as Map<String, dynamic>?;
-      if (dat == null) return null;
-      final model = DeviceEnergyFlowModel.fromJson(dat);
-      _flowCache!.set(cacheKey, model);
-      // Persist last-known snapshot for instant render on next open
+    
+    // Try both hosts like old app - prioritize web.shinemonitor.com for energy flow
+    final hosts = <String>[
+      'http://web.shinemonitor.com/public/',
+      'http://api.dessmonitor.com/public/',
+    ];
+    
+    for (final host in hosts) {
+      final url = '$host?sign=$sign&salt=$salt&token=$token$action$postaction';
       try {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('energyFlow:$pn', json.encode(dat));
-      } catch (_) {}
-      // Debug log of parsed energy flow entries for diagnostics
-      void logList(String label, List<DeviceEnergyFlowItem> items) {
-        for (final i in items) {
-          print(
-              'EnergyFlow [$label] par=${i.par} val=${i.value} unit=${i.unit} status=${i.status}');
+        print('Trying energy flow from: $host');
+        final response = await _apiClient.signedPost(url);
+        final j = json.decode(response.body);
+        if (j['err'] != 0) {
+          print('Energy flow error from $host: ${j['desc']}');
+          continue; // Try next host
         }
-      }
+        final dat = j['dat'] as Map<String, dynamic>?;
+        if (dat == null) {
+          print('Energy flow no data from $host');
+          continue; // Try next host
+        }
+        final model = DeviceEnergyFlowModel.fromJson(dat);
+        _flowCache!.set(cacheKey, model);
+        // Persist last-known snapshot for instant render on next open
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('energyFlow:$pn', json.encode(dat));
+        } catch (_) {}
+        // Debug log of parsed energy flow entries for diagnostics
+        void logList(String label, List<DeviceEnergyFlowItem> items) {
+          for (final i in items) {
+            print(
+                'EnergyFlow [$label] par=${i.par} val=${i.value} unit=${i.unit} status=${i.status}');
+          }
+        }
 
-      logList('bt_status', model.btStatus);
-      logList('pv_status', model.pvStatus);
-      logList('gd_status', model.gdStatus);
-      logList('bc_status', model.bcStatus);
-      logList('ol_status', model.olStatus);
-      print(
-          'EnergyFlow derived -> pvW=${model.pvPower} loadW=${model.loadPower} gridW=${model.gridPower} batSoc=${model.batterySoc} batPower=${model.batteryPower}');
-      return model;
-    } catch (e) {
-      return null;
+        logList('bt_status', model.btStatus);
+        logList('pv_status', model.pvStatus);
+        logList('gd_status', model.gdStatus);
+        logList('bc_status', model.bcStatus);
+        logList('ol_status', model.olStatus);
+        print(
+            'EnergyFlow derived -> pvW=${model.pvPower} loadW=${model.loadPower} gridW=${model.gridPower} batSoc=${model.batterySoc} batPower=${model.batteryPower}');
+        print('Successfully fetched energy flow from: $host');
+        return model;
+      } catch (e) {
+        print('Exception fetching energy flow from $host: $e');
+        continue; // Try next host
+      }
     }
+    
+    print('Failed to fetch energy flow from all hosts');
+    return null;
   }
 
   /// Extract latest realtime-like values from a paging response (queryDeviceDataOneDayPaging) for fallback.
@@ -2022,7 +2072,11 @@ class DeviceRepository {
         final pn = d.pn;
         // 1. Energy flow
         final flow = await fetchDeviceEnergyFlow(
-            sn: sn, pn: pn, devcode: devcode, devaddr: devaddr);
+            sn: sn,
+            pn: pn,
+            devcode: devcode,
+            devaddr: devaddr,
+            bypassCache: false);
         double? pvW = flow?.pvPower; // already normalized to W
         // 2. Paging fallback
         if (pvW == null || pvW <= 0) {

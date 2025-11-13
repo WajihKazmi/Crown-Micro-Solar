@@ -81,10 +81,11 @@ class AccountRepository {
     var sha1newpass = hex.encode(rc4encoded);
     print('RC4 encoded password: $sha1newpass');
 
-    // Build action and URL
+    // Build action and URL - NOTE: old app does NOT include token in sign calculation for password change!
     String action = "&action=updatePassword&newpwd=" + sha1newpass;
     print('Action: $action');
 
+    // Sign calculation: salt + secret + action + postaction (NO TOKEN like old app!)
     var data = salt + secret + action + postaction;
     print('Sign data: $data');
 
@@ -92,6 +93,7 @@ class AccountRepository {
     var sign = sha1.convert(output).toString();
     print('Sign: $sign');
 
+    // URL does NOT include token parameter for password change
     String url = 'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt' +
         action +
         postaction;
