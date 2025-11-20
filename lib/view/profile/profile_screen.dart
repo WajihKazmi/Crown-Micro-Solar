@@ -4,13 +4,12 @@ import 'package:provider/provider.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/auth_viewmodel.dart';
 import 'package:crown_micro_solar/l10n/app_localizations.dart' as gen;
 import 'package:crown_micro_solar/main.dart';
-import 'package:crown_micro_solar/core/utils/app_text_fields.dart';
-import 'package:crown_micro_solar/core/utils/app_buttons.dart';
 // Removed unused imports
 import 'package:crown_micro_solar/presentation/viewmodels/dashboard_view_model.dart';
 import 'package:crown_micro_solar/core/theme/theme_notifier.dart';
 import 'package:crown_micro_solar/core/theme/app_theme.dart';
 import 'package:crown_micro_solar/routes/app_routes.dart';
+import 'package:crown_micro_solar/view/profile/change_password_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({Key? key}) : super(key: key);
@@ -52,9 +51,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _showChangePasswordDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => ChangePasswordDialog(),
+    final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
+    final userInfo = authViewModel.userInfo;
+    final username = _extractUsername(userInfo?.usr ?? 'User');
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ChangePasswordScreen(username: username),
+      ),
     );
   }
 
@@ -718,141 +721,6 @@ class _ProfileActionTile extends StatelessWidget {
   }
 }
 
-class ChangePasswordDialog extends StatefulWidget {
-  @override
-  _ChangePasswordDialogState createState() => _ChangePasswordDialogState();
-}
-
-class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final TextEditingController _oldPasswordController = TextEditingController();
-  final TextEditingController _newPasswordController = TextEditingController();
-  final TextEditingController _confirmPasswordController =
-      TextEditingController();
-  bool _isLoading = false;
-  String? _error;
-
-  @override
-  void dispose() {
-    _oldPasswordController.dispose();
-    _newPasswordController.dispose();
-    _confirmPasswordController.dispose();
-    super.dispose();
-  }
-
-  void _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
-    final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
-    final oldPassword = _oldPasswordController.text;
-    final newPassword = _newPasswordController.text;
-    final success =
-        await authViewModel.changePassword(oldPassword, newPassword);
-    setState(() {
-      _isLoading = false;
-    });
-    if (success) {
-      Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            gen.AppLocalizations.of(context).password_changed_success,
-            style: const TextStyle(color: Colors.black),
-          ),
-          backgroundColor: Colors.white,
-        ),
-      );
-    } else {
-      setState(() {
-        _error = authViewModel.error ??
-            gen.AppLocalizations.of(context).password_change_failed;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(gen.AppLocalizations.of(context).change_password,
-                  style: theme.textTheme.titleLarge
-                      ?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              AppTextField(
-                controller: _oldPasswordController,
-                labelText: gen.AppLocalizations.of(context).old_password,
-                isPassword: true,
-                validator: (val) => val == null || val.isEmpty
-                    ? gen.AppLocalizations.of(context).enter_old_password
-                    : null,
-              ),
-              const SizedBox(height: 12),
-              AppTextField(
-                controller: _newPasswordController,
-                labelText: gen.AppLocalizations.of(context).new_password,
-                isPassword: true,
-                validator: (val) => val == null || val.length < 6
-                    ? gen.AppLocalizations.of(context).password_must_be_6
-                    : null,
-              ),
-              const SizedBox(height: 12),
-              AppTextField(
-                controller: _confirmPasswordController,
-                labelText:
-                    gen.AppLocalizations.of(context).confirm_new_password,
-                isPassword: true,
-                validator: (val) => val != _newPasswordController.text
-                    ? gen.AppLocalizations.of(context).passwords_do_not_match
-                    : null,
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 8),
-                Text(_error!,
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: theme.colorScheme.error)),
-              ],
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: AppButtons.primaryButton(
-                      context: context,
-                      onTap:
-                          _isLoading ? null : () => Navigator.of(context).pop(),
-                      text: 'Cancel',
-                      isFilled: false,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: AppButtons.primaryButton(
-                      context: context,
-                      onTap: _isLoading ? null : _submit,
-                      text: gen.AppLocalizations.of(context).change_password,
-                      isLoading: _isLoading,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class LanguageSelectorDialog extends StatelessWidget {
   @override

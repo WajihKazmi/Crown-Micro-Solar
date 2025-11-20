@@ -546,6 +546,34 @@ class _OverviewBodyState extends State<_OverviewBody> {
         print(
             '_OverviewBodyState: API metrics updated - Current Power: ${results[0]}W, Installed Capacity: ${results[1]}kW');
       }
+      
+      // ALSO refresh device-level energy data to get current outpower
+      // This ensures we have the most recent device output power values
+      final plantViewModel = getIt<PlantViewModel>();
+      if (plantViewModel.plants.isNotEmpty) {
+        final firstPlantId = plantViewModel.plants.first.id;
+        try {
+          final deviceRepo = getIt<DeviceRepository>();
+          final deviceBundle =
+              await deviceRepo.getDevicesAndCollectors(firstPlantId);
+          final allDevices = (deviceBundle['allDevices'] as List?) ?? [];
+
+          final deviceSNs = <String>[];
+          for (final d in allDevices) {
+            final sn = (d is Map ? d['sn'] : (d as dynamic).sn)?.toString() ?? '';
+            if (sn.isNotEmpty) {
+              deviceSNs.add(sn);
+            }
+          }
+
+          if (deviceSNs.isNotEmpty) {
+            print('_OverviewBodyState: Refreshing energy data for ${deviceSNs.length} devices');
+            await _fetchAllDevicesEnergyData(deviceSNs);
+          }
+        } catch (e) {
+          print('_OverviewBodyState: Failed to refresh device energy data: $e');
+        }
+      }
     } catch (e) {
       print('_OverviewBodyState: Failed to fetch API metrics: $e');
     }

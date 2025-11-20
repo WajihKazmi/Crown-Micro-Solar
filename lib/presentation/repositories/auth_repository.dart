@@ -4,6 +4,9 @@ import 'package:crown_micro_solar/presentation/models/auth/auth_response_model.d
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 import 'package:http/http.dart' as http;
+import 'package:crown_micro_solar/core/di/service_locator.dart';
+import 'package:crown_micro_solar/presentation/repositories/device_repository.dart';
+import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
 
 class AuthRepository {
   final ApiService _apiService;
@@ -199,6 +202,26 @@ class AuthRepository {
 
   Future<void> logout() async {
     print('AuthRepository: Starting logout...');
+    
+    // Clear device repository caches FIRST to ensure no stale data persists
+    try {
+      final deviceRepo = getIt<DeviceRepository>();
+      await deviceRepo.clearAllCaches();
+      print('AuthRepository: Device caches cleared');
+    } catch (e) {
+      print('AuthRepository: Error clearing device caches: $e');
+    }
+    
+    // Clear realtime data service cache
+    try {
+      final realtimeService = getIt<RealtimeDataService>();
+      realtimeService.stop(); // Stop any running timers
+      realtimeService.clearAllData(); // Clear all cached data
+      print('AuthRepository: Realtime service cleared');
+    } catch (e) {
+      print('AuthRepository: Error clearing realtime service: $e');
+    }
+    
     await _prefs.remove(_tokenKey);
     print('AuthRepository: Token removed');
     await _prefs.remove(_userIdKey);

@@ -55,7 +55,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
 
   String _computeFlowKey(DeviceEnergyFlowModel? flow) {
     if (flow == null) return 'empty';
-    final pvOn = (flow.pvVoltage ?? 0) > 50 || (flow.pvPower ?? 0) > 50;
+    // Lower threshold to 10W to detect even small solar generation (e.g., 35W)
+    final pvOn = (flow.pvVoltage ?? 0) > 50 || (flow.pvPower ?? 0) > 10;
     final gridOn = (flow.gridVoltage ?? 0) > 50;
     final batOn = (flow.batteryVoltage ?? 0) > 20 || (flow.batterySoc ?? 0) > 5;
     return '${pvOn ? 1 : 0}${gridOn ? 1 : 0}${batOn ? 1 : 0}';
@@ -769,7 +770,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     }
 
     final rawCards = <Map<String, Object?>>[];
-    // PV Card: Show Power as primary, Voltage as secondary
+    // PV Card: Use model-configured field if available; otherwise Power as primary, Voltage as secondary
     if (pvVoltage != null || pvPower != null) {
       final selected = _selectedValueFor('pv');
       final pvCurrent = _energyFlow?.pvCurrent;
@@ -779,23 +780,29 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       if (selected != null) {
         primaryValue = selected;
         secondaryValue = _formatLabel(_selectedParByCategory['pv'] ?? '');
-      } else if (pvPower != null) {
-        // Primary: Power in Watts
-        primaryValue = _fmtPowerW(pvPower);
-        // Secondary: Voltage
-        if (pvVoltage != null) {
-          secondaryValue = _fmtVoltage(pvVoltage);
-        } else if (pvCurrent != null) {
-          secondaryValue = '${pvCurrent.toStringAsFixed(1)}A';
-        }
-      } else if (pvVoltage != null) {
-        // Fallback: show voltage if no power
-        primaryValue = _fmtVoltage(pvVoltage);
-        if (pvCurrent != null) {
-          secondaryValue = '${pvCurrent.toStringAsFixed(1)}A';
-        }
       } else {
-        primaryValue = '--';
+        final picked = _pickByModel('pv');
+        if (picked != null) {
+          primaryValue = picked.key; // value string with unit
+          secondaryValue = _formatLabel(picked.value); // label
+        } else if (pvPower != null) {
+          // Primary: Power in Watts
+          primaryValue = _fmtPowerW(pvPower);
+          // Secondary: Voltage
+          if (pvVoltage != null) {
+            secondaryValue = _fmtVoltage(pvVoltage);
+          } else if (pvCurrent != null) {
+            secondaryValue = '${pvCurrent.toStringAsFixed(1)}A';
+          }
+        } else if (pvVoltage != null) {
+          // Fallback: show voltage if no power
+          primaryValue = _fmtVoltage(pvVoltage);
+          if (pvCurrent != null) {
+            secondaryValue = '${pvCurrent.toStringAsFixed(1)}A';
+          }
+        } else {
+          primaryValue = '--';
+        }
       }
 
       rawCards.add({
@@ -816,13 +823,19 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       final selected = _selectedValueFor('battery');
       rawCards.add({
         'title': 'Battery',
-        'value': selected ??
-            (batteryVoltage != null
-                ? _fmtVoltage(batteryVoltage)
-                : _fmtSoc(batSoc)),
+        'value': () {
+          if (selected != null) return selected;
+          final picked = _pickByModel('battery');
+          if (picked != null) return picked.key;
+          return (batteryVoltage != null)
+              ? _fmtVoltage(batteryVoltage)
+              : _fmtSoc(batSoc);
+        }(),
         'subtitle': () {
           if (selected != null)
             return _formatLabel(_selectedParByCategory['battery'] ?? '');
+          final picked = _pickByModel('battery');
+          if (picked != null) return _formatLabel(picked.value);
           if (batteryVoltage != null && batSoc != null) return _fmtSoc(batSoc);
           final pw = _energyFlow?.batteryPower;
           if (batteryVoltage == null && pw != null && pw.abs() > 0) {
@@ -843,18 +856,24 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       if (selected != null) {
         primaryValue = selected;
         secondaryValue = _formatLabel(_selectedParByCategory['load'] ?? '');
-      } else if (loadPower != null) {
-        // Primary: Power in Watts
-        primaryValue = _fmtPowerW(loadPower);
-        // Secondary: Voltage
-        if (loadVoltage != null) {
-          secondaryValue = _fmtVoltage(loadVoltage);
-        }
-      } else if (loadVoltage != null) {
-        // Fallback: show voltage if no power
-        primaryValue = _fmtVoltage(loadVoltage);
       } else {
-        primaryValue = '--';
+        final picked = _pickByModel('load');
+        if (picked != null) {
+          primaryValue = picked.key;
+          secondaryValue = _formatLabel(picked.value);
+        } else if (loadPower != null) {
+          // Primary: Power in Watts
+          primaryValue = _fmtPowerW(loadPower);
+          // Secondary: Voltage
+          if (loadVoltage != null) {
+            secondaryValue = _fmtVoltage(loadVoltage);
+          }
+        } else if (loadVoltage != null) {
+          // Fallback: show voltage if no power
+          primaryValue = _fmtVoltage(loadVoltage);
+        } else {
+          primaryValue = '--';
+        }
       }
 
       rawCards.add({
@@ -873,7 +892,12 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     if (selectedGrid != null) {
       gridValueStr = selectedGrid;
       gridSubtitle = _formatLabel(_selectedParByCategory['grid'] ?? '');
-    } else if (gridPowerVal != null) {
+    } else {
+      final picked = _pickByModel('grid');
+      if (picked != null) {
+        gridValueStr = picked.key;
+        gridSubtitle = _formatLabel(picked.value);
+      } else if (gridPowerVal != null) {
       // Primary: Grid Power in Watts
       gridValueStr = _fmtPowerW(gridPowerVal);
       // Secondary: Voltage or Frequency
@@ -882,21 +906,22 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       } else if (gridFreqVal != null) {
         gridSubtitle = '${gridFreqVal.toStringAsFixed(1)} Hz';
       }
-    } else if (gridVoltageVal != null) {
+      } else if (gridVoltageVal != null) {
       // Fallback if no power: show voltage
       gridValueStr = _fmtVoltage(gridVoltageVal);
       if (gridFreqVal != null) {
         gridSubtitle = '${gridFreqVal.toStringAsFixed(1)} Hz';
       }
-    } else if (gridFreqVal != null) {
+      } else if (gridFreqVal != null) {
       // Fallback if only frequency available
       gridValueStr = '${gridFreqVal.toStringAsFixed(1)} Hz';
-    } else {
+      } else {
       // Last resort: check paging values
       gridValueStr = _latestPagingValues['Grid Power'] ??
           _latestPagingValues['Grid Voltage'] ??
           _latestPagingValues['Grid Frequency (Hz)'] ??
           '--';
+      }
     }
 
     // Always show Grid card
@@ -1740,11 +1765,109 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                         const SizedBox(height: 24),
                         if (_graphEnabled)
                           _DeviceMetricGraph(device: widget.device),
+                        const SizedBox(height: 12),
+                        Center(
+                          child: Text(
+                            _deviceModelDisplay(),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.black54,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ),
     );
+  }
+
+  String _deviceModelDisplay() {
+    final model = DeviceModel.detect(
+      devcode: widget.device.devcode,
+      alias: widget.device.alias,
+    );
+    String name;
+    switch (model) {
+      case DeviceModel.nova:
+        name = 'Nova';
+        break;
+      case DeviceModel.elego:
+        name = 'Elego';
+        break;
+      case DeviceModel.xavier:
+        name = 'Xavier';
+        break;
+      case DeviceModel.arceus:
+        name = 'Arceus';
+        break;
+      case DeviceModel.datalogger:
+        name = 'Datalogger';
+        break;
+      case DeviceModel.unknown:
+        name = 'Unknown';
+        break;
+    }
+    return '$name - (${widget.device.devcode})';
+  }
+
+  // Find first matching energy flow item by any of the candidate names
+  DeviceEnergyFlowItem? _findByCandidates(
+    List<DeviceEnergyFlowItem> list,
+    List<String> candidates,
+  ) {
+    if (list.isEmpty) return null;
+    final lowered = candidates.map((e) => e.trim().toLowerCase()).toList();
+    for (final it in list) {
+      final par = it.par.trim().toLowerCase();
+      if (lowered.contains(par)) return it;
+    }
+    return null;
+  }
+
+  // Build the list of flow items corresponding to a category
+  List<DeviceEnergyFlowItem> _flowListForCategory(String category) {
+    switch (category) {
+      case 'pv':
+        return _energyFlow?.pvStatus ?? const [];
+      case 'battery':
+        return _energyFlow?.btStatus ?? const [];
+      case 'load':
+        return [...?_energyFlow?.bcStatus, ...?_energyFlow?.olStatus];
+      case 'grid':
+        return _energyFlow?.gdStatus ?? const [];
+    }
+    return const [];
+  }
+
+  // Pick the first configured field for a category based on the current device model.
+  // Returns a pair encoded as MapEntry<valueString, labelString> if found, otherwise null.
+  MapEntry<String, String>? _pickByModel(String category) {
+    final model = DeviceModel.detect(
+      devcode: widget.device.devcode,
+      alias: widget.device.alias,
+    );
+    final cfg = DeviceModelPopupConfig.forModel(model);
+    final fieldCfgs = cfg.getFieldsForCategory(category);
+    if (fieldCfgs.isEmpty) return null;
+    final list = _flowListForCategory(category);
+
+    // Try energy flow first
+    for (final fc in fieldCfgs) {
+      final hit = _findByCandidates(list, fc.apiCandidates);
+      if (hit != null) {
+        final unit = (fc.unit.isNotEmpty ? fc.unit : (hit.unit ?? '')).trim();
+        final v = _formatValueWithUnit(hit.value, unit);
+        return MapEntry(v, fc.label);
+      }
+    }
+    // Fallback to latest paging values by configured label
+    for (final fc in fieldCfgs) {
+      final v = _latestPagingValues[fc.label];
+      if (v != null) return MapEntry(v, fc.label);
+    }
+    return null;
   }
 
   void _showPowerGenerationDialog() {
@@ -2955,7 +3078,8 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
 
     // Solar is producing energy (status > 0 AND power > threshold)
     // Status indicates direction, but we need actual power flow to show animation
-    final bool solarActive = (pvStatus ?? 0) > 0 && pvPower > 50;
+    // LOWERED threshold from 50W to 10W to detect even small solar generation (e.g., 35W)
+    final bool solarActive = (pvStatus ?? 0) > 0 && pvPower > 10;
 
     // Battery is discharging to inverter (status > 0 AND positive power flow)
     final bool batteryDischarging =
@@ -2972,12 +3096,14 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
 
     // Grid is supplying power to inverter (status > 0 OR grid connected with positive power)
     // Check voltage first to detect grid connection even when power is minimal
+    // LOWERED threshold from 50W to 10W to detect smaller grid power flows
     final bool gridSupplying =
-        gridConnected && ((gridStatus ?? 0) > 0 || gridPower > 50);
+        gridConnected && ((gridStatus ?? 0) > 0 || gridPower > 10);
 
     // Grid is receiving power (exporting/selling) (status < 0 AND power flowing out)
+    // LOWERED threshold from 50W to 10W to detect smaller exports
     final bool gridReceiving =
-        gridConnected && (gridStatus ?? 0) < 0 && gridPower > 50;
+        gridConnected && (gridStatus ?? 0) < 0 && gridPower > 10;
 
     // Load is present (device is online and consuming power)
     // Load is considered active if there's any power consumption

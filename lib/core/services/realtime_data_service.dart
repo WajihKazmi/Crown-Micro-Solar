@@ -109,6 +109,20 @@ class RealtimeDataService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Clear all cached realtime data (energy flow, device data, etc.)
+  /// Should be called on logout to prevent stale/cross-user data
+  void clearAllData() {
+    print('RealtimeDataService: Clearing all cached data...');
+    _plants.clear();
+    _devices.clear();
+    _devicePowerData.clear();
+    _deviceRealTimeData.clear();
+    _deviceEnergyFlow.clear();
+    _inflightEnergyFlow.clear();
+    print('RealtimeDataService: All cached data cleared');
+    notifyListeners();
+  }
+
   // Load initial data
   Future<void> _loadInitialData() async {
     try {

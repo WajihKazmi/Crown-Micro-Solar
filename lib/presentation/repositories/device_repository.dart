@@ -486,6 +486,35 @@ class DeviceRepository {
 
   DeviceRepository(this._apiClient);
 
+  /// Clear all cached device data (energy flow, paging values, etc.)
+  /// Should be called on logout to prevent stale/cross-user data contamination
+  Future<void> clearAllCaches() async {
+    print('DeviceRepository: Clearing all caches...');
+    
+    // Clear in-memory cache
+    _flowCache?._map.clear();
+    print('DeviceRepository: In-memory flow cache cleared');
+    
+    // Clear all persisted energy flow data from SharedPreferences
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs.getKeys();
+      final energyFlowKeys = keys.where((k) => k.startsWith('energyFlow:'));
+      for (final key in energyFlowKeys) {
+        await prefs.remove(key);
+      }
+      print('DeviceRepository: Cleared ${energyFlowKeys.length} persisted energy flow entries');
+      
+      // Clear last opened PN (prevents wrong device prefetch on next login)
+      await prefs.remove('lastOpenedPn');
+      print('DeviceRepository: Cleared lastOpenedPn');
+    } catch (e) {
+      print('DeviceRepository: Error clearing persisted caches: $e');
+    }
+    
+    print('DeviceRepository: All caches cleared');
+  }
+
   // Structured result model (lightweight) for metric resolution; full model defined inline to avoid extra import churn.
   // If we later promote to its own file we can refactor usages without behavior change.
   // A point is represented as Map { 'ts': DateTime iso string, 'val': double }
@@ -1399,7 +1428,7 @@ class DeviceRepository {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
     final secret = prefs.getString('Secret') ?? '';
-    
+
     // Build postaction metadata like the old app
     String postaction = '';
     try {
@@ -1409,7 +1438,8 @@ class DeviceRepository {
       postaction =
           '&source=$source&app_id=${info.packageName}&app_version=${info.version}&app_client=$platform';
     } catch (e) {
-      postaction = '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+      postaction =
+          '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
     }
 
     if (plantId.isEmpty) {
@@ -1457,7 +1487,7 @@ class DeviceRepository {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
     final secret = prefs.getString('Secret') ?? '';
-    
+
     // Build postaction metadata like the old app
     String postaction = '';
     try {
@@ -1467,7 +1497,8 @@ class DeviceRepository {
       postaction =
           '&source=$source&app_id=${info.packageName}&app_version=${info.version}&app_client=$platform';
     } catch (e) {
-      postaction = '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+      postaction =
+          '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
     }
 
     if (pn.isEmpty) {
@@ -1924,16 +1955,23 @@ class DeviceRepository {
     // Hot cache: avoid duplicate calls within 2 seconds for same PN (reduced from 5 seconds)
     _flowCache ??=
         _TimedCache<DeviceEnergyFlowModel>(const Duration(seconds: 2));
-    final cacheKey = pn;
+    
+    // Get user token to make cache key user-specific (prevent cross-user contamination)
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final userId = prefs.getString('UserID') ?? '';
+    
+    // User-specific cache key: token+userId+pn (prevents showing User A's data to User B)
+    final cacheKey = '${token}_${userId}_$pn';
+    
     if (!bypassCache) {
       final cached = _flowCache!.get(cacheKey);
       if (cached != null) {
+        print('DeviceRepository: Returning cached energy flow for pn=$pn (user-specific cache)');
         return cached;
       }
     }
     const salt = '12345678';
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token') ?? '';
     final secret = prefs.getString('Secret') ?? '';
     final postaction =
         '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
@@ -1942,13 +1980,13 @@ class DeviceRepository {
         '&action=webQueryDeviceEnergyFlowEs&devcode=$devcode&pn=$pn&devaddr=$devaddr&sn=$validSn';
     final data = salt + secret + token + action + postaction;
     final sign = sha1.convert(utf8.encode(data)).toString();
-    
+
     // Try both hosts like old app - prioritize web.shinemonitor.com for energy flow
     final hosts = <String>[
       'http://web.shinemonitor.com/public/',
       'http://api.dessmonitor.com/public/',
     ];
-    
+
     for (final host in hosts) {
       final url = '$host?sign=$sign&salt=$salt&token=$token$action$postaction';
       try {
@@ -1993,7 +2031,7 @@ class DeviceRepository {
         continue; // Try next host
       }
     }
-    
+
     print('Failed to fetch energy flow from all hosts');
     return null;
   }
