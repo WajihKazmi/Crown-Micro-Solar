@@ -32,7 +32,11 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   }
 
   Future<void> _changePassword() async {
-    if (newpassword.text.length < 6) {
+    final oldPwd = oldpassword.text; // keep exact old password (no trim)
+    final newPwd = newpassword.text.trim();
+    final confirmPwd = confirmpassword.text.trim();
+
+    if (newPwd.length < 6) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('New Password must be at least 6 characters long', style: TextStyle(color: Colors.white)),
@@ -42,7 +46,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       return;
     }
 
-    if (newpassword.text != confirmpassword.text) {
+    if (newPwd != confirmPwd) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('New Password and Confirm Password do not match!', style: TextStyle(color: Colors.white)),
@@ -57,7 +61,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     });
 
     final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
-    final success = await authViewModel.changePassword(oldpassword.text, newpassword.text);
+    final success = await authViewModel.changePassword(oldPwd, newPwd);
 
     setState(() {
       _isLoading = false;
@@ -82,52 +86,19 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     }
   }
 
-  Widget _textfield(double width, double height, String name, String hint,
-      bool enable, TextEditingController controller, bool ispassword) {
-    return Column(
-      children: [
-        Container(
-          height: height / 20,
-          color: Colors.white,
-          child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Text(name,
-                    style: TextStyle(
-                        fontSize: 0.035 * width,
-                        fontWeight: FontWeight.normal,
-                        color: Colors.grey.shade600)),
-                new Flexible(
-                  child: TextField(
-                      controller: controller,
-                      style: TextStyle(
-                          fontSize: 0.025 * width,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey.shade600),
-                      enabled: enable,
-                      obscureText: ispassword,
-                      textAlign: TextAlign.end,
-                      decoration: InputDecoration(
-                          border: InputBorder.none,
-                          hintText: hint,
-                          hintStyle: TextStyle(
-                              fontSize: 0.025 * width,
-                              fontWeight: FontWeight.normal,
-                              color: Colors.grey.shade400),
-                          fillColor: Colors.white,
-                          filled: true)),
-                )
-              ],
-            ),
-          ),
+  Widget _textfield(double width, double height, String label, String hint,
+      bool enabled, TextEditingController controller, bool isPassword) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: TextField(
+        controller: controller,
+        enabled: enabled,
+        obscureText: isPassword,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
         ),
-        SizedBox(
-          height: height / 250,
-        ),
-      ],
+      ),
     );
   }
 
@@ -168,43 +139,40 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 height: height / 1000,
               ),
               _textfield(width, height, 'Old password',
-                  'Please Enter the old password', true, oldpassword, true),
+                  'Please enter your old password', true, oldpassword, true),
               SizedBox(
                 height: height / 1000,
               ),
               _textfield(width, height, 'New password',
-                  'Please Enter the New password', true, newpassword, true),
+                  'Please enter your new password', true, newpassword, true),
               SizedBox(
                 height: height / 1000,
               ),
-              _textfield(
-                  width,
-                  height,
-                  'Confirm password',
-                  'Please Enter the Confirm password',
-                  true,
-                  confirmpassword,
-                  true),
+              _textfield(width, height, 'Confirm password',
+                  'Re-enter new password', true, confirmpassword, true),
               SizedBox(
-                height: height / 10,
+                height: 24,
               ),
-              Material(
-                  elevation: 5.0,
-                  borderRadius: BorderRadius.circular(5.0),
-                  color: Theme.of(context).primaryColor,
-                  child: MaterialButton(
-                    minWidth: (MediaQuery.of(context).size.width - 280),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
                     onPressed: _isLoading ? null : _changePassword,
                     child: _isLoading
-                        ? CircularProgressIndicator(color: Colors.white)
-                        : Text(
-                            gen.AppLocalizations.of(context).change_password,
-                            style: TextStyle(
-                                fontSize: 0.045 * width,
-                                fontWeight: FontWeight.normal,
-                                color: Colors.white),
-                          ),
-                  )),
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Text(gen.AppLocalizations.of(context).change_password),
+                  ),
+                ),
+              ),
             ],
           ),
         )));

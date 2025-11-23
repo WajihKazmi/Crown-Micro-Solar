@@ -48,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late final DevicesScreen _devicesScreenWidget;
   late AlarmViewModel _alarmViewModel;
   late DeviceViewModel _deviceViewModel;
+  bool _appliedInitialTabFromArgs = false;
 
   @override
   void initState() {
@@ -56,8 +57,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _dashboardViewModel = getIt<DashboardViewModel>();
     _realtimeDataService = getIt<RealtimeDataService>();
     _deviceViewModel = getIt<DeviceViewModel>();
-    _devicesScreenWidget =
-        const DevicesScreen(key: PageStorageKey('devices_screen_body'));
+    _devicesScreenWidget = const DevicesScreen(
+      key: PageStorageKey('devices_screen_body'),
+    );
     _realtimeDataService.start();
     _alarmViewModel = getIt<AlarmViewModel>();
 
@@ -86,6 +88,22 @@ class _HomeScreenState extends State<HomeScreen> {
     _dashboardViewModel.loadDashboardData();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Apply initial tab index from route arguments once (supports deep links or explicit navigation)
+    if (!_appliedInitialTabFromArgs) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map && args['tabIndex'] is int) {
+        final idx = args['tabIndex'] as int;
+        if (idx != _currentIndex && idx >= 0 && idx <= 3) {
+          setState(() => _currentIndex = idx);
+        }
+      }
+      _appliedInitialTabFromArgs = true;
+    }
+  }
+
   // Extract username after underscore (e.g., "Crown213_bilal" -> "bilal")
   String _extractUsername(String username) {
     if (username.contains('_')) {
@@ -110,9 +128,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (standaloneCount == 1 && collectorCount == 0) {
         final device = _deviceViewModel.standaloneDevices.first;
         Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => DeviceDetailScreen(device: device),
-          ),
+          MaterialPageRoute(builder: (_) => DeviceDetailScreen(device: device)),
         );
         return; // Don't change tab index
       }
@@ -165,15 +181,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 final auth = Provider.of<AuthViewModel>(context, listen: false);
                 await auth.logout();
                 if (mounted) {
-                  Navigator.of(context)
-                      .pushNamedAndRemoveUntil('/login', (r) => false);
+                  Navigator.of(
+                    context,
+                  ).pushNamedAndRemoveUntil('/login', (r) => false);
                 }
               } catch (e) {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Logout failed: $e',
-                          style: const TextStyle(color: Colors.black)),
+                      content: Text(
+                        'Logout failed: $e',
+                        style: const TextStyle(color: Colors.black),
+                      ),
                       backgroundColor: Colors.white,
                     ),
                   );
@@ -206,24 +225,35 @@ class _HomeScreenState extends State<HomeScreen> {
               final agent = agents[index];
               return ListTile(
                 trailing: const Icon(Icons.arrow_right),
-                title: Text('SN: ${agent['SNNumber']}',
-                    style: const TextStyle(
-                        fontSize: 12, fontWeight: FontWeight.bold)),
-                subtitle: Text('Username: ${agent['Username']}'.toUpperCase(),
-                    style: const TextStyle(
-                        fontSize: 10, fontWeight: FontWeight.bold)),
+                title: Text(
+                  'SN: ${agent['SNNumber']}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                subtitle: Text(
+                  'Username: ${agent['Username']}'.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 onTap: () async {
                   Navigator.of(dialogContext).pop();
                   final success = await authViewModel.loginAgent(
-                      agent['Username'], agent['Password']);
+                    agent['Username'],
+                    agent['Password'],
+                  );
                   if (success) {
                     await _refreshDataForNewUser();
                   } else if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(
-                            'Failed to switch: ${authViewModel.error ?? 'Unknown'}',
-                            style: const TextStyle(color: Colors.black)),
+                          'Failed to switch: ${authViewModel.error ?? 'Unknown'}',
+                          style: const TextStyle(color: Colors.black),
+                        ),
                         backgroundColor: Colors.white,
                       ),
                     );
@@ -235,8 +265,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
         ],
       ),
     );
@@ -427,17 +458,20 @@ class _HomeScreenState extends State<HomeScreen> {
                     centerTitle: true,
                     actions: [
                       // Debug visibility print (single consolidated)
-                      Builder(builder: (ctx) {
-                        // ignore: avoid_print
-                        print(
+                      Builder(
+                        builder: (ctx) {
+                          // ignore: avoid_print
+                          print(
                             'HomeScreen SliverAppBar actions build: isInstaller=' +
                                 authViewModel.isInstaller.toString() +
                                 ' agentsListLength=' +
                                 ((authViewModel.agentsList?.length)
                                         ?.toString() ??
-                                    'null'));
-                        return const SizedBox.shrink();
-                      }),
+                                    'null'),
+                          );
+                          return const SizedBox.shrink();
+                        },
+                      ),
                       if (authViewModel.isInstaller ||
                           (authViewModel.agentsList?.isNotEmpty ?? false))
                         BorderedIconButton(
@@ -491,7 +525,7 @@ class _OverviewBodyState extends State<_OverviewBody> {
   double? _resolvedCurrentPowerKw;
   bool _resolvingMetrics = false;
   double?
-      _fallbackDailyKwh; // computed via EnergyRepository if realtime is zero
+  _fallbackDailyKwh; // computed via EnergyRepository if realtime is zero
   bool _computingDaily = false;
   // Device energy data from webQueryDeviceEs (matching old app)
   double _todayGenerationSum = 0.0;
@@ -544,9 +578,10 @@ class _OverviewBodyState extends State<_OverviewBody> {
           _totalInstalledCapacityFromAPI = results[1]; // in kW
         });
         print(
-            '_OverviewBodyState: API metrics updated - Current Power: ${results[0]}W, Installed Capacity: ${results[1]}kW');
+          '_OverviewBodyState: API metrics updated - Current Power: ${results[0]}W, Installed Capacity: ${results[1]}kW',
+        );
       }
-      
+
       // ALSO refresh device-level energy data to get current outpower
       // This ensures we have the most recent device output power values
       final plantViewModel = getIt<PlantViewModel>();
@@ -554,20 +589,24 @@ class _OverviewBodyState extends State<_OverviewBody> {
         final firstPlantId = plantViewModel.plants.first.id;
         try {
           final deviceRepo = getIt<DeviceRepository>();
-          final deviceBundle =
-              await deviceRepo.getDevicesAndCollectors(firstPlantId);
+          final deviceBundle = await deviceRepo.getDevicesAndCollectors(
+            firstPlantId,
+          );
           final allDevices = (deviceBundle['allDevices'] as List?) ?? [];
 
           final deviceSNs = <String>[];
           for (final d in allDevices) {
-            final sn = (d is Map ? d['sn'] : (d as dynamic).sn)?.toString() ?? '';
+            final sn =
+                (d is Map ? d['sn'] : (d as dynamic).sn)?.toString() ?? '';
             if (sn.isNotEmpty) {
               deviceSNs.add(sn);
             }
           }
 
           if (deviceSNs.isNotEmpty) {
-            print('_OverviewBodyState: Refreshing energy data for ${deviceSNs.length} devices');
+            print(
+              '_OverviewBodyState: Refreshing energy data for ${deviceSNs.length} devices',
+            );
             await _fetchAllDevicesEnergyData(deviceSNs);
           }
         } catch (e) {
@@ -591,8 +630,9 @@ class _OverviewBodyState extends State<_OverviewBody> {
       print('_OverviewBodyState: Using plant ID: $firstPlantId');
       try {
         final deviceRepo = getIt<DeviceRepository>();
-        final deviceBundle =
-            await deviceRepo.getDevicesAndCollectors(firstPlantId);
+        final deviceBundle = await deviceRepo.getDevicesAndCollectors(
+          firstPlantId,
+        );
         final allDevices = (deviceBundle['allDevices'] as List?) ?? [];
         print('_OverviewBodyState: Found ${allDevices.length} devices');
 
@@ -607,7 +647,8 @@ class _OverviewBodyState extends State<_OverviewBody> {
 
         if (deviceSNs.isNotEmpty) {
           print(
-              '_OverviewBodyState: Fetching energy data for ${deviceSNs.length} devices on init');
+            '_OverviewBodyState: Fetching energy data for ${deviceSNs.length} devices on init',
+          );
           await _fetchAllDevicesEnergyData(deviceSNs);
           print('_OverviewBodyState: Energy data fetch complete');
         } else {
@@ -630,7 +671,8 @@ class _OverviewBodyState extends State<_OverviewBody> {
     _fetchingDeviceEnergy = true;
 
     print(
-        '=== Starting _fetchAllDevicesEnergyData for ${deviceSNs.length} devices ===');
+      '=== Starting _fetchAllDevicesEnergyData for ${deviceSNs.length} devices ===',
+    );
     print('Device SNs: $deviceSNs');
 
     try {
@@ -657,10 +699,12 @@ class _OverviewBodyState extends State<_OverviewBody> {
       if (deviceSNs.isNotEmpty) {
         // Find collector (shorter SN, typically 15-17 chars) or use first device
         final collectors = deviceSNs.where((sn) => sn.length <= 17).toList();
-        collectorSN =
-            collectors.isNotEmpty ? collectors.first : deviceSNs.first;
+        collectorSN = collectors.isNotEmpty
+            ? collectors.first
+            : deviceSNs.first;
         print(
-            'Using SN for energy query: $collectorSN (collector: ${collectors.isNotEmpty})');
+          'Using SN for energy query: $collectorSN (collector: ${collectors.isNotEmpty})',
+        );
       }
 
       if (collectorSN == null || collectorSN.isEmpty) {
@@ -679,7 +723,9 @@ class _OverviewBodyState extends State<_OverviewBody> {
         print('Fetching energy data with SN: $collectorSN');
         print('URL: $url');
 
-        final response = await getIt<ApiClient>().signedPost(url).timeout(
+        final response = await getIt<ApiClient>()
+            .signedPost(url)
+            .timeout(
               const Duration(seconds: 15),
               onTimeout: () =>
                   throw TimeoutException('Request timeout for SN $collectorSN'),
@@ -697,8 +743,9 @@ class _OverviewBodyState extends State<_OverviewBody> {
           // The API returns device data in dat['device'] as an array
           List<dynamic> devices;
           if (dat['device'] != null) {
-            devices =
-                dat['device'] is List ? dat['device'] as List : [dat['device']];
+            devices = dat['device'] is List
+                ? dat['device'] as List
+                : [dat['device']];
             print('Found dat["device"] array with ${devices.length} items');
           } else {
             // Single device response - data is directly in dat
@@ -716,26 +763,30 @@ class _OverviewBodyState extends State<_OverviewBody> {
             final energyTodayStr = device['energyToday']?.toString() ?? '0';
             final energyToday = double.tryParse(energyTodayStr) ?? 0.0;
             print(
-                'Device SN: ${device['sn']}, energyToday: "$energyTodayStr" = $energyToday kWh');
+              'Device SN: ${device['sn']}, energyToday: "$energyTodayStr" = $energyToday kWh',
+            );
             todaySum += energyToday;
 
             // Parse energyTotal
             final energyTotalStr = device['energyTotal']?.toString() ?? '0';
             final energyTotal = double.tryParse(energyTotalStr) ?? 0.0;
             print(
-                'Device SN: ${device['sn']}, energyTotal: "$energyTotalStr" = $energyTotal kWh');
+              'Device SN: ${device['sn']}, energyTotal: "$energyTotalStr" = $energyTotal kWh',
+            );
             totalSum += energyTotal;
 
             // Parse outpower (current power generation)
             final outpowerStr = device['outpower']?.toString() ?? '0';
             final outpower = double.tryParse(outpowerStr) ?? 0.0;
             print(
-                'Device SN: ${device['sn']}, outpower: "$outpowerStr" = $outpower W');
+              'Device SN: ${device['sn']}, outpower: "$outpowerStr" = $outpower W',
+            );
             powerSum += outpower;
           }
         } else {
           print(
-              'Error in webQueryDeviceEs response: err=${jsonData['err']}, desc=${jsonData['desc']}');
+            'Error in webQueryDeviceEs response: err=${jsonData['err']}, desc=${jsonData['desc']}',
+          );
         }
       } catch (e) {
         print('Error fetching energy data: $e');
@@ -749,9 +800,11 @@ class _OverviewBodyState extends State<_OverviewBody> {
         });
         print('=== FINAL SUMS ===');
         print(
-            'Today: $todaySum kWh, Total: $totalSum kWh, Current: $powerSum W');
+          'Today: $todaySum kWh, Total: $totalSum kWh, Current: $powerSum W',
+        );
         print(
-            'State updated: _todayGenerationSum=$_todayGenerationSum, _totalGenerationSum=$_totalGenerationSum, _currentPowerSum=$_currentPowerSum');
+          'State updated: _todayGenerationSum=$_todayGenerationSum, _totalGenerationSum=$_totalGenerationSum, _currentPowerSum=$_currentPowerSum',
+        );
       }
     } catch (e) {
       print('Error in _fetchAllDevicesEnergyData: $e');
@@ -790,15 +843,17 @@ class _OverviewBodyState extends State<_OverviewBody> {
       final energyRepo = getIt<EnergyRepository>();
 
       // Fetch total profits (all time)
-      final totalProfits =
-          await energyRepo.queryPlantsProfitStatistic(Date: 'all');
+      final totalProfits = await energyRepo.queryPlantsProfitStatistic(
+        Date: 'all',
+      );
 
       // Fetch today's profits
       final today = DateTime.now();
       final todayFormatted =
           '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-      final todayProfits =
-          await energyRepo.queryPlantsProfitStatistic(Date: todayFormatted);
+      final todayProfits = await energyRepo.queryPlantsProfitStatistic(
+        Date: todayFormatted,
+      );
 
       if (mounted) {
         setState(() {
@@ -889,454 +944,747 @@ class _OverviewBodyState extends State<_OverviewBody> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer5<PlantViewModel, DashboardViewModel, RealtimeDataService,
-        OverviewGraphViewModel, DeviceViewModel>(
-      builder: (
-        context,
-        plantViewModel,
-        dashboardViewModel,
-        realtimeService,
-        graphVM,
-        deviceVM,
-        child,
-      ) {
-        // Trigger graph preloading once plants are available
-        if (!_initialized && plantViewModel.plants.isNotEmpty) {
-          _initialized = true;
-          // Defer to next microtask to avoid doing async work mid-build
-          final firstId = plantViewModel.plants.first.id;
-          Future.microtask(() async {
-            try {
-              print('HomeScreen: Initializing graph for plantId: $firstId');
-              await graphVM.init(firstId);
-              print('HomeScreen: Graph initialization complete');
-            } catch (e) {
-              print('HomeScreen: Graph initialization failed: $e');
+    return Consumer5<
+      PlantViewModel,
+      DashboardViewModel,
+      RealtimeDataService,
+      OverviewGraphViewModel,
+      DeviceViewModel
+    >(
+      builder:
+          (
+            context,
+            plantViewModel,
+            dashboardViewModel,
+            realtimeService,
+            graphVM,
+            deviceVM,
+            child,
+          ) {
+            // Trigger graph preloading once plants are available
+            if (!_initialized && plantViewModel.plants.isNotEmpty) {
+              _initialized = true;
+              // Defer to next microtask to avoid doing async work mid-build
+              final firstId = plantViewModel.plants.first.id;
+              Future.microtask(() async {
+                try {
+                  print('HomeScreen: Initializing graph for plantId: $firstId');
+                  await graphVM.init(firstId);
+                  print('HomeScreen: Graph initialization complete');
+                } catch (e) {
+                  print('HomeScreen: Graph initialization failed: $e');
+                }
+                try {
+                  await _resolveCurrentPower(firstId);
+                } catch (e) {
+                  print('HomeScreen: Failed to resolve current power: $e');
+                }
+                try {
+                  await _fetchProfitStatistics();
+                } catch (e) {
+                  print('HomeScreen: Failed to fetch profit statistics: $e');
+                }
+                try {
+                  // Fetch device energy data (energyToday, energyTotal, outpower)
+                  final deviceRepo = getIt<DeviceRepository>();
+                  final deviceBundle = await deviceRepo.getDevicesAndCollectors(
+                    firstId,
+                  );
+                  final allDevices =
+                      (deviceBundle['allDevices'] as List<Device>?) ?? [];
+                  final deviceSNs = allDevices
+                      .map((d) => d.sn)
+                      .where((sn) => sn.isNotEmpty)
+                      .toList();
+                  if (deviceSNs.isNotEmpty) {
+                    await _fetchAllDevicesEnergyData(deviceSNs);
+                  }
+                } catch (e) {
+                  print('HomeScreen: Failed to fetch device energy data: $e');
+                }
+                try {
+                  // Ensure dashboard aggregates run after plants arrive
+                  await dashboardViewModel.loadDashboardData();
+                } catch (e) {
+                  print('HomeScreen: Failed to load dashboard data: $e');
+                }
+              });
             }
-            try {
-              await _resolveCurrentPower(firstId);
-            } catch (e) {
-              print('HomeScreen: Failed to resolve current power: $e');
-            }
-            try {
-              await _fetchProfitStatistics();
-            } catch (e) {
-              print('HomeScreen: Failed to fetch profit statistics: $e');
-            }
-            try {
-              // Fetch device energy data (energyToday, energyTotal, outpower)
-              final deviceRepo = getIt<DeviceRepository>();
-              final deviceBundle =
-                  await deviceRepo.getDevicesAndCollectors(firstId);
-              final allDevices =
-                  (deviceBundle['allDevices'] as List<Device>?) ?? [];
-              final deviceSNs = allDevices
-                  .map((d) => d.sn)
-                  .where((sn) => sn.isNotEmpty)
-                  .toList();
-              if (deviceSNs.isNotEmpty) {
-                await _fetchAllDevicesEnergyData(deviceSNs);
+            // Proactively kick off loads ASAP if plants known but some values not yet computed
+            if (plantViewModel.plants.isNotEmpty) {
+              final firstId = plantViewModel.plants.first.id;
+              // Fire-and-forget parallel loads to reduce perceived delay
+              if (_resolvedCurrentPowerKw == null && !_resolvingMetrics) {
+                Future.microtask(() => _resolveCurrentPower(firstId));
               }
-            } catch (e) {
-              print('HomeScreen: Failed to fetch device energy data: $e');
+              if ((_fallbackDailyKwh == null || _fallbackDailyKwh == 0) &&
+                  !_computingDaily) {
+                Future.microtask(
+                  () => _computeDailyEnergyFallback(plantViewModel.plants),
+                );
+              }
             }
-            try {
-              // Ensure dashboard aggregates run after plants arrive
-              await dashboardViewModel.loadDashboardData();
-            } catch (e) {
-              print('HomeScreen: Failed to load dashboard data: $e');
+            // Do not block the UI with a full-screen spinner or error; render placeholders instead.
+            // We intentionally avoid early returns here so the rest of the overview remains usable
+            // even if data is still loading or failed.
+            // Use real-time data if available
+            final plants = realtimeService.plants.isNotEmpty
+                ? realtimeService.plants
+                : plantViewModel.plants;
+            // Aggregate daily generation across all plants (kWh)
+            double totalDailyGenerationKwh = 0.0;
+            for (final p in plants) {
+              final dg = p.dailyGeneration;
+              if (dg.isFinite) totalDailyGenerationKwh += dg;
             }
-          });
-        }
-        // Proactively kick off loads ASAP if plants known but some values not yet computed
-        if (plantViewModel.plants.isNotEmpty) {
-          final firstId = plantViewModel.plants.first.id;
-          // Fire-and-forget parallel loads to reduce perceived delay
-          if (_resolvedCurrentPowerKw == null && !_resolvingMetrics) {
-            Future.microtask(() => _resolveCurrentPower(firstId));
-          }
-          if ((_fallbackDailyKwh == null || _fallbackDailyKwh == 0) &&
-              !_computingDaily) {
-            Future.microtask(
-                () => _computeDailyEnergyFallback(plantViewModel.plants));
-          }
-        }
-        // Do not block the UI with a full-screen spinner or error; render placeholders instead.
-        // We intentionally avoid early returns here so the rest of the overview remains usable
-        // even if data is still loading or failed.
-        // Use real-time data if available
-        final plants = realtimeService.plants.isNotEmpty
-            ? realtimeService.plants
-            : plantViewModel.plants;
-        // Aggregate daily generation across all plants (kWh)
-        double totalDailyGenerationKwh = 0.0;
-        for (final p in plants) {
-          final dg = p.dailyGeneration;
-          if (dg.isFinite) totalDailyGenerationKwh += dg;
-        }
-        if (totalDailyGenerationKwh == 0 && _fallbackDailyKwh == null) {
-          // kick off fallback computation async
-          _computeDailyEnergyFallback(plants);
-        }
-        if (totalDailyGenerationKwh == 0 && (_fallbackDailyKwh ?? 0) > 0) {
-          totalDailyGenerationKwh = _fallbackDailyKwh!;
-        }
+            if (totalDailyGenerationKwh == 0 && _fallbackDailyKwh == null) {
+              // kick off fallback computation async
+              _computeDailyEnergyFallback(plants);
+            }
+            if (totalDailyGenerationKwh == 0 && (_fallbackDailyKwh ?? 0) > 0) {
+              totalDailyGenerationKwh = _fallbackDailyKwh!;
+            }
 
-        // FIXED: Installed capacity from API instead of just first plant
-        // Uses new getTotalInstalledCapacity() API that queries all power stations
-        // Use API value if available and > 0, otherwise fall back to first plant capacity
-        final installedCapacity = (_totalInstalledCapacityFromAPI != null &&
-                _totalInstalledCapacityFromAPI! > 0)
-            ? _totalInstalledCapacityFromAPI!
-            : (plants.isNotEmpty ? plants.first.capacity : 0.0);
+            // FIXED: Installed capacity from API instead of just first plant
+            // Uses new getTotalInstalledCapacity() API that queries all power stations
+            // Use API value if available and > 0, otherwise fall back to first plant capacity
+            final installedCapacity =
+                (_totalInstalledCapacityFromAPI != null &&
+                    _totalInstalledCapacityFromAPI! > 0)
+                ? _totalInstalledCapacityFromAPI!
+                : (plants.isNotEmpty ? plants.first.capacity : 0.0);
 
-        print(
-            'Overview: Installed Capacity - API: $_totalInstalledCapacityFromAPI, Using: $installedCapacity');
+            print(
+              'Overview: Installed Capacity - API: $_totalInstalledCapacityFromAPI, Using: $installedCapacity',
+            );
 
-        // FIXED: Current power generation from API
-        // Prefer API value from getTotalCurrentPower(), then fall back to existing logic
-        double devicesSumLegacy = 0.0;
-        if (deviceVM.allDevices.isNotEmpty) {
-          for (final d in deviceVM.allDevices) {
-            devicesSumLegacy +=
-                (d.currentPower.isFinite ? d.currentPower : 0.0);
-          }
-        }
+            // FIXED: Current power generation from API
+            // Prefer API value from getTotalCurrentPower(), then fall back to existing logic
+            double devicesSumLegacy = 0.0;
+            if (deviceVM.allDevices.isNotEmpty) {
+              for (final d in deviceVM.allDevices) {
+                devicesSumLegacy += (d.currentPower.isFinite
+                    ? d.currentPower
+                    : 0.0);
+              }
+            }
 
-        print(
-            'Overview: Current Power Sources - API: $_totalCurrentPowerFromAPI, Energy Sum: $_currentPowerSum, Resolved: $_resolvedCurrentPowerKw, Realtime: ${realtimeService.totalCurrentPower}, Legacy: $devicesSumLegacy');
+            print(
+              'Overview: Current Power Sources - API: $_totalCurrentPowerFromAPI, Energy Sum: $_currentPowerSum, Resolved: $_resolvedCurrentPowerKw, Realtime: ${realtimeService.totalCurrentPower}, Legacy: $devicesSumLegacy',
+            );
 
-        // Priority: API value (if > 0) > device energy sum > resolved metric > realtime service > legacy sum
-        final totalOutput = (_totalCurrentPowerFromAPI != null &&
-                _totalCurrentPowerFromAPI! > 0)
-            ? _totalCurrentPowerFromAPI!
-            : (_currentPowerSum > 0
-                ? _currentPowerSum
-                : (_resolvedCurrentPowerKw != null
-                    ? _resolvedCurrentPowerKw! *
-                        1000 // convert kW back to W for consistency below then format
-                    : (realtimeService.totalCurrentPower > 0
-                        ? realtimeService.totalCurrentPower
-                        : (devicesSumLegacy > 0 ? devicesSumLegacy : 0.0))));
+            // Priority: API value (if > 0) > device energy sum > resolved metric > realtime service > legacy sum
+            final totalOutput =
+                (_totalCurrentPowerFromAPI != null &&
+                    _totalCurrentPowerFromAPI! > 0)
+                ? _totalCurrentPowerFromAPI!
+                : (_currentPowerSum > 0
+                      ? _currentPowerSum
+                      : (_resolvedCurrentPowerKw != null
+                            ? _resolvedCurrentPowerKw! *
+                                  1000 // convert kW back to W for consistency below then format
+                            : (realtimeService.totalCurrentPower > 0
+                                  ? realtimeService.totalCurrentPower
+                                  : (devicesSumLegacy > 0
+                                        ? devicesSumLegacy
+                                        : 0.0))));
 
-        print(
-            'Overview: Total Output Power Using: $totalOutput W (${totalOutput / 1000} kW)');
-        final totalCapacity = installedCapacity; // keep old name for UI below
-        final totalPlants = plants.length;
-        // You can add more aggregations as needed
-        return SingleChildScrollView(
-          child: Column(
-            children: [
-              Container(
-                margin: const EdgeInsets.fromLTRB(10, 10, 10, 0),
-                height: 370, // Slightly taller to allow added spacing
-                // decoration: BoxDecoration(
-                //   color: const Color(0xFFFFEBEE),
-                //   borderRadius: BorderRadius.circular(24),
-                // ),
-                child: Stack(
-                  children: [
-                    // Background image with fixed position
-                    Positioned.fill(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: Image.asset(
-                          'assets/images/overview_bg.png',
-                          fit: BoxFit.cover, // Cover entire container
-                        ),
-                      ),
-                    ),
-                    // Content positioned over the background
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+            print(
+              'Overview: Total Output Power Using: $totalOutput W (${totalOutput / 1000} kW)',
+            );
+            final totalCapacity =
+                installedCapacity; // keep old name for UI below
+            final totalPlants = plants.length;
+            // You can add more aggregations as needed
+            return SingleChildScrollView(
+              child: Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(10, 10, 10, 0),
+                    height: 370, // Slightly taller to allow added spacing
+                    // decoration: BoxDecoration(
+                    //   color: const Color(0xFFFFEBEE),
+                    //   borderRadius: BorderRadius.circular(24),
+                    // ),
+                    child: Stack(
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 30,
-                            vertical: 10,
+                        // Background image with fixed position
+                        Positioned.fill(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(20),
+                            child: Image.asset(
+                              'assets/images/overview_bg.png',
+                              fit: BoxFit.cover, // Cover entire container
+                            ),
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    realtimeService.isRunning
-                                        ? gen.AppLocalizations.of(
-                                            context,
-                                          ).live_data
-                                        : (plants.isNotEmpty
-                                            ? 'Last updated: ${plants.first.lastUpdate.hour}:${plants.first.lastUpdate.minute.toString().padLeft(2, '0')}'
-                                            : ''),
-                                    style: TextStyle(
-                                      color: Colors
-                                          .black, // Changed to black as per requirements
-                                      fontSize: 12,
-                                      fontWeight: realtimeService.isRunning
-                                          ? FontWeight.bold
-                                          : FontWeight.normal,
-                                    ),
-                                  ),
-                                ],
+                        ),
+                        // Content positioned over the background
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 30,
+                                vertical: 10,
                               ),
-                              const SizedBox(
-                                height: 22,
-                              ), // extra padding between image top content and cards
-                              Row(
+                              child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Flexible(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        GestureDetector(
-                                          onTap: () => setState(() =>
-                                              _showTotalGeneration =
-                                                  !_showTotalGeneration),
-                                          child: _InfoCard(
-                                            icon:
-                                                'assets/icons/home/thunder.svg',
-                                            label: _showTotalGeneration
-                                                ? 'Total Power Generation'
-                                                : "Today's Power Generation",
-                                            value: _showTotalGeneration
-                                                ? _totalGenerationSum
-                                                    .toStringAsFixed(1)
-                                                : _todayGenerationSum
-                                                    .toStringAsFixed(1),
-                                            unit: 'KWH',
-                                          ),
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        realtimeService.isRunning
+                                            ? gen.AppLocalizations.of(
+                                                context,
+                                              ).live_data
+                                            : (plants.isNotEmpty
+                                                  ? 'Last updated: ${plants.first.lastUpdate.hour}:${plants.first.lastUpdate.minute.toString().padLeft(2, '0')}'
+                                                  : ''),
+                                        style: TextStyle(
+                                          color: Colors
+                                              .black, // Changed to black as per requirements
+                                          fontSize: 12,
+                                          fontWeight: realtimeService.isRunning
+                                              ? FontWeight.bold
+                                              : FontWeight.normal,
                                         ),
-                                        const SizedBox(
-                                          height: 18,
-                                        ), // increased vertical gap between stacked cards
-                                        _InfoCard(
-                                          icon:
-                                              'assets/icons/home/capacity.svg',
-                                          label: gen.AppLocalizations.of(
-                                            context,
-                                          ).total_installed_capacity,
-                                          value:
-                                              totalCapacity.toStringAsFixed(1),
-                                          unit: 'KW',
-                                        ),
-                                        const SizedBox(height: 18),
-                                        // Removed duplicate card per request: previously 'Total Daily Generation'
-                                        const SizedBox(height: 18),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 30),
-                                  SizedBox(
-                                    width: 120, // Fixed width
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .surface, // Use theme surface color
-                                        borderRadius: BorderRadius.circular(
-                                          16,
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withOpacity(
-                                              0.1,
-                                            ),
-                                            blurRadius: 5,
-                                            offset: const Offset(0, 2),
-                                          ),
-                                        ],
                                       ),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: 10,
-                                          horizontal: 10,
-                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(
+                                    height: 22,
+                                  ), // extra padding between image top content and cards
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Flexible(
                                         child: Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
-                                            Text(
-                                              totalOutput > 0
-                                                  ? (totalOutput / 1000)
-                                                      .toStringAsFixed(2)
-                                                  : "0.00",
-                                              style: TextStyle(
-                                                fontSize: 27,
-                                                fontWeight: FontWeight.bold,
-                                                color: Theme.of(
-                                                  context,
-                                                ).colorScheme.primary,
+                                            GestureDetector(
+                                              onTap: () => setState(
+                                                () => _showTotalGeneration =
+                                                    !_showTotalGeneration,
+                                              ),
+                                              child: _InfoCard(
+                                                icon:
+                                                    'assets/icons/home/thunder.svg',
+                                                label: _showTotalGeneration
+                                                    ? 'Total Power Generation'
+                                                    : "Today's Power Generation",
+                                                value: _showTotalGeneration
+                                                    ? _totalGenerationSum
+                                                          .toStringAsFixed(1)
+                                                    : _todayGenerationSum
+                                                          .toStringAsFixed(1),
+                                                unit: 'KWH',
                                               ),
                                             ),
-                                            Text(
-                                              'kW',
-                                              style: TextStyle(
-                                                fontSize: 16,
-                                                color: Theme.of(
-                                                  context,
-                                                ).colorScheme.primary,
-                                                fontWeight: FontWeight.bold,
-                                              ),
+                                            const SizedBox(
+                                              height: 18,
+                                            ), // increased vertical gap between stacked cards
+                                            _InfoCard(
+                                              icon:
+                                                  'assets/icons/home/capacity.svg',
+                                              label: gen.AppLocalizations.of(
+                                                context,
+                                              ).total_installed_capacity,
+                                              value: totalCapacity
+                                                  .toStringAsFixed(1),
+                                              unit: 'KW',
                                             ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              'Current Power\n Generation',
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                color: Theme.of(context)
-                                                    .colorScheme
-                                                    .onSurface,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                              textAlign: TextAlign.center,
-                                            ),
-                                            Text(
-                                              'All Power Stations',
-                                              style: TextStyle(
-                                                fontSize: 8,
-                                                color: Theme.of(context)
-                                                    .colorScheme
-                                                    .onSurface
-                                                    .withOpacity(0.6),
-                                              ),
-                                            ),
+                                            const SizedBox(height: 18),
+                                            // Removed duplicate card per request: previously 'Total Daily Generation'
+                                            const SizedBox(height: 18),
                                           ],
                                         ),
                                       ),
-                                    ),
+                                      const SizedBox(width: 30),
+                                      SizedBox(
+                                        width: 120, // Fixed width
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .surface, // Use theme surface color
+                                            borderRadius: BorderRadius.circular(
+                                              16,
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withOpacity(
+                                                  0.1,
+                                                ),
+                                                blurRadius: 5,
+                                                offset: const Offset(0, 2),
+                                              ),
+                                            ],
+                                          ),
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 10,
+                                              horizontal: 10,
+                                            ),
+                                            child: Column(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              children: [
+                                                Text(
+                                                  totalOutput > 0
+                                                      ? (totalOutput / 1000)
+                                                            .toStringAsFixed(2)
+                                                      : "0.00",
+                                                  style: TextStyle(
+                                                    fontSize: 27,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Theme.of(
+                                                      context,
+                                                    ).colorScheme.primary,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  'kW',
+                                                  style: TextStyle(
+                                                    fontSize: 16,
+                                                    color: Theme.of(
+                                                      context,
+                                                    ).colorScheme.primary,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  'Current Power\n Generation',
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    color: Theme.of(
+                                                      context,
+                                                    ).colorScheme.onSurface,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                  textAlign: TextAlign.center,
+                                                ),
+                                                Text(
+                                                  'All Power Stations',
+                                                  style: TextStyle(
+                                                    fontSize: 8,
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurface
+                                                        .withOpacity(0.6),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
-                            ],
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 25),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: _SummaryCard(
+                            icon: 'assets/icons/home/totalPlants.svg',
+                            label: 'Total Plant',
+                            value: totalPlants.toString(),
+                          ),
+                        ),
+                        Expanded(
+                          child: _SummaryCard(
+                            icon: 'assets/icons/home/totalDevices.svg',
+                            label: 'Total Device',
+                            value: (() {
+                              final dv = deviceVM.totalDeviceCount;
+                              final dd = dashboardViewModel.totalDevices;
+                              if (dv > 0) return dv.toString();
+                              if (dd > 0) return dd.toString();
+                              return '-';
+                            })(),
+                          ),
+                        ),
+                        Expanded(
+                          child: _SummaryCard(
+                            icon: 'assets/icons/home/totalAlarms.svg',
+                            label: 'Total Alarm',
+                            value: (() {
+                              final av = Provider.of<AlarmViewModel>(
+                                context,
+                                listen: false,
+                              ).warnings.length;
+                              final da = dashboardViewModel.totalAlarms;
+                              if (av > 0) return av.toString();
+                              if (da > 0) return da.toString();
+                              return '-';
+                            })(),
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const AlarmNotificationScreen(),
+                                ),
+                              );
+                            },
                           ),
                         ),
                       ],
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 25),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: _SummaryCard(
-                        icon: 'assets/icons/home/totalPlants.svg',
-                        label: 'Total Plant',
-                        value: totalPlants.toString(),
-                      ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Profit cards row - added below the main 3 cards
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 25),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: _SummaryCard(
+                            icon: 'assets/icons/home/thunder.svg',
+                            label: 'Profit Today',
+                            value:
+                                _dateProfitAll.isNotEmpty &&
+                                    _dateProfitAll != '0.00'
+                                ? (_dateProfitAll.contains('.')
+                                      ? _dateProfitAll.substring(
+                                          0,
+                                          _dateProfitAll.indexOf('.') + 3 >
+                                                  _dateProfitAll.length
+                                              ? _dateProfitAll.length
+                                              : _dateProfitAll.indexOf('.') + 3,
+                                        )
+                                      : _dateProfitAll)
+                                : '0.00',
+                            unit: _currency,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _SummaryCard(
+                            icon: 'assets/icons/home/thunder.svg',
+                            label: 'Total Profit',
+                            value:
+                                _totalProfitAll.isNotEmpty &&
+                                    _totalProfitAll != '0.00'
+                                ? (_totalProfitAll.contains('.')
+                                      ? _totalProfitAll.substring(
+                                          0,
+                                          _totalProfitAll.indexOf('.') + 3 >
+                                                  _totalProfitAll.length
+                                              ? _totalProfitAll.length
+                                              : _totalProfitAll.indexOf('.') +
+                                                    3,
+                                        )
+                                      : _totalProfitAll)
+                                : '0.00',
+                            unit: _currency,
+                          ),
+                        ),
+                      ],
                     ),
-                    Expanded(
-                      child: _SummaryCard(
-                        icon: 'assets/icons/home/totalDevices.svg',
-                        label: 'Total Device',
-                        value: (() {
-                          final dv = deviceVM.totalDeviceCount;
-                          final dd = dashboardViewModel.totalDevices;
-                          if (dv > 0) return dv.toString();
-                          if (dd > 0) return dd.toString();
-                          return '-';
-                        })(),
-                      ),
+                  ),
+                  // Removed Load/Grid/Battery cards per request
+                  // Combined parameter dropdown + period chips row
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
                     ),
-                    Expanded(
-                      child: _SummaryCard(
-                        icon: 'assets/icons/home/totalAlarms.svg',
-                        label: 'Total Alarm',
-                        value: (() {
-                          final av = Provider.of<AlarmViewModel>(context,
-                                  listen: false)
-                              .warnings
-                              .length;
-                          final da = dashboardViewModel.totalAlarms;
-                          if (av > 0) return av.toString();
-                          if (da > 0) return da.toString();
-                          return '-';
-                        })(),
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  const AlarmNotificationScreen(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Removed Output Power dropdown per requirements
+                        const SizedBox(height: 12),
+                        // Device selection dropdown
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Colors.black12,
+                                blurRadius: 4,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              value:
+                                  graphVM.selectedDeviceKey ??
+                                  (graphVM.deviceOptions.isNotEmpty
+                                      ? graphVM.deviceOptions.first.key
+                                      : '__ALL__'),
+                              isExpanded: true,
+                              icon: const Icon(Icons.keyboard_arrow_down),
+                              items: [
+                                DropdownMenuItem(
+                                  value: '__ALL__',
+                                  child: Text(
+                                    gen.AppLocalizations.of(context).devices,
+                                  ),
+                                ),
+                                ...graphVM.deviceOptions.map(
+                                  (d) => DropdownMenuItem(
+                                    value: d.key,
+                                    child: Text(d.label),
+                                  ),
+                                ),
+                              ],
+                              onChanged: (val) async {
+                                if (val == null) return;
+                                final plantId = plantViewModel.plants.isNotEmpty
+                                    ? plantViewModel.plants.first.id
+                                    : null;
+                                if (plantId == null) return;
+                                if (val == '__ALL__') {
+                                  await graphVM.setSelectedDevice(
+                                    '',
+                                    plantId: plantId,
+                                  );
+                                } else {
+                                  await graphVM.setSelectedDevice(
+                                    val,
+                                    plantId: plantId,
+                                  );
+                                }
+                                final allowed =
+                                    graphVM.allowedMetricsForSelectedDevice;
+                                if (!allowed.contains(_selectedMetric)) {
+                                  setState(() {
+                                    _selectedMetric = allowed.first;
+                                  });
+                                  await graphVM.setMetric(
+                                    _selectedMetric,
+                                    plantId: plantId,
+                                  );
+                                }
+                              },
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        // Period chips stacked below
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            ChoiceChip(
+                              label: Text(
+                                gen.AppLocalizations.of(context).range_day,
+                              ),
+                              selected: _selectedPeriod == GraphPeriod.day,
+                              onSelected: (s) async {
+                                if (!s) return;
+                                final plantId = plantViewModel.plants.isNotEmpty
+                                    ? plantViewModel.plants.first.id
+                                    : null;
+                                if (plantId == null) return;
+                                setState(
+                                  () => _selectedPeriod = GraphPeriod.day,
+                                );
+                                await graphVM.setPeriod(
+                                  GraphPeriod.day,
+                                  plantId: plantId,
+                                );
+                              },
+                            ),
+                            ChoiceChip(
+                              label: Text(
+                                gen.AppLocalizations.of(context).range_month,
+                              ),
+                              selected: _selectedPeriod == GraphPeriod.month,
+                              onSelected: (s) async {
+                                if (!s) return;
+                                final plantId = plantViewModel.plants.isNotEmpty
+                                    ? plantViewModel.plants.first.id
+                                    : null;
+                                if (plantId == null) return;
+                                setState(
+                                  () => _selectedPeriod = GraphPeriod.month,
+                                );
+                                await graphVM.setPeriod(
+                                  GraphPeriod.month,
+                                  plantId: plantId,
+                                );
+                              },
+                            ),
+                            ChoiceChip(
+                              label: Text(
+                                gen.AppLocalizations.of(context).range_year,
+                              ),
+                              selected: _selectedPeriod == GraphPeriod.year,
+                              onSelected: (s) async {
+                                if (!s) return;
+                                final plantId = plantViewModel.plants.isNotEmpty
+                                    ? plantViewModel.plants.first.id
+                                    : null;
+                                if (plantId == null) return;
+                                setState(
+                                  () => _selectedPeriod = GraphPeriod.year,
+                                );
+                                await graphVM.setPeriod(
+                                  GraphPeriod.year,
+                                  plantId: plantId,
+                                );
+                              },
+                            ),
+                            ChoiceChip(
+                              label: const Text('Total'),
+                              selected: _selectedPeriod == GraphPeriod.total,
+                              onSelected: (s) async {
+                                if (!s) return;
+                                final plantId = plantViewModel.plants.isNotEmpty
+                                    ? plantViewModel.plants.first.id
+                                    : null;
+                                if (plantId == null) return;
+                                setState(
+                                  () => _selectedPeriod = GraphPeriod.total,
+                                );
+                                await graphVM.setPeriod(
+                                  GraphPeriod.total,
+                                  plantId: plantId,
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              // Profit cards row - added below the main 3 cards
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 25),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: _SummaryCard(
-                        icon: 'assets/icons/home/thunder.svg',
-                        label: 'Profit Today',
-                        value: _dateProfitAll.isNotEmpty &&
-                                _dateProfitAll != '0.00'
-                            ? (_dateProfitAll.contains('.')
-                                ? _dateProfitAll.substring(
-                                    0,
-                                    _dateProfitAll.indexOf('.') + 3 >
-                                            _dateProfitAll.length
-                                        ? _dateProfitAll.length
-                                        : _dateProfitAll.indexOf('.') + 3)
-                                : _dateProfitAll)
-                            : '0.00',
-                        unit: _currency,
-                      ),
+                  ),
+                  // Date Selector
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _SummaryCard(
-                        icon: 'assets/icons/home/thunder.svg',
-                        label: 'Total Profit',
-                        value: _totalProfitAll.isNotEmpty &&
-                                _totalProfitAll != '0.00'
-                            ? (_totalProfitAll.contains('.')
-                                ? _totalProfitAll.substring(
-                                    0,
-                                    _totalProfitAll.indexOf('.') + 3 >
-                                            _totalProfitAll.length
-                                        ? _totalProfitAll.length
-                                        : _totalProfitAll.indexOf('.') + 3)
-                                : _totalProfitAll)
-                            : '0.00',
-                        unit: _currency,
-                      ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        IconButton(
+                          icon: Icon(Icons.arrow_left, color: Colors.black54),
+                          onPressed: () async {
+                            final plantId = plantViewModel.plants.isNotEmpty
+                                ? plantViewModel.plants.first.id
+                                : null;
+                            if (plantId == null) return;
+                            await graphVM.stepDate(-1, plantId: plantId);
+                          },
+                        ),
+                        Text(
+                          _selectedPeriod == GraphPeriod.day
+                              ? _formatDate(graphVM.anchor)
+                              : _selectedPeriod == GraphPeriod.month
+                              ? _formatMonth(graphVM.anchor)
+                              : _selectedPeriod == GraphPeriod.year
+                              ? graphVM.anchor.year.toString()
+                              : 'All Time',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        Builder(
+                          builder: (context) {
+                            final now = DateTime.now();
+                            bool canGoNext;
+                            switch (_selectedPeriod) {
+                              case GraphPeriod.day:
+                                final today = DateTime(
+                                  now.year,
+                                  now.month,
+                                  now.day,
+                                );
+                                final anchorDay = DateTime(
+                                  graphVM.anchor.year,
+                                  graphVM.anchor.month,
+                                  graphVM.anchor.day,
+                                );
+                                canGoNext = anchorDay.isBefore(today);
+                                break;
+                              case GraphPeriod.month:
+                                final thisMonth = DateTime(
+                                  now.year,
+                                  now.month,
+                                  1,
+                                );
+                                final anchorMonth = DateTime(
+                                  graphVM.anchor.year,
+                                  graphVM.anchor.month,
+                                  1,
+                                );
+                                canGoNext = anchorMonth.isBefore(thisMonth);
+                                break;
+                              case GraphPeriod.year:
+                                final thisYear = DateTime(now.year, 1, 1);
+                                final anchorYear = DateTime(
+                                  graphVM.anchor.year,
+                                  1,
+                                  1,
+                                );
+                                canGoNext = anchorYear.isBefore(thisYear);
+                                break;
+                              case GraphPeriod.total:
+                                canGoNext = false;
+                                break;
+                            }
+                            return IconButton(
+                              icon: Icon(
+                                Icons.arrow_right,
+                                color: canGoNext
+                                    ? Colors.black54
+                                    : Colors.black26,
+                              ),
+                              onPressed: canGoNext
+                                  ? () async {
+                                      final plantId =
+                                          plantViewModel.plants.isNotEmpty
+                                          ? plantViewModel.plants.first.id
+                                          : null;
+                                      if (plantId == null) return;
+                                      await graphVM.stepDate(
+                                        1,
+                                        plantId: plantId,
+                                      );
+                                    }
+                                  : null,
+                            );
+                          },
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-              // Removed Load/Grid/Battery cards per request
-              // Combined parameter dropdown + period chips row
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Removed Output Power dropdown per requirements
-                    const SizedBox(height: 12),
-                    // Device selection dropdown
-                    Container(
+                  ),
+                  // Chart Area
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: Container(
+                      // Reduced height to remove excessive bottom whitespace
+                      height: 240,
+                      width: double.infinity,
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: const [
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
                           BoxShadow(
                             color: Colors.black12,
                             blurRadius: 4,
@@ -1344,282 +1692,24 @@ class _OverviewBodyState extends State<_OverviewBody> {
                           ),
                         ],
                       ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
+                      child: Stack(
+                        children: [
+                          // Chart rendering
+                          Positioned.fill(
+                            child: _OverviewChart(state: graphVM.state),
                           ),
-                          value: graphVM.selectedDeviceKey ??
-                              (graphVM.deviceOptions.isNotEmpty
-                                  ? graphVM.deviceOptions.first.key
-                                  : '__ALL__'),
-                          isExpanded: true,
-                          icon: const Icon(Icons.keyboard_arrow_down),
-                          items: [
-                            DropdownMenuItem(
-                              value: '__ALL__',
-                              child: Text(
-                                  gen.AppLocalizations.of(context).devices),
-                            ),
-                            ...graphVM.deviceOptions.map(
-                              (d) => DropdownMenuItem(
-                                value: d.key,
-                                child: Text(d.label),
-                              ),
-                            ),
-                          ],
-                          onChanged: (val) async {
-                            if (val == null) return;
-                            final plantId = plantViewModel.plants.isNotEmpty
-                                ? plantViewModel.plants.first.id
-                                : null;
-                            if (plantId == null) return;
-                            if (val == '__ALL__') {
-                              await graphVM.setSelectedDevice(
-                                '',
-                                plantId: plantId,
-                              );
-                            } else {
-                              await graphVM.setSelectedDevice(
-                                val,
-                                plantId: plantId,
-                              );
-                            }
-                            final allowed =
-                                graphVM.allowedMetricsForSelectedDevice;
-                            if (!allowed.contains(_selectedMetric)) {
-                              setState(() {
-                                _selectedMetric = allowed.first;
-                              });
-                              await graphVM.setMetric(
-                                _selectedMetric,
-                                plantId: plantId,
-                              );
-                            }
-                          },
-                        ),
+                          // Removed '+ Add Datalogger' button for a cleaner chart card per Figma
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    // Period chips stacked below
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        ChoiceChip(
-                          label:
-                              Text(gen.AppLocalizations.of(context).range_day),
-                          selected: _selectedPeriod == GraphPeriod.day,
-                          onSelected: (s) async {
-                            if (!s) return;
-                            final plantId = plantViewModel.plants.isNotEmpty
-                                ? plantViewModel.plants.first.id
-                                : null;
-                            if (plantId == null) return;
-                            setState(
-                              () => _selectedPeriod = GraphPeriod.day,
-                            );
-                            await graphVM.setPeriod(
-                              GraphPeriod.day,
-                              plantId: plantId,
-                            );
-                          },
-                        ),
-                        ChoiceChip(
-                          label: Text(
-                              gen.AppLocalizations.of(context).range_month),
-                          selected: _selectedPeriod == GraphPeriod.month,
-                          onSelected: (s) async {
-                            if (!s) return;
-                            final plantId = plantViewModel.plants.isNotEmpty
-                                ? plantViewModel.plants.first.id
-                                : null;
-                            if (plantId == null) return;
-                            setState(
-                              () => _selectedPeriod = GraphPeriod.month,
-                            );
-                            await graphVM.setPeriod(
-                              GraphPeriod.month,
-                              plantId: plantId,
-                            );
-                          },
-                        ),
-                        ChoiceChip(
-                          label:
-                              Text(gen.AppLocalizations.of(context).range_year),
-                          selected: _selectedPeriod == GraphPeriod.year,
-                          onSelected: (s) async {
-                            if (!s) return;
-                            final plantId = plantViewModel.plants.isNotEmpty
-                                ? plantViewModel.plants.first.id
-                                : null;
-                            if (plantId == null) return;
-                            setState(
-                              () => _selectedPeriod = GraphPeriod.year,
-                            );
-                            await graphVM.setPeriod(
-                              GraphPeriod.year,
-                              plantId: plantId,
-                            );
-                          },
-                        ),
-                        ChoiceChip(
-                          label: const Text('Total'),
-                          selected: _selectedPeriod == GraphPeriod.total,
-                          onSelected: (s) async {
-                            if (!s) return;
-                            final plantId = plantViewModel.plants.isNotEmpty
-                                ? plantViewModel.plants.first.id
-                                : null;
-                            if (plantId == null) return;
-                            setState(() => _selectedPeriod = GraphPeriod.total);
-                            await graphVM.setPeriod(GraphPeriod.total,
-                                plantId: plantId);
-                          },
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              // Date Selector
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    IconButton(
-                      icon: Icon(Icons.arrow_left, color: Colors.black54),
-                      onPressed: () async {
-                        final plantId = plantViewModel.plants.isNotEmpty
-                            ? plantViewModel.plants.first.id
-                            : null;
-                        if (plantId == null) return;
-                        await graphVM.stepDate(-1, plantId: plantId);
-                      },
-                    ),
-                    Text(
-                      _selectedPeriod == GraphPeriod.day
-                          ? _formatDate(graphVM.anchor)
-                          : _selectedPeriod == GraphPeriod.month
-                              ? _formatMonth(graphVM.anchor)
-                              : _selectedPeriod == GraphPeriod.year
-                                  ? graphVM.anchor.year.toString()
-                                  : 'All Time',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                    Builder(
-                      builder: (context) {
-                        final now = DateTime.now();
-                        bool canGoNext;
-                        switch (_selectedPeriod) {
-                          case GraphPeriod.day:
-                            final today = DateTime(
-                              now.year,
-                              now.month,
-                              now.day,
-                            );
-                            final anchorDay = DateTime(
-                              graphVM.anchor.year,
-                              graphVM.anchor.month,
-                              graphVM.anchor.day,
-                            );
-                            canGoNext = anchorDay.isBefore(today);
-                            break;
-                          case GraphPeriod.month:
-                            final thisMonth = DateTime(
-                              now.year,
-                              now.month,
-                              1,
-                            );
-                            final anchorMonth = DateTime(
-                              graphVM.anchor.year,
-                              graphVM.anchor.month,
-                              1,
-                            );
-                            canGoNext = anchorMonth.isBefore(thisMonth);
-                            break;
-                          case GraphPeriod.year:
-                            final thisYear = DateTime(now.year, 1, 1);
-                            final anchorYear = DateTime(
-                              graphVM.anchor.year,
-                              1,
-                              1,
-                            );
-                            canGoNext = anchorYear.isBefore(thisYear);
-                            break;
-                          case GraphPeriod.total:
-                            canGoNext = false;
-                            break;
-                        }
-                        return IconButton(
-                          icon: Icon(
-                            Icons.arrow_right,
-                            color: canGoNext ? Colors.black54 : Colors.black26,
-                          ),
-                          onPressed: canGoNext
-                              ? () async {
-                                  final plantId =
-                                      plantViewModel.plants.isNotEmpty
-                                          ? plantViewModel.plants.first.id
-                                          : null;
-                                  if (plantId == null) return;
-                                  await graphVM.stepDate(
-                                    1,
-                                    plantId: plantId,
-                                  );
-                                }
-                              : null,
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              // Chart Area
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                child: Container(
-                  // Reduced height to remove excessive bottom whitespace
-                  height: 240,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 4,
-                        offset: Offset(0, 2),
-                      ),
-                    ],
                   ),
-                  child: Stack(
-                    children: [
-                      // Chart rendering
-                      Positioned.fill(
-                        child: _OverviewChart(state: graphVM.state),
-                      ),
-                      // Removed '+ Add Datalogger' button for a cleaner chart card per Figma
-                    ],
-                  ),
-                ),
+                  const SizedBox(height: 16),
+                  // Bottom padding for bottom navigation bar
+                  const SizedBox(height: 56),
+                ],
               ),
-              const SizedBox(height: 16),
-              // Bottom padding for bottom navigation bar
-              const SizedBox(height: 56),
-            ],
-          ),
-        );
-      },
+            );
+          },
     );
   }
 }
@@ -1664,7 +1754,8 @@ class _LineChart extends StatelessWidget {
     final Color lineColor = theme.colorScheme.primary;
 
     // Detect daily by label style (24 entries like 00:00)
-    final bool isDaily = state.labels.length == 24 &&
+    final bool isDaily =
+        state.labels.length == 24 &&
         (state.labels.first.contains(':') || state.labels.last.contains(':'));
 
     final double minY = 0; // start Y-axis at zero for clarity
@@ -1762,7 +1853,8 @@ class _LineChart extends StatelessWidget {
                     text = '6AM';
                   else if (minute == 720)
                     text = '12PM';
-                  else if (minute == 1080) text = '6PM';
+                  else if (minute == 1080)
+                    text = '6PM';
                 } else {
                   final len = state.labels.length;
                   if (len == 0) return const SizedBox.shrink();
@@ -1770,12 +1862,15 @@ class _LineChart extends StatelessWidget {
                   // Detect yearly-month view (12 months)
                   final isYearMonths = len == 12;
                   // Detect total-year view: all labels are 4-digit years
-                  final isTotalYears = len > 1 &&
-                      state.labels.every((l) =>
-                          RegExp(r'^\d{4} ? ?').hasMatch(l) ||
-                          RegExp(r'^\d{4} ?$').hasMatch(l) ||
-                          RegExp(r'^\d{4}  $').hasMatch(l) ||
-                          RegExp(r'^\d{4}$').hasMatch(l));
+                  final isTotalYears =
+                      len > 1 &&
+                      state.labels.every(
+                        (l) =>
+                            RegExp(r'^\d{4} ? ?').hasMatch(l) ||
+                            RegExp(r'^\d{4} ?$').hasMatch(l) ||
+                            RegExp(r'^\d{4}  $').hasMatch(l) ||
+                            RegExp(r'^\d{4}$').hasMatch(l),
+                      );
                   if (isYearMonths) {
                     // Year view (12 months)
                     if (idx == 0) {
@@ -1783,7 +1878,8 @@ class _LineChart extends StatelessWidget {
                       isFirst = true;
                     } else if (idx == 5)
                       text = state.labels[5]; // Jun
-                    else if (idx == 11) text = state.labels.last; // Dec
+                    else if (idx == 11)
+                      text = state.labels.last; // Dec
                   } else if (isTotalYears) {
                     // Total view (per-year). Show first, middle, last
                     final lastIdx = len - 1;
@@ -1868,7 +1964,8 @@ class _LineChart extends StatelessWidget {
                 int idx = it.x.round();
                 if (idx < 0)
                   idx = 0;
-                else if (idx >= len) idx = len - 1;
+                else if (idx >= len)
+                  idx = len - 1;
                 label = len > 0 ? state.labels[idx] : '';
               }
               return LineTooltipItem(
@@ -1952,7 +2049,8 @@ class _LineChart extends StatelessWidget {
       for (int m = 0; m < 60; m++) {
         final r = m / 60.0;
         final y = y0 + (y1 - y0) * r;
-        final x = h * 60 +
+        final x =
+            h * 60 +
             m; // Minute of the day: hour 0 = 0-59, hour 1 = 60-119, etc.
         spots.add(FlSpot(x.toDouble(), y));
       }
@@ -2038,18 +2136,12 @@ class _InfoCard extends StatelessWidget {
           SvgPicture.asset(
             icon,
             height: 28,
-            colorFilter: ColorFilter.mode(
-              primaryColor,
-              BlendMode.srcIn,
-            ),
+            colorFilter: ColorFilter.mode(primaryColor, BlendMode.srcIn),
           ),
           const SizedBox(height: 8),
           Text(
             label,
-            style: TextStyle(
-              fontSize: 12,
-              color: theme.colorScheme.onSurface,
-            ),
+            style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface),
           ),
           const SizedBox(height: 3),
           Row(
@@ -2063,13 +2155,7 @@ class _InfoCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 5),
-              Text(
-                unit,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: primaryColor,
-                ),
-              ),
+              Text(unit, style: TextStyle(fontSize: 10, color: primaryColor)),
             ],
           ),
         ],
@@ -2115,11 +2201,7 @@ class _SummaryCard extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SvgPicture.asset(
-              icon,
-              width: 28,
-              height: 28,
-            ),
+            SvgPicture.asset(icon, width: 28, height: 28),
             const SizedBox(height: 8),
             Text(
               label,
@@ -2437,7 +2519,8 @@ void _showCollectorReportDialog() {
               }
               try {
                 print(
-                    'HomeScreen: Starting report download - collector: $selectedCollectorPn, range: $range, date: $anchorDate');
+                  'HomeScreen: Starting report download - collector: $selectedCollectorPn, range: $range, date: $anchorDate',
+                );
                 final service = ReportDownloadService();
                 Navigator.of(context).pop();
 
@@ -2519,7 +2602,8 @@ void _showCollectorReportDialog() {
                   ScaffoldMessenger.of(scContext).showSnackBar(
                     SnackBar(
                       content: Text(
-                          'Report saved to Downloads${filePath != null ? '\n$filePath' : ''}'),
+                        'Report saved to Downloads${filePath != null ? '\n$filePath' : ''}',
+                      ),
                       duration: const Duration(seconds: 4),
                     ),
                   );
@@ -2547,8 +2631,8 @@ void _showCollectorReportDialog() {
                     deviceVM.collectors.isNotEmpty) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     setState(() {
-                      selectedCollectorPn =
-                          deviceVM.collectors.first['pn']?.toString();
+                      selectedCollectorPn = deviceVM.collectors.first['pn']
+                          ?.toString();
                     });
                   });
                 }

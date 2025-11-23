@@ -300,17 +300,26 @@ class AlarmViewModel extends ChangeNotifier {
   /// Delete an alarm
   Future<bool> deleteAlarm(String alarmId, bool isWarning) async {
     try {
-      // For now, just remove from local state since we don't have a delete endpoint
+      bool success = false;
       if (isWarning) {
-        _warnings.removeWhere((w) => w.id == alarmId);
+        // Invoke repository to delete warning on backend
+        success = await _alarmRepository.deleteWarning(alarmId);
+        if (success) {
+          _warnings.removeWhere((w) => w.id == alarmId);
+        }
       } else {
+        // For non-warning alarms (if any), fall back to local removal
         _alarms.removeWhere((a) => a.id == alarmId);
+        success = true;
       }
 
-      notifyListeners();
-      return true;
+      if (success) {
+        notifyListeners();
+      }
+      return success;
     } catch (e) {
       print('AlarmViewModel: Error deleting alarm: $e');
+      _setError('Failed to delete alarm: $e');
       return false;
     }
   }

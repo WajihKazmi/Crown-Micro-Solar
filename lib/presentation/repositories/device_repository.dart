@@ -12,9 +12,9 @@ import 'package:crown_micro_solar/presentation/models/device/device_live_signal_
 class MetricResolutionResult {
   final String logicalMetric;
   final String?
-      apiParameter; // Resolved API param or indicator (paging_column / live_signal)
+  apiParameter; // Resolved API param or indicator (paging_column / live_signal)
   final String
-      source; // key_param_one_day | paging | live_signal | unsupported | none
+  source; // key_param_one_day | paging | live_signal | unsupported | none
   final double? latestValue;
   final int pointCount;
   final String? timestamp; // ISO8601 string of latest point
@@ -65,10 +65,12 @@ class DeviceEnergyFlowModel {
   factory DeviceEnergyFlowModel.fromJson(Map<String, dynamic> j) {
     List<DeviceEnergyFlowItem> _list(String key) => (j[key] is List)
         ? (j[key] as List)
-            .whereType<Map>()
-            .map((e) =>
-                DeviceEnergyFlowItem.fromJson(Map<String, dynamic>.from(e)))
-            .toList()
+              .whereType<Map>()
+              .map(
+                (e) =>
+                    DeviceEnergyFlowItem.fromJson(Map<String, dynamic>.from(e)),
+              )
+              .toList()
         : <DeviceEnergyFlowItem>[];
     return DeviceEnergyFlowModel(
       btStatus: _list('bt_status'),
@@ -200,8 +202,10 @@ class DeviceEnergyFlowModel {
       }
     }
     // Fallback: any non-voltage unit entry
-    best ??= gdStatus.firstWhere((g) => (g.unit ?? '').toLowerCase() != 'v',
-        orElse: () => gdStatus.first);
+    best ??= gdStatus.firstWhere(
+      (g) => (g.unit ?? '').toLowerCase() != 'v',
+      orElse: () => gdStatus.first,
+    );
     final unit = (best.unit ?? '').toLowerCase();
     if (unit == 'v') return null; // only voltage present
     if (unit == 'kw') return (best.value ?? 0) * 1000;
@@ -233,8 +237,10 @@ class DeviceEnergyFlowModel {
         break;
       }
     }
-    best ??= combined.firstWhere((l) => (l.par).toLowerCase().contains('load'),
-        orElse: () => combined.first);
+    best ??= combined.firstWhere(
+      (l) => (l.par).toLowerCase().contains('load'),
+      orElse: () => combined.first,
+    );
     final unit = (best.unit ?? '').toLowerCase();
     if (unit == 'kw') return (best.value ?? 0) * 1000;
     return best.value;
@@ -333,11 +339,7 @@ class DeviceRepository {
       'BATTERY_DISCHARGE_CURRENT',
     },
     // Charger (limited metrics)
-    2048: {
-      'LOAD_POWER',
-      'AC2_OUTPUT_VOLTAGE',
-      'AC2_OUTPUT_CURRENT',
-    },
+    2048: {'LOAD_POWER', 'AC2_OUTPUT_VOLTAGE', 'AC2_OUTPUT_CURRENT'},
     // Energy storage machines (broad support) 2304 / 2400-range / 2449 / 2452
     2304: {
       'PV_OUTPUT_POWER',
@@ -490,11 +492,11 @@ class DeviceRepository {
   /// Should be called on logout to prevent stale/cross-user data contamination
   Future<void> clearAllCaches() async {
     print('DeviceRepository: Clearing all caches...');
-    
+
     // Clear in-memory cache
     _flowCache?._map.clear();
     print('DeviceRepository: In-memory flow cache cleared');
-    
+
     // Clear all persisted energy flow data from SharedPreferences
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -503,15 +505,17 @@ class DeviceRepository {
       for (final key in energyFlowKeys) {
         await prefs.remove(key);
       }
-      print('DeviceRepository: Cleared ${energyFlowKeys.length} persisted energy flow entries');
-      
+      print(
+        'DeviceRepository: Cleared ${energyFlowKeys.length} persisted energy flow entries',
+      );
+
       // Clear last opened PN (prevents wrong device prefetch on next login)
       await prefs.remove('lastOpenedPn');
       print('DeviceRepository: Cleared lastOpenedPn');
     } catch (e) {
       print('DeviceRepository: Error clearing persisted caches: $e');
     }
-    
+
     print('DeviceRepository: All caches cleared');
   }
 
@@ -577,9 +581,11 @@ class DeviceRepository {
           apiParameter: keyRes['source'] == 'live_signal'
               ? keyRes['source']
               : _parameterResolutionCache.entries
-                  .firstWhere((e) => e.key.contains(':$devaddr:$logicalMetric'),
-                      orElse: () => MapEntry('', logicalMetric))
-                  .value,
+                    .firstWhere(
+                      (e) => e.key.contains(':$devaddr:$logicalMetric'),
+                      orElse: () => MapEntry('', logicalMetric),
+                    )
+                    .value,
           source: keyRes['source'] == 'live_signal'
               ? 'live_signal'
               : 'key_param_one_day',
@@ -606,15 +612,18 @@ class DeviceRepository {
       if (latest != null) {
         // Build series from paging rows (improved mapping using real column titles)
         final dat = paging['dat'];
-        final titles = (dat['title'] as List?)
+        final titles =
+            (dat['title'] as List?)
                 ?.map((e) => (e as Map)['title']?.toString() ?? '')
                 .toList() ??
             [];
         final rows = (dat['row'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-        final tsCol = titles.indexWhere((t) =>
-            t.toLowerCase().trim() == 'timestamp'); // timestamp column index
+        final tsCol = titles.indexWhere(
+          (t) => t.toLowerCase().trim() == 'timestamp',
+        ); // timestamp column index
         int indexOf(String name) => titles.indexWhere(
-            (t) => t.toLowerCase().trim() == name.toLowerCase().trim());
+          (t) => t.toLowerCase().trim() == name.toLowerCase().trim(),
+        );
         double? toDouble(dynamic raw) =>
             raw is num ? raw.toDouble() : double.tryParse(raw.toString());
 
@@ -841,7 +850,8 @@ class DeviceRepository {
           final dat = js['dat'];
           List list = const [];
           if (dat is Map) {
-            list = dat['perday'] ??
+            list =
+                dat['perday'] ??
                 dat['permonth'] ??
                 dat['parameter'] ??
                 dat['row'] ??
@@ -935,7 +945,8 @@ class DeviceRepository {
           final dat = js['dat'];
           List list = const [];
           if (dat is Map) {
-            list = dat['permonth'] ??
+            list =
+                dat['permonth'] ??
                 dat['peryear'] ??
                 dat['parameter'] ??
                 dat['row'] ??
@@ -1120,8 +1131,9 @@ class DeviceRepository {
     List<Map<String, dynamic>> collectors = [];
     if (collectorJson['err'] == 0 &&
         collectorJson['dat']?['collector'] != null) {
-      collectors =
-          List<Map<String, dynamic>>.from(collectorJson['dat']['collector']);
+      collectors = List<Map<String, dynamic>>.from(
+        collectorJson['dat']['collector'],
+      );
     } else {}
 
     // 3. For each collector, fetch subordinate devices with timeout
@@ -1131,11 +1143,13 @@ class DeviceRepository {
     // Fetch subordinate devices with timeout to avoid long waits
     // Limit concurrent requests to 3 at a time to avoid overwhelming network
     final maxConcurrent = 3;
-    final timeout =
-        const Duration(seconds: 15); // Increased from 8 to 15 seconds
+    final timeout = const Duration(
+      seconds: 15,
+    ); // Increased from 8 to 15 seconds
 
     print(
-        'DeviceRepository: Fetching subordinate devices for ${collectors.length} collectors');
+      'DeviceRepository: Fetching subordinate devices for ${collectors.length} collectors',
+    );
     for (var i = 0; i < collectors.length; i += maxConcurrent) {
       final batch = collectors.skip(i).take(maxConcurrent).toList();
       final batchTasks = batch.map((collector) async {
@@ -1147,13 +1161,15 @@ class DeviceRepository {
           collectorDevices[pn] = subDevices;
           subordinateSNs.addAll(subDevices.map((d) => d.sn));
           print(
-              'DeviceRepository: Found ${subDevices.length} subordinate devices for PN=$pn');
+            'DeviceRepository: Found ${subDevices.length} subordinate devices for PN=$pn',
+          );
           for (final sub in subDevices) {
             print('  - Subordinate SN: ${sub.sn}, LOAD: ${sub.load}');
           }
         } catch (e) {
           print(
-              'DeviceRepository: Failed to fetch devices for collector PN=$pn: $e');
+            'DeviceRepository: Failed to fetch devices for collector PN=$pn: $e',
+          );
           // Continue with empty list for this collector
           collectorDevices[pn] = [];
         }
@@ -1165,14 +1181,17 @@ class DeviceRepository {
     }
 
     // 4. Standalone devices = all devices not under any collector
-    final standaloneDevices =
-        devices.where((d) => !subordinateSNs.contains(d.sn)).toList();
+    final standaloneDevices = devices
+        .where((d) => !subordinateSNs.contains(d.sn))
+        .toList();
 
     print(
-        'DeviceRepository: Total devices=${devices.length}, Collectors=${collectors.length}, Subordinate SNs=${subordinateSNs.length}, Standalone=${standaloneDevices.length}');
+      'DeviceRepository: Total devices=${devices.length}, Collectors=${collectors.length}, Subordinate SNs=${subordinateSNs.length}, Standalone=${standaloneDevices.length}',
+    );
     print('DeviceRepository: Subordinate SNs: ${subordinateSNs.toList()}');
     print(
-        'DeviceRepository: Standalone device SNs: ${standaloneDevices.map((d) => d.sn).toList()}');
+      'DeviceRepository: Standalone device SNs: ${standaloneDevices.map((d) => d.sn).toList()}',
+    );
 
     return {
       'standaloneDevices': standaloneDevices,
@@ -1185,7 +1204,8 @@ class DeviceRepository {
   // Quick version: fetch devices, collectors AND subordinate device info to properly filter
   // This ensures subordinate devices don't appear as standalone cards
   Future<Map<String, dynamic>> getDevicesAndCollectorsQuick(
-      String plantId) async {
+    String plantId,
+  ) async {
     const salt = '12345678';
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
@@ -1231,8 +1251,9 @@ class DeviceRepository {
     List<Map<String, dynamic>> collectors = [];
     if (collectorJson['err'] == 0 &&
         collectorJson['dat']?['collector'] != null) {
-      collectors =
-          List<Map<String, dynamic>>.from(collectorJson['dat']['collector']);
+      collectors = List<Map<String, dynamic>>.from(
+        collectorJson['dat']['collector'],
+      );
     }
 
     // CRITICAL FIX: Fetch subordinate devices to properly filter standalone list
@@ -1313,12 +1334,14 @@ class DeviceRepository {
     try {
       final dat = jsonMap['dat'];
       if (dat == null) return null;
-      final titles =
-          (dat['title'] as List?)?.map((e) => e['title'] as String?).toList();
+      final titles = (dat['title'] as List?)
+          ?.map((e) => e['title'] as String?)
+          .toList();
       final rows = (dat['row'] as List?);
       if (titles == null || rows == null || rows.isEmpty) return null;
-      final idx = titles
-          .indexWhere((t) => (t ?? '').toLowerCase() == title.toLowerCase());
+      final idx = titles.indexWhere(
+        (t) => (t ?? '').toLowerCase() == title.toLowerCase(),
+      );
       if (idx == -1) return null;
       final last = rows.last as Map<String, dynamic>;
       final field = last['field'] as List?;
@@ -1359,8 +1382,11 @@ class DeviceRepository {
   }
 
   // Fetch devices with specific status and device type (matching old app)
-  Future<List<Device>> getDevicesWithFilters(String plantId,
-      {String status = '0101', String deviceType = '0101'}) async {
+  Future<List<Device>> getDevicesWithFilters(
+    String plantId, {
+    String status = '0101',
+    String deviceType = '0101',
+  }) async {
     const salt = '12345678';
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
@@ -1423,7 +1449,10 @@ class DeviceRepository {
 
   // Add a datalogger (collector) to a plant - matches old app addCollectorEs action
   Future<Map<String, dynamic>> addDataLogger(
-      String plantId, String pn, String name) async {
+    String plantId,
+    String pn,
+    String name,
+  ) async {
     const salt = '12345678';
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
@@ -1509,7 +1538,8 @@ class DeviceRepository {
     }
 
     print(
-        'DeviceRepository.deleteDevice: plantId=$plantId, pn=$pn, sn=$sn, devcode=$devcode, devaddr=$devaddr');
+      'DeviceRepository.deleteDevice: plantId=$plantId, pn=$pn, sn=$sn, devcode=$devcode, devaddr=$devaddr',
+    );
 
     // Use old app's action format: delDeviceFromPlant (not webManageDeviceEs)
     final action =
@@ -1533,7 +1563,11 @@ class DeviceRepository {
 
   // Fetch real-time device data (separate call for detailed info)
   Future<Map<String, dynamic>> getDeviceRealTimeData(
-      String pn, String sn, int devcode, int devaddr) async {
+    String pn,
+    String sn,
+    int devcode,
+    int devaddr,
+  ) async {
     const salt = '12345678';
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
@@ -1565,7 +1599,12 @@ class DeviceRepository {
 
   // Fetch device daily data
   Future<Map<String, dynamic>> getDeviceDailyData(
-      String pn, String sn, int devcode, int devaddr, String date) async {
+    String pn,
+    String sn,
+    int devcode,
+    int devaddr,
+    String date,
+  ) async {
     const salt = '12345678';
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
@@ -1679,7 +1718,7 @@ class DeviceRepository {
           'SOC',
           'batSoc',
           'Soc',
-          'bat_soc'
+          'bat_soc',
         ];
         List<String> inputVoltageFields = [
           'inputVoltage',
@@ -1687,7 +1726,7 @@ class DeviceRepository {
           'vinsP',
           'Vin',
           'PV_VOLTAGE',
-          'pv_voltage'
+          'pv_voltage',
         ];
         List<String> inputCurrentFields = [
           'inputCurrent',
@@ -1695,7 +1734,7 @@ class DeviceRepository {
           'iinsP',
           'Iin',
           'PV_CURRENT',
-          'pv_current'
+          'pv_current',
         ];
         List<String> outputVoltageFields = [
           'outputVoltage',
@@ -1704,7 +1743,7 @@ class DeviceRepository {
           'Vout',
           'OUTPUT_VOLTAGE',
           'output_voltage',
-          'AC_VOLTAGE'
+          'AC_VOLTAGE',
         ];
         List<String> outputCurrentFields = [
           'outputCurrent',
@@ -1713,7 +1752,7 @@ class DeviceRepository {
           'Iout',
           'OUTPUT_CURRENT',
           'output_current',
-          'AC_CURRENT'
+          'AC_CURRENT',
         ];
         List<String> inputPowerFields = [
           'inputPower',
@@ -1722,7 +1761,7 @@ class DeviceRepository {
           'Pin',
           'PV_POWER',
           'pv_power',
-          'PV_OUTPUT_POWER'
+          'PV_OUTPUT_POWER',
         ];
         List<String> outputPowerFields = [
           'outputPower',
@@ -1854,7 +1893,8 @@ class DeviceRepository {
 
     final validSn = sn.isNotEmpty ? sn : 'DEFAULT_SN';
     print(
-        'DeviceRepository.setDeviceControlField pn=$pn sn=$validSn devcode=$devcode devaddr=$devaddr fieldId=$fieldId value=$value');
+      'DeviceRepository.setDeviceControlField pn=$pn sn=$validSn devcode=$devcode devaddr=$devaddr fieldId=$fieldId value=$value',
+    );
     // Try multiple action/param variants (id vs par, val vs value, ES endpoints)
     final attempts = <String>[
       // dessmonitor variants
@@ -1953,21 +1993,24 @@ class DeviceRepository {
     bool bypassCache = false,
   }) async {
     // Hot cache: avoid duplicate calls within 2 seconds for same PN (reduced from 5 seconds)
-    _flowCache ??=
-        _TimedCache<DeviceEnergyFlowModel>(const Duration(seconds: 2));
-    
+    _flowCache ??= _TimedCache<DeviceEnergyFlowModel>(
+      const Duration(seconds: 2),
+    );
+
     // Get user token to make cache key user-specific (prevent cross-user contamination)
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
     final userId = prefs.getString('UserID') ?? '';
-    
+
     // User-specific cache key: token+userId+pn (prevents showing User A's data to User B)
     final cacheKey = '${token}_${userId}_$pn';
-    
+
     if (!bypassCache) {
       final cached = _flowCache!.get(cacheKey);
       if (cached != null) {
-        print('DeviceRepository: Returning cached energy flow for pn=$pn (user-specific cache)');
+        print(
+          'DeviceRepository: Returning cached energy flow for pn=$pn (user-specific cache)',
+        );
         return cached;
       }
     }
@@ -2013,7 +2056,8 @@ class DeviceRepository {
         void logList(String label, List<DeviceEnergyFlowItem> items) {
           for (final i in items) {
             print(
-                'EnergyFlow [$label] par=${i.par} val=${i.value} unit=${i.unit} status=${i.status}');
+              'EnergyFlow [$label] par=${i.par} val=${i.value} unit=${i.unit} status=${i.status}',
+            );
           }
         }
 
@@ -2023,7 +2067,8 @@ class DeviceRepository {
         logList('bc_status', model.bcStatus);
         logList('ol_status', model.olStatus);
         print(
-            'EnergyFlow derived -> pvW=${model.pvPower} loadW=${model.loadPower} gridW=${model.gridPower} batSoc=${model.batterySoc} batPower=${model.batteryPower}');
+          'EnergyFlow derived -> pvW=${model.pvPower} loadW=${model.loadPower} gridW=${model.gridPower} batSoc=${model.batterySoc} batPower=${model.batteryPower}',
+        );
         print('Successfully fetched energy flow from: $host');
         return model;
       } catch (e) {
@@ -2039,19 +2084,23 @@ class DeviceRepository {
   /// Extract latest realtime-like values from a paging response (queryDeviceDataOneDayPaging) for fallback.
   /// Returns values in a normalized map with keys: pvPowerW, loadPowerW, batterySocPct, gridVoltage, gridPowerW (nullable).
   Map<String, dynamic>? extractRealtimeFromPaging(
-      Map<String, dynamic> pagingJson) {
+    Map<String, dynamic> pagingJson,
+  ) {
     try {
       final dat = pagingJson['dat'];
       if (dat == null) return null;
-      final titles = (dat['title'] as List?)
+      final titles =
+          (dat['title'] as List?)
               ?.map((e) => (e as Map)['title']?.toString() ?? '')
               .toList() ??
           [];
       final rows = (dat['row'] as List?)?.cast<Map<String, dynamic>>() ?? [];
       if (titles.isEmpty || rows.isEmpty) return null;
       // Choose the first row with realtime=true if present, else last row.
-      Map<String, dynamic> latest = rows
-          .firstWhere((r) => r['realtime'] == true, orElse: () => rows.last);
+      Map<String, dynamic> latest = rows.firstWhere(
+        (r) => r['realtime'] == true,
+        orElse: () => rows.last,
+      );
       final field = latest['field'];
       if (field is! List) return null;
       int idxOf(String contains) =>
@@ -2110,35 +2159,39 @@ class DeviceRepository {
         final pn = d.pn;
         // 1. Energy flow
         final flow = await fetchDeviceEnergyFlow(
-            sn: sn,
-            pn: pn,
-            devcode: devcode,
-            devaddr: devaddr,
-            bypassCache: false);
+          sn: sn,
+          pn: pn,
+          devcode: devcode,
+          devaddr: devaddr,
+          bypassCache: false,
+        );
         double? pvW = flow?.pvPower; // already normalized to W
         // 2. Paging fallback
         if (pvW == null || pvW <= 0) {
           final paging = await fetchDeviceDataOneDayPaging(
-              sn: sn,
-              pn: pn,
-              devcode: devcode,
-              devaddr: devaddr,
-              date: date,
-              page: 0,
-              pageSize: 50);
-          final realtime =
-              paging != null ? extractRealtimeFromPaging(paging) : null;
+            sn: sn,
+            pn: pn,
+            devcode: devcode,
+            devaddr: devaddr,
+            date: date,
+            page: 0,
+            pageSize: 50,
+          );
+          final realtime = paging != null
+              ? extractRealtimeFromPaging(paging)
+              : null;
           pvW = realtime?['pvPowerW'] as double?;
         }
         // 3. Key parameter / metric resolution fallback
         if (pvW == null || pvW <= 0) {
           final res = await resolveMetricOneDay(
-              logicalMetric: 'PV_OUTPUT_POWER',
-              sn: sn,
-              pn: pn,
-              devcode: devcode,
-              devaddr: devaddr,
-              date: date);
+            logicalMetric: 'PV_OUTPUT_POWER',
+            sn: sn,
+            pn: pn,
+            devcode: devcode,
+            devaddr: devaddr,
+            date: date,
+          );
           if (res.latestValue != null && res.latestValue! > 0)
             pvW = res.latestValue; // latestValue assumed W
         }
@@ -2152,7 +2205,9 @@ class DeviceRepository {
 
   // Helper method to parse double values from various field names
   double? _parseDoubleFromMap(
-      Map<String, dynamic> map, List<String> possibleKeys) {
+    Map<String, dynamic> map,
+    List<String> possibleKeys,
+  ) {
     for (String key in possibleKeys) {
       if (map.containsKey(key) && map[key] != null) {
         return _parseDouble(map[key]);
@@ -2174,7 +2229,7 @@ class DeviceRepository {
     if (!deviceSupportsParameter(devcode, parameter)) {
       return {
         'err': 99,
-        'desc': 'UNSUPPORTED_PARAMETER: $parameter for devcode $devcode'
+        'desc': 'UNSUPPORTED_PARAMETER: $parameter for devcode $devcode',
       };
     }
     const salt = '12345678';
@@ -2195,7 +2250,7 @@ class DeviceRepository {
       if (now.difference(ts).inMinutes < 10) {
         return {
           'err': 98,
-          'desc': 'CACHED_FAILURE: $parameter unresolved recently'
+          'desc': 'CACHED_FAILURE: $parameter unresolved recently',
         };
       } else {
         _parameterNegativeCache.remove(cacheKey);
@@ -2206,16 +2261,17 @@ class DeviceRepository {
     if (_parameterResolutionCache.containsKey(cacheKey)) {
       final resolved = _parameterResolutionCache[cacheKey]!;
       final res = await _attemptParameterFetch(
-          apiParameter: resolved,
-          validSn: validSn,
-          pn: pn,
-          devcode: devcode,
-          devaddr: devaddr,
-          date: date,
-          salt: salt,
-          secret: secret,
-          token: token,
-          postaction: postaction);
+        apiParameter: resolved,
+        validSn: validSn,
+        pn: pn,
+        devcode: devcode,
+        devaddr: devaddr,
+        date: date,
+        salt: salt,
+        secret: secret,
+        token: token,
+        postaction: postaction,
+      );
       // If cache failed (e.g. device reboot changed field), fall through to full resolution
       if (res != null) return res;
       _parameterResolutionCache.remove(cacheKey);
@@ -2227,16 +2283,17 @@ class DeviceRepository {
     Map<String, dynamic>? lastError;
     for (final apiParameter in candidates) {
       final res = await _attemptParameterFetch(
-          apiParameter: apiParameter,
-          validSn: validSn,
-          pn: pn,
-          devcode: devcode,
-          devaddr: devaddr,
-          date: date,
-          salt: salt,
-          secret: secret,
-          token: token,
-          postaction: postaction);
+        apiParameter: apiParameter,
+        validSn: validSn,
+        pn: pn,
+        devcode: devcode,
+        devaddr: devaddr,
+        date: date,
+        salt: salt,
+        secret: secret,
+        token: token,
+        postaction: postaction,
+      );
       if (res != null) {
         // Cache success and return
         _parameterResolutionCache[cacheKey] = apiParameter;
@@ -2290,9 +2347,9 @@ class DeviceRepository {
             'value': val,
             'dat': {
               'parameter': [
-                {'ts': DateTime.now().toIso8601String(), 'val': val}
-              ]
-            }
+                {'ts': DateTime.now().toIso8601String(), 'val': val},
+              ],
+            },
           };
         }
       }
@@ -2312,7 +2369,7 @@ class DeviceRepository {
           'PV_POWER',
           'INPUT_POWER',
           'PIN',
-          'PV_POWER_P'
+          'PV_POWER_P',
         ];
         break;
       case 'LOAD_POWER':
@@ -2326,7 +2383,7 @@ class DeviceRepository {
           'IMPORT_POWER',
           'EXPORT_POWER',
           'AC_INPUT_POWER',
-          'UTILITY_POWER'
+          'UTILITY_POWER',
         ];
         break;
       case 'AC2_OUTPUT_VOLTAGE':
@@ -2336,7 +2393,7 @@ class DeviceRepository {
           'OUTPUT_VOLTAGE',
           'AC_VOLTAGE',
           'VOUT',
-          'GRID_VOLTAGE'
+          'GRID_VOLTAGE',
         ];
         break;
       case 'AC2_OUTPUT_CURRENT':
@@ -2345,7 +2402,7 @@ class DeviceRepository {
           'AC_OUTPUT_CURRENT',
           'OUTPUT_CURRENT',
           'AC_CURRENT',
-          'IOUT'
+          'IOUT',
         ];
         break;
       case 'PV_INPUT_VOLTAGE':
@@ -2356,7 +2413,7 @@ class DeviceRepository {
           'VIN',
           'PV1_VOLTAGE',
           'PV2_VOLTAGE',
-          'PV_VOLT'
+          'PV_VOLT',
         ];
         break;
       case 'PV_INPUT_CURRENT':
@@ -2367,7 +2424,7 @@ class DeviceRepository {
           'IIN',
           'PV1_CURRENT',
           'PV2_CURRENT',
-          'PV_CUR'
+          'PV_CUR',
         ];
         break;
       case 'GRID_FREQUENCY':
@@ -2376,7 +2433,7 @@ class DeviceRepository {
           'AC_FREQUENCY',
           'FREQUENCY',
           'FREQ',
-          'OUTPUT_FREQUENCY'
+          'OUTPUT_FREQUENCY',
         ];
         break;
       case 'BATTERY_SOC':
@@ -2392,7 +2449,7 @@ class DeviceRepository {
           'BATTERY_LEVEL',
           'BAT_LEVEL',
           'SOC_PERCENT',
-          'SOC_PERCENTAGE'
+          'SOC_PERCENTAGE',
         ];
         break;
       case 'BATTERY_CAPACITY':
@@ -2402,7 +2459,7 @@ class DeviceRepository {
           'BATT_CAPACITY',
           'BATTERY_CAP',
           'BMS_CAPACITY',
-          'BAT_CAP'
+          'BAT_CAP',
         ];
         break;
       case 'BATTERY_VOLTAGE':
@@ -2413,7 +2470,7 @@ class DeviceRepository {
           'BATTERY_VOLT',
           'BMS_VOLTAGE',
           'BAT_VOLT',
-          'VBAT'
+          'VBAT',
         ];
         break;
       case 'BATTERY_CHARGING_CURRENT':
@@ -2424,7 +2481,7 @@ class DeviceRepository {
           'CHARGE_CURRENT',
           'CHARGING_CURRENT',
           'BAT_CHG_CURRENT',
-          'IBAT_CHG'
+          'IBAT_CHG',
         ];
         break;
       case 'BATTERY_DISCHARGE_CURRENT':
@@ -2435,7 +2492,7 @@ class DeviceRepository {
           'DISCHARGE_CURRENT',
           'DISCHARGING_CURRENT',
           'BAT_DCHG_CURRENT',
-          'IBAT_DCHG'
+          'IBAT_DCHG',
         ];
         break;
       case 'GENERATOR_AC_VOLTAGE':
@@ -2444,7 +2501,7 @@ class DeviceRepository {
           'GEN_AC_VOLTAGE',
           'GENERATOR_VOLTAGE',
           'GEN_VOLTAGE',
-          'GEN_AC_VOLT'
+          'GEN_AC_VOLT',
         ];
         break;
       case 'UTILITY_AC_VOLTAGE':
@@ -2454,7 +2511,7 @@ class DeviceRepository {
           'UTILITY_VOLTAGE',
           'UTIL_VOLTAGE',
           'MAINS_VOLTAGE',
-          'AC_INPUT_VOLTAGE'
+          'AC_INPUT_VOLTAGE',
         ];
         break;
       case 'GRID_VOLTAGE':
@@ -2463,7 +2520,7 @@ class DeviceRepository {
           'AC_INPUT_VOLTAGE',
           'UTILITY_VOLTAGE',
           'MAINS_VOLTAGE',
-          'INPUT_AC_VOLTAGE'
+          'INPUT_AC_VOLTAGE',
         ];
         break;
       case 'PV1_CHARGING_POWER':
@@ -2472,7 +2529,7 @@ class DeviceRepository {
           'PV1_POWER',
           'PV1_CHG_POWER',
           'PV1_INPUT_POWER',
-          'PV1_WATTS'
+          'PV1_WATTS',
         ];
         break;
       case 'PV2_CHARGING_POWER':
@@ -2481,7 +2538,7 @@ class DeviceRepository {
           'PV2_POWER',
           'PV2_CHG_POWER',
           'PV2_INPUT_POWER',
-          'PV2_WATTS'
+          'PV2_WATTS',
         ];
         break;
       case 'AC_OUTPUT_ACTIVE_POWER':
@@ -2490,7 +2547,7 @@ class DeviceRepository {
           'OUTPUT_ACTIVE_POWER',
           'AC_ACTIVE_POWER',
           'LOAD_ACTIVE_POWER',
-          'OUTPUT_POWER'
+          'OUTPUT_POWER',
         ];
         break;
       case 'PV1_INPUT_VOLTAGE':
@@ -2498,7 +2555,7 @@ class DeviceRepository {
           'PV1_INPUT_VOLTAGE',
           'PV1_VOLTAGE',
           'PV1_VOLT',
-          'PV1_INPUT_VOLT'
+          'PV1_INPUT_VOLT',
         ];
         break;
       case 'PV2_INPUT_VOLTAGE':
@@ -2506,7 +2563,7 @@ class DeviceRepository {
           'PV2_INPUT_VOLTAGE',
           'PV2_VOLTAGE',
           'PV2_VOLT',
-          'PV2_INPUT_VOLT'
+          'PV2_INPUT_VOLT',
         ];
         break;
       case 'PV1_INPUT_CURRENT':
@@ -2523,7 +2580,7 @@ class DeviceRepository {
           'E_TODAY',
           'ENERGY_TODAY',
           'GEN_TODAY',
-          'TODAY_ENERGY'
+          'TODAY_ENERGY',
         ];
         break;
       case 'TOTAL_GENERATION':
@@ -2533,7 +2590,7 @@ class DeviceRepository {
           'E_TOTAL',
           'CUMULATIVE_ENERGY',
           'LIFETIME_ENERGY',
-          'GEN_TOTAL'
+          'GEN_TOTAL',
         ];
         break;
       case 'INPUT_POWER':
@@ -2542,7 +2599,7 @@ class DeviceRepository {
           'PIN',
           'POWER_INPUT',
           'PV_INPUT_POWER',
-          'PV_POWER'
+          'PV_POWER',
         ];
         break;
       default:
@@ -2620,8 +2677,11 @@ class DeviceRepository {
 
   // Additional energy-oriented parameter candidates for aggregated endpoints
   // mode: 'perday' (month-per-day) or 'permonth' (year-per-month)
-  List<String> _aggregatedEnergyCandidates(String logicalMetric, int devcode,
-      {required String mode}) {
+  List<String> _aggregatedEnergyCandidates(
+    String logicalMetric,
+    int devcode, {
+    required String mode,
+  }) {
     final isPerDay = mode == 'perday';
     final isPerMonth = mode == 'permonth';
     final upper = logicalMetric.toUpperCase();
@@ -2699,7 +2759,9 @@ class DeviceRepository {
   }
 
   _PagingExtractResult? _extractFromPagingForLogical(
-      Map<String, dynamic> paging, String logical) {
+    Map<String, dynamic> paging,
+    String logical,
+  ) {
     final columnCandidates = <String>[];
     // We adapt candidates to real titles observed in paging JSON the user supplied.
     // Titles sample include (subset):
@@ -2714,7 +2776,7 @@ class DeviceRepository {
           'PV Power',
           'PV Output Power',
           'Input Power',
-          'Output Power'
+          'Output Power',
         ]);
         break;
       case 'LOAD_POWER':
@@ -2722,7 +2784,7 @@ class DeviceRepository {
           'AC Output Active Power', // preferred real active load power (W)
           'Load Power',
           'AC1 Output Apparent Power', // may be VA, fallback only
-          'Output Power'
+          'Output Power',
         ]);
         break;
       case 'GRID_POWER':
@@ -2731,14 +2793,14 @@ class DeviceRepository {
           'Grid Power',
           'AC Input Power',
           'Utility Power',
-          'Output Power'
+          'Output Power',
         ]);
         break;
       case 'BATTERY_SOC':
         columnCandidates.addAll([
           'Battery Capacity', // actual title in paging sample
           'Battery SOC',
-          'SOC'
+          'SOC',
         ]);
         break;
       case 'AC2_OUTPUT_VOLTAGE':
@@ -2746,7 +2808,7 @@ class DeviceRepository {
           'AC1 Output Voltage', // actual title (voltage)
           'Output Voltage',
           'AC Output Rating Voltage',
-          'AC Voltage'
+          'AC Voltage',
         ]);
         break;
       case 'AC2_OUTPUT_CURRENT':
@@ -2754,7 +2816,7 @@ class DeviceRepository {
           'AC Output Rating Current', // rated current (A) if realtime current absent
           'Output Current',
           'AC Current',
-          'AC1 Output Apparent Power' // can derive I = P/(V) when only apparent power given
+          'AC1 Output Apparent Power', // can derive I = P/(V) when only apparent power given
         ]);
         break;
       case 'PV_INPUT_VOLTAGE':
@@ -2762,7 +2824,7 @@ class DeviceRepository {
           'PV1 Input Voltage',
           'PV2 Input voltage',
           'PV Voltage',
-          'Input Voltage'
+          'Input Voltage',
         ]);
         break;
       case 'PV_INPUT_CURRENT':
@@ -2770,19 +2832,23 @@ class DeviceRepository {
           'PV1 Charging Power', // used to derive current with voltage
           'PV2 Charging power',
           'PV Current',
-          'Input Current'
+          'Input Current',
         ]);
         break;
       case 'GRID_FREQUENCY':
-        columnCandidates
-            .addAll(['Grid Frequency', 'AC1 Output Frequency', 'Frequency']);
+        columnCandidates.addAll([
+          'Grid Frequency',
+          'AC1 Output Frequency',
+          'Frequency',
+        ]);
         break;
       default:
         columnCandidates.add(logical);
     }
     final dat = paging['dat'];
     if (dat == null) return null;
-    final titles = (dat['title'] as List?)
+    final titles =
+        (dat['title'] as List?)
             ?.map((e) => (e as Map)['title']?.toString() ?? '')
             .toList() ??
         [];
@@ -2791,7 +2857,8 @@ class DeviceRepository {
     // Helper to find column index (case-insensitive exact match)
     int? findIdx(String cand) {
       final idx = titles.indexWhere(
-          (t) => t.toLowerCase().trim() == cand.toLowerCase().trim());
+        (t) => t.toLowerCase().trim() == cand.toLowerCase().trim(),
+      );
       return idx == -1 ? null : idx;
     }
 
@@ -2809,8 +2876,9 @@ class DeviceRepository {
             bool any = false;
             if (pv1Idx != null && pv1Idx < field.length) {
               final raw = field[pv1Idx];
-              final v =
-                  raw is num ? raw.toDouble() : double.tryParse(raw.toString());
+              final v = raw is num
+                  ? raw.toDouble()
+                  : double.tryParse(raw.toString());
               if (v != null) {
                 sum += v;
                 any = true;
@@ -2818,8 +2886,9 @@ class DeviceRepository {
             }
             if (pv2Idx != null && pv2Idx < field.length) {
               final raw = field[pv2Idx];
-              final v =
-                  raw is num ? raw.toDouble() : double.tryParse(raw.toString());
+              final v = raw is num
+                  ? raw.toDouble()
+                  : double.tryParse(raw.toString());
               if (v != null) {
                 sum += v;
                 any = true;
@@ -2833,8 +2902,10 @@ class DeviceRepository {
           }
         }
         if (latestVal != null) {
-          return _PagingExtractResult(latestVal, rows.length, ts,
-              ['PV1 Charging Power', 'PV2 Charging power']);
+          return _PagingExtractResult(latestVal, rows.length, ts, [
+            'PV1 Charging Power',
+            'PV2 Charging power',
+          ]);
         }
       }
     }
@@ -2849,8 +2920,9 @@ class DeviceRepository {
           final field = r['field'];
           if (field is List && feedIdx < field.length) {
             final raw = field[feedIdx];
-            final v =
-                raw is num ? raw.toDouble() : double.tryParse(raw.toString());
+            final v = raw is num
+                ? raw.toDouble()
+                : double.tryParse(raw.toString());
             if (v != null) {
               latestVal = v;
               ts = r['ts']?.toString();
@@ -2858,8 +2930,9 @@ class DeviceRepository {
           }
         }
         if (latestVal != null) {
-          return _PagingExtractResult(
-              latestVal, rows.length, ts, ['Solar Feed To Grid Power']);
+          return _PagingExtractResult(latestVal, rows.length, ts, [
+            'Solar Feed To Grid Power',
+          ]);
         }
       }
     }
@@ -2874,8 +2947,9 @@ class DeviceRepository {
           final field = r['field'];
           if (field is List && socIdx < field.length) {
             final raw = field[socIdx];
-            final v =
-                raw is num ? raw.toDouble() : double.tryParse(raw.toString());
+            final v = raw is num
+                ? raw.toDouble()
+                : double.tryParse(raw.toString());
             if (v != null) {
               latestVal = v;
               ts = r['ts']?.toString();
@@ -2883,8 +2957,9 @@ class DeviceRepository {
           }
         }
         if (latestVal != null) {
-          return _PagingExtractResult(
-              latestVal, rows.length, ts, ['Battery Capacity']);
+          return _PagingExtractResult(latestVal, rows.length, ts, [
+            'Battery Capacity',
+          ]);
         }
       }
     }
@@ -2900,8 +2975,9 @@ class DeviceRepository {
           final field = r['field'];
           if (field is List && vIdx < field.length) {
             final raw = field[vIdx];
-            final v =
-                raw is num ? raw.toDouble() : double.tryParse(raw.toString());
+            final v = raw is num
+                ? raw.toDouble()
+                : double.tryParse(raw.toString());
             if (v != null) {
               latestVal = v;
               ts = r['ts']?.toString();
@@ -2909,8 +2985,9 @@ class DeviceRepository {
           }
         }
         if (latestVal != null) {
-          return _PagingExtractResult(
-              latestVal, rows.length, ts, ['AC1 Output Voltage']);
+          return _PagingExtractResult(latestVal, rows.length, ts, [
+            'AC1 Output Voltage',
+          ]);
         }
       }
     }
@@ -2955,7 +3032,7 @@ class DeviceRepository {
         return _PagingExtractResult(latestVal, rows.length, ts, [
           'AC Output Rating Current',
           'AC Output Active Power',
-          'AC1 Output Voltage'
+          'AC1 Output Voltage',
         ]);
       }
     }
@@ -2972,8 +3049,9 @@ class DeviceRepository {
           int? useIdx = pv1Idx ?? pv2Idx; // prefer pv1
           if (useIdx != null && useIdx < field.length) {
             final raw = field[useIdx];
-            final v =
-                raw is num ? raw.toDouble() : double.tryParse(raw.toString());
+            final v = raw is num
+                ? raw.toDouble()
+                : double.tryParse(raw.toString());
             if (v != null) {
               latestVal = v;
               ts = r['ts']?.toString();
@@ -2982,8 +3060,10 @@ class DeviceRepository {
         }
       }
       if (latestVal != null) {
-        return _PagingExtractResult(latestVal, rows.length, ts,
-            ['PV1 Input Voltage', 'PV2 Input voltage']);
+        return _PagingExtractResult(latestVal, rows.length, ts, [
+          'PV1 Input Voltage',
+          'PV2 Input voltage',
+        ]);
       }
     }
 
@@ -3045,7 +3125,7 @@ class DeviceRepository {
           'PV1 Charging Power',
           'PV1 Input Voltage',
           'PV2 Charging power',
-          'PV2 Input voltage'
+          'PV2 Input voltage',
         ]);
       }
     }
@@ -3106,14 +3186,16 @@ class DeviceRepository {
         final hasParams = params is List && params.isNotEmpty;
         if (hasRows || hasParams) {
           print(
-              'DeviceRepository: Success with parameter $apiParameter (format: '
-              '${hasParams ? 'parameter[]' : 'row[]'})');
+            'DeviceRepository: Success with parameter $apiParameter (format: '
+            '${hasParams ? 'parameter[]' : 'row[]'})',
+          );
           return dataJson;
         }
       }
       final desc = dataJson['desc']?.toString() ?? '';
-      final extra =
-          (dataJson['err'] == 0) ? ' (empty dat: row/parameter missing)' : '';
+      final extra = (dataJson['err'] == 0)
+          ? ' (empty dat: row/parameter missing)'
+          : '';
       return null;
     } catch (e) {
       return null;

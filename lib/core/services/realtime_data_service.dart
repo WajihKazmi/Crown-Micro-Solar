@@ -36,7 +36,10 @@ class RealtimeDataService extends ChangeNotifier {
       15; // Update devices every 15 seconds
 
   RealtimeDataService(
-      this._apiClient, this._deviceRepository, this._plantRepository);
+    this._apiClient,
+    this._deviceRepository,
+    this._plantRepository,
+  );
 
   // Getters
   List<Plant> get plants => _plants;
@@ -81,16 +84,20 @@ class RealtimeDataService extends ChangeNotifier {
     });
 
     // Start periodic device updates
-    _updateTimer =
-        Timer.periodic(const Duration(seconds: _deviceUpdateInterval), (timer) {
-      _updateRealTimeData();
-    });
+    _updateTimer = Timer.periodic(
+      const Duration(seconds: _deviceUpdateInterval),
+      (timer) {
+        _updateRealTimeData();
+      },
+    );
     // Start periodic plant updates using the defined interval
-    _plantTimer = Timer.periodic(const Duration(seconds: _plantUpdateInterval),
-        (timer) async {
-      await _updatePlantData();
-      notifyListeners();
-    });
+    _plantTimer = Timer.periodic(
+      const Duration(seconds: _plantUpdateInterval),
+      (timer) async {
+        await _updatePlantData();
+        notifyListeners();
+      },
+    );
 
     notifyListeners();
   }
@@ -133,14 +140,16 @@ class RealtimeDataService extends ChangeNotifier {
 
       // Load devices for each plant
       for (final plant in _plants) {
-        final result =
-            await _deviceRepository.getDevicesAndCollectors(plant.id);
+        final result = await _deviceRepository.getDevicesAndCollectors(
+          plant.id,
+        );
         final allDevices = result['allDevices'] ?? [];
         _devices.addAll(allDevices);
       }
 
       print(
-          'RealtimeDataService: Loaded ${_plants.length} plants and ${_devices.length} devices');
+        'RealtimeDataService: Loaded ${_plants.length} plants and ${_devices.length} devices',
+      );
 
       // Initial real-time data update
       await _updateRealTimeData();
@@ -235,7 +244,7 @@ class RealtimeDataService extends ChangeNotifier {
 
         double apiCurrentPower =
             double.tryParse(plantData['currentPower']?.toString() ?? '0') ??
-                0.0;
+            0.0;
         double calculatedCurrentPower = 0.0;
 
         if (apiCurrentPower <= 0) {
@@ -245,32 +254,35 @@ class RealtimeDataService extends ChangeNotifier {
             if (devicePower <= 0 &&
                 _deviceRealTimeData.containsKey(device.pn)) {
               final realTimeData = _deviceRealTimeData[device.pn];
-              devicePower = double.tryParse(
-                      realTimeData?['outputPower']?.toString() ??
-                          realTimeData?['OUTPUT_POWER']?.toString() ??
-                          '0') ??
+              devicePower =
+                  double.tryParse(
+                    realTimeData?['outputPower']?.toString() ??
+                        realTimeData?['OUTPUT_POWER']?.toString() ??
+                        '0',
+                  ) ??
                   0.0;
             }
             calculatedCurrentPower += devicePower;
           }
         }
 
-        final finalCurrentPower =
-            apiCurrentPower > 0 ? apiCurrentPower : calculatedCurrentPower;
+        final finalCurrentPower = apiCurrentPower > 0
+            ? apiCurrentPower
+            : calculatedCurrentPower;
 
         // Preserve existing capacity and generation values if API lacks them
         final capacity =
             double.tryParse(plantData['capacity']?.toString() ?? '') ??
-                plant.capacity;
+            plant.capacity;
         final daily =
             double.tryParse(plantData['dailyGeneration']?.toString() ?? '') ??
-                plant.dailyGeneration;
+            plant.dailyGeneration;
         final monthly =
             double.tryParse(plantData['monthlyGeneration']?.toString() ?? '') ??
-                plant.monthlyGeneration;
+            plant.monthlyGeneration;
         final yearly =
             double.tryParse(plantData['yearlyGeneration']?.toString() ?? '') ??
-                plant.yearlyGeneration;
+            plant.yearlyGeneration;
 
         return Plant.fromJson({
           'id': plant.id,
@@ -286,11 +298,13 @@ class RealtimeDataService extends ChangeNotifier {
 
       // On API err, keep existing plant unchanged
       print(
-          'RealtimeDataService: Plant API returned err=${dataJson['err']}, preserving existing plant values');
+        'RealtimeDataService: Plant API returned err=${dataJson['err']}, preserving existing plant values',
+      );
       return null;
     } catch (e) {
       print(
-          'RealtimeDataService: Error getting plant real-time data (preserving): $e');
+        'RealtimeDataService: Error getting plant real-time data (preserving): $e',
+      );
       return null;
     }
   }
@@ -349,9 +363,11 @@ class RealtimeDataService extends ChangeNotifier {
         if (deviceData.isNotEmpty) {
           final latestData = deviceData.first;
           // Check for both lowercase and uppercase parameters
-          return double.tryParse(latestData['outputPower']?.toString() ??
-                  latestData['OUTPUT_POWER']?.toString() ??
-                  '0') ??
+          return double.tryParse(
+                latestData['outputPower']?.toString() ??
+                    latestData['OUTPUT_POWER']?.toString() ??
+                    '0',
+              ) ??
               0.0;
         }
       }
@@ -410,7 +426,8 @@ class RealtimeDataService extends ChangeNotifier {
 
   // Get detailed device real-time data
   Future<Map<String, dynamic>?> _getDeviceDetailedRealTimeData(
-      Device device) async {
+    Device device,
+  ) async {
     try {
       return await _deviceRepository.getDeviceRealTimeData(
         device.pn,
@@ -420,7 +437,8 @@ class RealtimeDataService extends ChangeNotifier {
       );
     } catch (e) {
       print(
-          'RealtimeDataService: Error getting device detailed real-time data: $e');
+        'RealtimeDataService: Error getting device detailed real-time data: $e',
+      );
     }
     return null;
   }
@@ -433,15 +451,20 @@ class RealtimeDataService extends ChangeNotifier {
 
   // Get total current power generation
   double get totalCurrentPower {
-    double total =
-        _plants.fold<double>(0, (sum, plant) => sum + plant.currentPower);
+    double total = _plants.fold<double>(
+      0,
+      (sum, plant) => sum + plant.currentPower,
+    );
     if (total <= 0 && _plants.isNotEmpty) {
       // Use device power data if available
-      total =
-          _devicePowerData.values.fold<double>(0, (sum, power) => sum + power);
+      total = _devicePowerData.values.fold<double>(
+        0,
+        (sum, power) => sum + power,
+      );
       if (total > 0) {
         print(
-            'RealtimeDataService: Using summed device power for totalCurrentPower: $total');
+          'RealtimeDataService: Using summed device power for totalCurrentPower: $total',
+        );
       }
     }
     return total;
@@ -449,8 +472,10 @@ class RealtimeDataService extends ChangeNotifier {
 
   // Get total daily generation
   double get totalDailyGeneration {
-    double total =
-        _plants.fold<double>(0, (sum, plant) => sum + plant.dailyGeneration);
+    double total = _plants.fold<double>(
+      0,
+      (sum, plant) => sum + plant.dailyGeneration,
+    );
     // Return actual values only
     return total;
   }
@@ -458,13 +483,17 @@ class RealtimeDataService extends ChangeNotifier {
   // Get total monthly generation
   double get totalMonthlyGeneration {
     return _plants.fold<double>(
-        0, (sum, plant) => sum + plant.monthlyGeneration);
+      0,
+      (sum, plant) => sum + plant.monthlyGeneration,
+    );
   }
 
   // Get total yearly generation
   double get totalYearlyGeneration {
     return _plants.fold<double>(
-        0, (sum, plant) => sum + plant.yearlyGeneration);
+      0,
+      (sum, plant) => sum + plant.yearlyGeneration,
+    );
   }
 
   // Get device by PN

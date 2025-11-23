@@ -514,9 +514,29 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
                 const SizedBox(width: 4),
                 IconButton(
                   tooltip: 'Delete',
-                  onPressed: () => _showDeleteConfirm(context, () {
-                    Navigator.of(context).pop();
-                    viewModel.deleteAlarm(alarm.id, true);
+                  onPressed: () => _showDeleteConfirm(context, () async {
+                    final nav = Navigator.of(context);
+                    final messenger = ScaffoldMessenger.of(context);
+                    nav.pop();
+                    final ok = await viewModel.deleteAlarm(alarm.id, true);
+                    if (ok) {
+                      messenger.showSnackBar(
+                        const SnackBar(
+                          content: Text('Alarm deleted'),
+                          backgroundColor: Colors.white,
+                        ),
+                      );
+                    } else {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            viewModel.error ?? 'Failed to delete alarm',
+                            style: const TextStyle(color: Colors.black),
+                          ),
+                          backgroundColor: Colors.white,
+                        ),
+                      );
+                    }
                   }),
                   icon: const Icon(
                     Icons.delete_outline,

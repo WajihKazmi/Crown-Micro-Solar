@@ -25,6 +25,7 @@ import 'package:video_player/video_player.dart';
 import 'package:crown_micro_solar/view/home/data_control_old_screen.dart';
 import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
 import 'package:crown_micro_solar/core/utils/device_model_config.dart';
+import 'package:crown_micro_solar/view/home/home_screen.dart';
 
 class DeviceDetailScreen extends StatefulWidget {
   final Device device;
@@ -770,7 +771,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     }
 
     final rawCards = <Map<String, Object?>>[];
-    // PV Card: Use model-configured field if available; otherwise Power as primary, Voltage as secondary
+    // PV Card: Show Power as primary, Voltage as secondary
     if (pvVoltage != null || pvPower != null) {
       final selected = _selectedValueFor('pv');
       final pvCurrent = _energyFlow?.pvCurrent;
@@ -780,29 +781,23 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       if (selected != null) {
         primaryValue = selected;
         secondaryValue = _formatLabel(_selectedParByCategory['pv'] ?? '');
-      } else {
-        final picked = _pickByModel('pv');
-        if (picked != null) {
-          primaryValue = picked.key; // value string with unit
-          secondaryValue = _formatLabel(picked.value); // label
-        } else if (pvPower != null) {
-          // Primary: Power in Watts
-          primaryValue = _fmtPowerW(pvPower);
-          // Secondary: Voltage
-          if (pvVoltage != null) {
-            secondaryValue = _fmtVoltage(pvVoltage);
-          } else if (pvCurrent != null) {
-            secondaryValue = '${pvCurrent.toStringAsFixed(1)}A';
-          }
-        } else if (pvVoltage != null) {
-          // Fallback: show voltage if no power
-          primaryValue = _fmtVoltage(pvVoltage);
-          if (pvCurrent != null) {
-            secondaryValue = '${pvCurrent.toStringAsFixed(1)}A';
-          }
-        } else {
-          primaryValue = '--';
+      } else if (pvPower != null) {
+        // Primary: Power in Watts
+        primaryValue = _fmtPowerW(pvPower);
+        // Secondary: Voltage
+        if (pvVoltage != null) {
+          secondaryValue = _fmtVoltage(pvVoltage);
+        } else if (pvCurrent != null) {
+          secondaryValue = '${pvCurrent.toStringAsFixed(1)}A';
         }
+      } else if (pvVoltage != null) {
+        // Fallback: show voltage if no power
+        primaryValue = _fmtVoltage(pvVoltage);
+        if (pvCurrent != null) {
+          secondaryValue = '${pvCurrent.toStringAsFixed(1)}A';
+        }
+      } else {
+        primaryValue = '--';
       }
 
       rawCards.add({
@@ -823,19 +818,13 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       final selected = _selectedValueFor('battery');
       rawCards.add({
         'title': 'Battery',
-        'value': () {
-          if (selected != null) return selected;
-          final picked = _pickByModel('battery');
-          if (picked != null) return picked.key;
-          return (batteryVoltage != null)
-              ? _fmtVoltage(batteryVoltage)
-              : _fmtSoc(batSoc);
-        }(),
+        'value': selected ??
+            (batteryVoltage != null
+                ? _fmtVoltage(batteryVoltage)
+                : _fmtSoc(batSoc)),
         'subtitle': () {
           if (selected != null)
             return _formatLabel(_selectedParByCategory['battery'] ?? '');
-          final picked = _pickByModel('battery');
-          if (picked != null) return _formatLabel(picked.value);
           if (batteryVoltage != null && batSoc != null) return _fmtSoc(batSoc);
           final pw = _energyFlow?.batteryPower;
           if (batteryVoltage == null && pw != null && pw.abs() > 0) {
@@ -856,24 +845,18 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       if (selected != null) {
         primaryValue = selected;
         secondaryValue = _formatLabel(_selectedParByCategory['load'] ?? '');
-      } else {
-        final picked = _pickByModel('load');
-        if (picked != null) {
-          primaryValue = picked.key;
-          secondaryValue = _formatLabel(picked.value);
-        } else if (loadPower != null) {
-          // Primary: Power in Watts
-          primaryValue = _fmtPowerW(loadPower);
-          // Secondary: Voltage
-          if (loadVoltage != null) {
-            secondaryValue = _fmtVoltage(loadVoltage);
-          }
-        } else if (loadVoltage != null) {
-          // Fallback: show voltage if no power
-          primaryValue = _fmtVoltage(loadVoltage);
-        } else {
-          primaryValue = '--';
+      } else if (loadPower != null) {
+        // Primary: Power in Watts
+        primaryValue = _fmtPowerW(loadPower);
+        // Secondary: Voltage
+        if (loadVoltage != null) {
+          secondaryValue = _fmtVoltage(loadVoltage);
         }
+      } else if (loadVoltage != null) {
+        // Fallback: show voltage if no power
+        primaryValue = _fmtVoltage(loadVoltage);
+      } else {
+        primaryValue = '--';
       }
 
       rawCards.add({
@@ -892,12 +875,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     if (selectedGrid != null) {
       gridValueStr = selectedGrid;
       gridSubtitle = _formatLabel(_selectedParByCategory['grid'] ?? '');
-    } else {
-      final picked = _pickByModel('grid');
-      if (picked != null) {
-        gridValueStr = picked.key;
-        gridSubtitle = _formatLabel(picked.value);
-      } else if (gridPowerVal != null) {
+    } else if (gridPowerVal != null) {
       // Primary: Grid Power in Watts
       gridValueStr = _fmtPowerW(gridPowerVal);
       // Secondary: Voltage or Frequency
@@ -906,22 +884,21 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       } else if (gridFreqVal != null) {
         gridSubtitle = '${gridFreqVal.toStringAsFixed(1)} Hz';
       }
-      } else if (gridVoltageVal != null) {
+    } else if (gridVoltageVal != null) {
       // Fallback if no power: show voltage
       gridValueStr = _fmtVoltage(gridVoltageVal);
       if (gridFreqVal != null) {
         gridSubtitle = '${gridFreqVal.toStringAsFixed(1)} Hz';
       }
-      } else if (gridFreqVal != null) {
+    } else if (gridFreqVal != null) {
       // Fallback if only frequency available
       gridValueStr = '${gridFreqVal.toStringAsFixed(1)} Hz';
-      } else {
+    } else {
       // Last resort: check paging values
       gridValueStr = _latestPagingValues['Grid Power'] ??
           _latestPagingValues['Grid Voltage'] ??
           _latestPagingValues['Grid Frequency (Hz)'] ??
           '--';
-      }
     }
 
     // Always show Grid card
@@ -1623,164 +1600,184 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[50],
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(76),
-        child: SafeArea(
-          bottom: false,
-          child: Container(
-            height: 64,
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-            color: Colors.white,
-            child: Row(
-              children: [
-                _SquareIconButton(
-                  icon: Icons.arrow_back,
-                  onTap: () {
-                    // Always navigate back to devices screen (HomeScreen with index 2)
-                    Navigator.of(context).popUntil((route) => route.isFirst);
-                  },
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'SN Device Detail',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.black,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                // Power generation (collector) report - open prompt dialog
-                _SquareIconButton(
-                  customSvg: 'assets/icons/download_report_svg.svg',
-                  tooltip: 'Power Generation Report',
-                  onTap: _showPowerGenerationDialog,
-                ),
-                const SizedBox(width: 8),
-                // Full report dialog (user selects range)
-                _SquareIconButton(
-                  customSvg: 'assets/icons/download_report_svg2.svg',
-                  tooltip: 'Full Report',
-                  onTap: _showReportDialog,
-                ),
-                const SizedBox(width: 8),
-                // Navigate to alarms screen
-                _SquareIconButton(
-                  icon: Icons.notifications_none,
-                  tooltip: 'Alarms',
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const AlarmNotificationScreen(),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(width: 8),
-                // Settings icon - open Device Settings
-                _SquareIconButton(
-                  icon: Icons.settings,
-                  tooltip: 'Settings',
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => DataControlOldScreen.fromDevice(
-                          widget.device,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ],
+    return WillPopScope(
+        onWillPop: () async {
+          if (!mounted) return true;
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) => const HomeScreen(),
+              settings: const RouteSettings(arguments: {'tabIndex': 2}),
             ),
-          ),
-        ),
-      ),
-      body: (_loading && !_hasData)
-          ? const Center(child: CircularProgressIndicator())
-          : _err != null
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Error: $_err',
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                      const SizedBox(height: 12),
-                      ElevatedButton(
-                          onPressed: _fetch, child: const Text('Retry')),
-                    ],
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: () async {
-                    // Fetch latest data and force a heavy fetch, bypass cache for fresh data
-                    await _fetch(bypassCache: true);
-                    final dateStr =
-                        DateFormat('yyyy-MM-dd').format(_anchorDate);
-                    await _fetchHeavy(date: dateStr);
-                  },
-                  child: SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Device Header card removed as per requirements
-                        // Diagram at the top now
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 400),
-                          switchInCurve: Curves.easeOut,
-                          switchOutCurve: Curves.easeIn,
-                          child: _EnergyFlowDiagram(
-                            key: ValueKey(_lastFlowKey ?? 'empty'),
-                            pvW: _energyFlow?.pvVoltage ??
-                                _energyFlow?.pvPower ??
-                                _numFromLatest([
-                                  'PV1 Input Voltage',
-                                  'PV2 Input Voltage',
-                                  'PV1 Input Power (Watts)'
-                                ]),
-                            loadW: _energyFlow?.loadPower,
-                            gridW: _energyFlow?.gridVoltage ??
-                                _energyFlow?.gridPower ??
-                                _numFromLatest(
-                                    ['Grid Voltage', 'Grid Frequency (Hz)']),
-                            batterySoc: _energyFlow?.batterySoc,
-                            batteryFlowW: _energyFlow?.batteryVoltage ??
-                                _energyFlow?.batteryPower ??
-                                _numFromLatest(['Battery Voltage']),
-                            lastUpdated: _live?.timestamp,
-                            energyFlow:
-                                _energyFlow, // Pass full model for status
+            (route) => false,
+          );
+          return false;
+        },
+        child: Scaffold(
+          backgroundColor: Colors.grey[50],
+          appBar: PreferredSize(
+            preferredSize: const Size.fromHeight(76),
+            child: SafeArea(
+              bottom: false,
+              child: Container(
+                height: 64,
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+                color: Colors.white,
+                child: Row(
+                  children: [
+                    _SquareIconButton(
+                      icon: Icons.arrow_back,
+                      onTap: () {
+                        Navigator.of(context).pushAndRemoveUntil(
+                          MaterialPageRoute(
+                            builder: (_) => const HomeScreen(),
+                            settings:
+                                const RouteSettings(arguments: {'tabIndex': 2}),
                           ),
+                          (route) => false,
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'SN Device Detail',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black,
                         ),
-                        const SizedBox(height: 16),
-                        _summaryCards(),
-                        const SizedBox(height: 24),
-                        if (_graphEnabled)
-                          _DeviceMetricGraph(device: widget.device),
-                        const SizedBox(height: 12),
-                        Center(
-                          child: Text(
-                            _deviceModelDisplay(),
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.black54,
-                              fontWeight: FontWeight.w500,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    // Power generation (collector) report - open prompt dialog
+                    _SquareIconButton(
+                      customSvg: 'assets/icons/download_report_svg.svg',
+                      tooltip: 'Power Generation Report',
+                      onTap: _showPowerGenerationDialog,
+                    ),
+                    const SizedBox(width: 8),
+                    // Full report dialog (user selects range)
+                    _SquareIconButton(
+                      customSvg: 'assets/icons/download_report_svg2.svg',
+                      tooltip: 'Full Report',
+                      onTap: _showReportDialog,
+                    ),
+                    const SizedBox(width: 8),
+                    // Navigate to alarms screen
+                    _SquareIconButton(
+                      icon: Icons.notifications_none,
+                      tooltip: 'Alarms',
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const AlarmNotificationScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    // Settings icon - open Device Settings
+                    _SquareIconButton(
+                      icon: Icons.settings,
+                      tooltip: 'Settings',
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => DataControlOldScreen.fromDevice(
+                              widget.device,
                             ),
                           ),
-                        ),
-                      ],
+                        );
+                      },
                     ),
-                  ),
+                  ],
                 ),
-    );
+              ),
+            ),
+          ),
+          body: (_loading && !_hasData)
+              ? const Center(child: CircularProgressIndicator())
+              : _err != null
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Error: $_err',
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                          const SizedBox(height: 12),
+                          ElevatedButton(
+                              onPressed: _fetch, child: const Text('Retry')),
+                        ],
+                      ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: () async {
+                        // Fetch latest data and force a heavy fetch, bypass cache for fresh data
+                        await _fetch(bypassCache: true);
+                        final dateStr =
+                            DateFormat('yyyy-MM-dd').format(_anchorDate);
+                        await _fetchHeavy(date: dateStr);
+                      },
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Device Header card removed as per requirements
+                            // Diagram at the top now
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 400),
+                              switchInCurve: Curves.easeOut,
+                              switchOutCurve: Curves.easeIn,
+                              child: _EnergyFlowDiagram(
+                                key: ValueKey(_lastFlowKey ?? 'empty'),
+                                pvW: _energyFlow?.pvVoltage ??
+                                    _energyFlow?.pvPower ??
+                                    _numFromLatest([
+                                      'PV1 Input Voltage',
+                                      'PV2 Input Voltage',
+                                      'PV1 Input Power (Watts)'
+                                    ]),
+                                loadW: _energyFlow?.loadPower,
+                                gridW: _energyFlow?.gridVoltage ??
+                                    _energyFlow?.gridPower ??
+                                    _numFromLatest([
+                                      'Grid Voltage',
+                                      'Grid Frequency (Hz)'
+                                    ]),
+                                batterySoc: _energyFlow?.batterySoc,
+                                batteryFlowW: _energyFlow?.batteryVoltage ??
+                                    _energyFlow?.batteryPower ??
+                                    _numFromLatest(['Battery Voltage']),
+                                lastUpdated: _live?.timestamp,
+                                energyFlow:
+                                    _energyFlow, // Pass full model for status
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            _summaryCards(),
+                            const SizedBox(height: 24),
+                            if (_graphEnabled)
+                              _DeviceMetricGraph(device: widget.device),
+                            const SizedBox(height: 12),
+                            Center(
+                              child: Text(
+                                _deviceModelDisplay(),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black54,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+        ));
   }
 
   String _deviceModelDisplay() {
@@ -1810,64 +1807,6 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         break;
     }
     return '$name - (${widget.device.devcode})';
-  }
-
-  // Find first matching energy flow item by any of the candidate names
-  DeviceEnergyFlowItem? _findByCandidates(
-    List<DeviceEnergyFlowItem> list,
-    List<String> candidates,
-  ) {
-    if (list.isEmpty) return null;
-    final lowered = candidates.map((e) => e.trim().toLowerCase()).toList();
-    for (final it in list) {
-      final par = it.par.trim().toLowerCase();
-      if (lowered.contains(par)) return it;
-    }
-    return null;
-  }
-
-  // Build the list of flow items corresponding to a category
-  List<DeviceEnergyFlowItem> _flowListForCategory(String category) {
-    switch (category) {
-      case 'pv':
-        return _energyFlow?.pvStatus ?? const [];
-      case 'battery':
-        return _energyFlow?.btStatus ?? const [];
-      case 'load':
-        return [...?_energyFlow?.bcStatus, ...?_energyFlow?.olStatus];
-      case 'grid':
-        return _energyFlow?.gdStatus ?? const [];
-    }
-    return const [];
-  }
-
-  // Pick the first configured field for a category based on the current device model.
-  // Returns a pair encoded as MapEntry<valueString, labelString> if found, otherwise null.
-  MapEntry<String, String>? _pickByModel(String category) {
-    final model = DeviceModel.detect(
-      devcode: widget.device.devcode,
-      alias: widget.device.alias,
-    );
-    final cfg = DeviceModelPopupConfig.forModel(model);
-    final fieldCfgs = cfg.getFieldsForCategory(category);
-    if (fieldCfgs.isEmpty) return null;
-    final list = _flowListForCategory(category);
-
-    // Try energy flow first
-    for (final fc in fieldCfgs) {
-      final hit = _findByCandidates(list, fc.apiCandidates);
-      if (hit != null) {
-        final unit = (fc.unit.isNotEmpty ? fc.unit : (hit.unit ?? '')).trim();
-        final v = _formatValueWithUnit(hit.value, unit);
-        return MapEntry(v, fc.label);
-      }
-    }
-    // Fallback to latest paging values by configured label
-    for (final fc in fieldCfgs) {
-      final v = _latestPagingValues[fc.label];
-      if (v != null) return MapEntry(v, fc.label);
-    }
-    return null;
   }
 
   void _showPowerGenerationDialog() {

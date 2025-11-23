@@ -27,8 +27,11 @@ class AuthRepository {
 
   // Legacy sign method removed (unused)
 
-  Future<AuthResponse> login(String userId, String password,
-      {bool isAgent = false}) async {
+  Future<AuthResponse> login(
+    String userId,
+    String password, {
+    bool isAgent = false,
+  }) async {
     try {
       // Always clear previous auth/session state before a new login to avoid stale leakage
       await clearAllPersistedAuth();
@@ -36,12 +39,12 @@ class AuthRepository {
       final url = 'https://apis.crown-micro.net/api/MonitoringApp/Login';
       final headers = {
         'Content-Type': 'application/json',
-        'x-api-key': 'C5BFF7F0-B4DF-475E-A331-F737424F013C'
+        'x-api-key': 'C5BFF7F0-B4DF-475E-A331-F737424F013C',
       };
       final body = {
         "UserName": userId,
         "Password": password,
-        "IsAgent": isAgent
+        "IsAgent": isAgent,
       };
 
       print('Attempting Crown Micro login for user: $userId');
@@ -77,15 +80,9 @@ class AuthRepository {
         } else if (data['Agentslist'] != null) {
           await _prefs.setBool(_isInstallerKey, true);
           await _prefs.setString(_agentsListKey, jsonEncode(data));
-          return AuthResponse(
-            isSuccess: true,
-            agentsList: data['Agentslist'],
-          );
+          return AuthResponse(isSuccess: true, agentsList: data['Agentslist']);
         }
-        return AuthResponse(
-          isSuccess: false,
-          description: 'User not found',
-        );
+        return AuthResponse(isSuccess: false, description: 'User not found');
       }
       return AuthResponse(
         isSuccess: false,
@@ -93,10 +90,7 @@ class AuthRepository {
       );
     } catch (e) {
       print('Login error: $e');
-      return AuthResponse(
-        isSuccess: false,
-        description: 'Network error: $e',
-      );
+      return AuthResponse(isSuccess: false, description: 'Network error: $e');
     }
   }
 
@@ -107,12 +101,9 @@ class AuthRepository {
       final url = 'https://apis.crown-micro.net/api/MonitoringApp/Login';
       final headers = {
         'Content-Type': 'application/json',
-        'x-api-key': 'C5BFF7F0-B4DF-475E-A331-F737424F013C'
+        'x-api-key': 'C5BFF7F0-B4DF-475E-A331-F737424F013C',
       };
-      final body = {
-        "UserName": username,
-        "Password": password,
-      };
+      final body = {"UserName": username, "Password": password};
 
       print('Attempting Crown Micro agent login for user: $username');
       print('URL: $url');
@@ -140,10 +131,7 @@ class AuthRepository {
             userId: data['UserID'].toString(),
           );
         }
-        return AuthResponse(
-          isSuccess: false,
-          description: 'User not found',
-        );
+        return AuthResponse(isSuccess: false, description: 'User not found');
       }
       return AuthResponse(
         isSuccess: false,
@@ -151,10 +139,7 @@ class AuthRepository {
       );
     } catch (e) {
       print('Agent login error: $e');
-      return AuthResponse(
-        isSuccess: false,
-        description: 'Network error: $e',
-      );
+      return AuthResponse(isSuccess: false, description: 'Network error: $e');
     }
   }
 
@@ -202,7 +187,7 @@ class AuthRepository {
 
   Future<void> logout() async {
     print('AuthRepository: Starting logout...');
-    
+
     // Clear device repository caches FIRST to ensure no stale data persists
     try {
       final deviceRepo = getIt<DeviceRepository>();
@@ -211,7 +196,7 @@ class AuthRepository {
     } catch (e) {
       print('AuthRepository: Error clearing device caches: $e');
     }
-    
+
     // Clear realtime data service cache
     try {
       final realtimeService = getIt<RealtimeDataService>();
@@ -221,7 +206,7 @@ class AuthRepository {
     } catch (e) {
       print('AuthRepository: Error clearing realtime service: $e');
     }
-    
+
     await _prefs.remove(_tokenKey);
     print('AuthRepository: Token removed');
     await _prefs.remove(_userIdKey);
@@ -299,7 +284,7 @@ class AuthRepository {
       final url = 'https://apis.crown-micro.net/api/MonitoringApp/Register';
       final headers = {
         'Content-Type': 'application/json',
-        'x-api-key': 'C5BFF7F0-B4DF-475E-A331-F737424F013C'
+        'x-api-key': 'C5BFF7F0-B4DF-475E-A331-F737424F013C',
       };
       final body = jsonEncode({
         "Email": email,
@@ -308,8 +293,11 @@ class AuthRepository {
         "Password": password,
         "SN": sn,
       });
-      final response =
-          await http.post(Uri.parse(url), headers: headers, body: body);
+      final response = await http.post(
+        Uri.parse(url),
+        headers: headers,
+        body: body,
+      );
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         return data['Description'] == "Success";

@@ -9,7 +9,6 @@ import 'package:crown_micro_solar/presentation/viewmodels/dashboard_view_model.d
 import 'package:crown_micro_solar/core/theme/theme_notifier.dart';
 import 'package:crown_micro_solar/core/theme/app_theme.dart';
 import 'package:crown_micro_solar/routes/app_routes.dart';
-import 'package:crown_micro_solar/view/profile/change_password_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({Key? key}) : super(key: key);
@@ -52,12 +51,142 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _showChangePasswordDialog(BuildContext context) {
     final authViewModel = Provider.of<AuthViewModel>(context, listen: false);
-    final userInfo = authViewModel.userInfo;
-    final username = _extractUsername(userInfo?.usr ?? 'User');
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => ChangePasswordScreen(username: username),
-      ),
+    final oldController = TextEditingController();
+    final newController = TextEditingController();
+    final confirmController = TextEditingController();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        bool loading = false;
+        bool obOld = true;
+        bool obNew = true;
+        bool obConf = true;
+        return StatefulBuilder(
+          builder: (ctx, setState) => Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Change Password', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: oldController,
+                    obscureText: obOld,
+                    decoration: InputDecoration(
+                      hintText: 'Old Password',
+                      filled: true,
+                      fillColor: const Color(0xFFF3F4F6),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      suffixIcon: IconButton(
+                        icon: Icon(obOld ? Icons.visibility_off : Icons.visibility),
+                        onPressed: () => setState(() => obOld = !obOld),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: newController,
+                    obscureText: obNew,
+                    decoration: InputDecoration(
+                      hintText: 'New Password',
+                      filled: true,
+                      fillColor: const Color(0xFFF3F4F6),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      suffixIcon: IconButton(
+                        icon: Icon(obNew ? Icons.visibility_off : Icons.visibility),
+                        onPressed: () => setState(() => obNew = !obNew),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: confirmController,
+                    obscureText: obConf,
+                    decoration: InputDecoration(
+                      hintText: 'Confirm Password',
+                      filled: true,
+                      fillColor: const Color(0xFFF3F4F6),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      suffixIcon: IconButton(
+                        icon: Icon(obConf ? Icons.visibility_off : Icons.visibility),
+                        onPressed: () => setState(() => obConf = !obConf),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.black87,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: const BorderSide(color: Colors.black12),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                          onPressed: loading ? null : () => Navigator.of(dialogCtx).pop(),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Theme.of(context).colorScheme.primary,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            elevation: 0,
+                          ),
+                          onPressed: loading
+                              ? null
+                              : () async {
+                                  final oldPwd = oldController.text;
+                                  final newPwd = newController.text.trim();
+                                  final confPwd = confirmController.text.trim();
+                                  if (newPwd.length < 6) {
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('New password must be at least 6 characters'), backgroundColor: Colors.white));
+                                    return;
+                                  }
+                                  if (newPwd != confPwd) {
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Passwords do not match'), backgroundColor: Colors.white));
+                                    return;
+                                  }
+                                  setState(() => loading = true);
+                                  final ok = await authViewModel.changePassword(oldPwd, newPwd);
+                                  if (!ctx.mounted) return;
+                                  setState(() => loading = false);
+                                  if (ok) {
+                                    Navigator.of(dialogCtx).pop();
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password changed successfully'), backgroundColor: Colors.white));
+                                  } else {
+                                    final err = Provider.of<AuthViewModel>(context, listen: false).error ?? 'Password change failed';
+                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err), backgroundColor: Colors.white));
+                                  }
+                                },
+                          child: loading
+                              ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : const Text('Submit', style: TextStyle(color: Colors.white)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
