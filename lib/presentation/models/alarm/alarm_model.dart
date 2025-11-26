@@ -91,8 +91,17 @@ class Warning {
       }
     }
 
+    String resolveId(Map<String, dynamic> j) {
+      final candidates = ['id', 'wid', 'warningId', 'warnId'];
+      for (final k in candidates) {
+        final v = j[k];
+        if (v != null && v.toString().isNotEmpty) return v.toString();
+      }
+      return '';
+    }
+
     return Warning(
-      id: json['id']?.toString() ?? '',
+      id: resolveId(json),
       sn: json['sn']?.toString() ?? '',
       pn: json['pn']?.toString() ?? '',
       devcode: json['devcode'] ?? 0,

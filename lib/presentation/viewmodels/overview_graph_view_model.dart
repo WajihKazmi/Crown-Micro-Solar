@@ -85,7 +85,7 @@ class OverviewGraphViewModel extends ChangeNotifier {
   final _deviceRepo = getIt<DeviceRepository>();
 
   GraphMetric _metric = GraphMetric
-      .outputPower; // Changed from pvInputCurrent to show power generation
+      .todayGeneration; // Default to power generation instead of output power
   GraphPeriod _period = GraphPeriod.day;
   DateTime _anchor = DateTime.now();
   String? _error;
@@ -379,13 +379,19 @@ class OverviewGraphViewModel extends ChangeNotifier {
         }
       }
     } else {
-      if (_metric == GraphMetric.outputPower) {
-        // Plant-level output power from DESS
+      if (_metric == GraphMetric.outputPower ||
+          _metric == GraphMetric.todayGeneration) {
+        // Plant-level series from DESS aggregated energy endpoint
         final summary = await _energyRepo.getDailyEnergy(plantId, dateStr);
         values = List<double>.filled(24, 0);
         for (final h in summary.hourlyData) {
           final idx = h.timestamp.hour;
-          if (idx >= 0 && idx < 24) values[idx] = h.power.toDouble();
+          if (idx >= 0 && idx < 24) {
+            // For generation use energy (kWh), for output power use power (kW)
+            values[idx] = (_metric == GraphMetric.todayGeneration)
+                ? h.energy.toDouble()
+                : h.power.toDouble();
+          }
         }
         // Fallback: if all zeros (common when plant API returns err=12) try aggregating devices directly
         final allZero = values.every((v) => v == 0.0);
@@ -393,7 +399,9 @@ class OverviewGraphViewModel extends ChangeNotifier {
           try {
             final deviceDerived = await _aggregateDevicesDaily(
               plantId: plantId,
-              metric: GraphMetric.outputPower,
+              metric: _metric == GraphMetric.todayGeneration
+                  ? GraphMetric.todayGeneration
+                  : GraphMetric.outputPower,
               date: dateStr,
             );
             // Only replace if deviceDerived has some non-zero data
@@ -433,7 +441,9 @@ class OverviewGraphViewModel extends ChangeNotifier {
 
     // Prefer aggregated API for plant-level Output Power
     bool usedAggregated = false;
-    if (_selectedDevice == null && _metric == GraphMetric.outputPower) {
+    if (_selectedDevice == null &&
+        (_metric == GraphMetric.outputPower ||
+            _metric == GraphMetric.todayGeneration)) {
       try {
         final summary = await _energyRepo.getMonthlyEnergy(
           plantId,
@@ -442,10 +452,12 @@ class OverviewGraphViewModel extends ChangeNotifier {
         );
         final points = summary.hourlyData; // reused field as generic list
         if (points.isNotEmpty) {
-          // Build per-day values using energy first, fallback to power
+          // Build per-day values: prefer energy for generation; otherwise fallback
           for (int i = 0; i < points.length; i++) {
             final p = points[i];
-            final v = (p.energy != 0) ? p.energy : p.power;
+            final v = (_metric == GraphMetric.todayGeneration)
+                ? (p.energy)
+                : ((p.energy != 0) ? p.energy : p.power);
             data.add(v);
           }
           // Adjust labels if API returned fewer/more points
@@ -584,13 +596,15 @@ class OverviewGraphViewModel extends ChangeNotifier {
         data.addAll(tmp);
       } else {
         // All devices: fast aggregate by day (one call per day only if non-output metrics)
-        if (_metric == GraphMetric.outputPower) {
+        if (_metric == GraphMetric.outputPower ||
+            _metric == GraphMetric.todayGeneration) {
           // If we got here, aggregated monthly failed; fall back to per-day totals but avoid long waits
           // Limit to existing days up to today in current month; for past months, still loop but this is rare
           for (int day = 1; day <= daysInMonth; day++) {
             final dateStr =
                 _fmtDate(DateTime(_anchor.year, _anchor.month, day));
             final summary = await _energyRepo.getDailyEnergy(plantId, dateStr);
+            // For generation graph we want daily kWh; for output power monthly fallback also uses kWh
             data.add(summary.totalEnergy);
           }
         } else {
@@ -655,7 +669,9 @@ class OverviewGraphViewModel extends ChangeNotifier {
         final points = summary.hourlyData; // reused field as generic list
         if (points.isNotEmpty) {
           for (final p in points) {
-            final v = (p.energy != 0) ? p.energy : p.power;
+            final v = (_metric == GraphMetric.todayGeneration)
+                ? p.energy
+                : (p.energy != 0 ? p.energy : p.power);
             data.add(v);
           }
           // Ensure exactly 12 points
@@ -837,7 +853,9 @@ class OverviewGraphViewModel extends ChangeNotifier {
         if (points.isNotEmpty) {
           for (final p in points) {
             labels.add(p.timestamp.year.toString());
-            data.add(p.energy != 0 ? p.energy : p.power);
+            data.add(_metric == GraphMetric.todayGeneration
+                ? p.energy
+                : (p.energy != 0 ? p.energy : p.power));
           }
         } else {
           // Fallback when API returns empty: query recent years individually

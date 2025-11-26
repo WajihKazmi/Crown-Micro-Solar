@@ -169,38 +169,52 @@ class AlarmRepository {
 
   Future<bool> deleteWarning(String warningId) async {
     try {
+      // Use DESS public API (same signing as fetch/ack) because warning IDs
+      // are sourced from DESS. Growatt deletion fails with mismatched IDs.
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-      final username = prefs.getString('username');
-      final appkey = prefs.getString('appkey');
+      final token = prefs.getString('token') ?? '';
+      final secret = prefs.getString('Secret') ?? '';
+      const salt = '12345678';
 
-      if (token == null || username == null || appkey == null) {
+      if (token.isEmpty || secret.isEmpty) {
         throw Exception('Authentication required');
       }
 
-      final timestamp =
-          (DateTime.now().millisecondsSinceEpoch / 1000).round().toString();
-      String queryString =
-          'action=delPlantWarning&warningId=$warningId&timeStamp=$timestamp&token=$token';
+      // Build action for deletion (include both id and wid to handle API variants)
+      final action =
+          '&action=delPlantWarning&i18n=en_US&id=$warningId&wid=$warningId';
+      const postaction =
+          '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
 
-      // Generate signature
-      final signatureInput = queryString + appkey;
-      final bytes = utf8.encode(signatureInput);
-      final digest = md5.convert(bytes);
-      final sign = digest.toString();
+      // sha1(signData) with salt + secret + token + action + postaction
+      final signData = salt + secret + token + action + postaction;
+      final sign = sha1.convert(utf8.encode(signData)).toString();
+      final url =
+          'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
 
-      queryString += '&sign=$sign';
-
-      final response = await _dio.get(
-        'https://openapi.growatt.com/v1/plant/warning/del?$queryString',
-        options: Options(
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        ),
+      final response = await _dio.post(
+        url,
+        options: Options(headers: {'Content-Type': 'application/json'}),
       );
 
-      return response.statusCode == 200 && response.data['result'] == 1;
+      final ok = response.statusCode == 200 && response.data['err'] == 0;
+      if (ok) return true;
+
+      try {
+        // Fallback: if delete is not permitted, try acknowledging (ignore) as soft delete
+        final ack = await acknowledgeWarning(warningId);
+        if (ack) return true;
+      } catch (_) {}
+
+      // Log server error description when available
+      try {
+        final desc = response.data is Map ? response.data['desc'] : null;
+        if (desc != null) {
+          // ignore: avoid_print
+          print('AlarmRepository: deleteWarning failed: $desc');
+        }
+      } catch (_) {}
+      return false;
     } catch (e) {
       throw Exception('Error deleting warning: $e');
     }
@@ -222,7 +236,8 @@ class AlarmRepository {
         throw Exception('Authentication required');
       }
 
-      final action = '&action=ignorePlantWarning&i18n=en_US&id=$warningId';
+      final action =
+          '&action=ignorePlantWarning&i18n=en_US&id=$warningId&wid=$warningId';
       const postaction =
           '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
       final signData = salt + secret + token + action + postaction;

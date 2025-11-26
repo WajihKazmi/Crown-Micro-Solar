@@ -3,6 +3,7 @@ import 'package:crown_micro_solar/core/network/api_client.dart';
 import 'package:crown_micro_solar/core/network/api_endpoints.dart';
 import 'package:crown_micro_solar/presentation/models/plant/plant_model.dart';
 import 'package:crypto/crypto.dart';
+import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -113,16 +114,29 @@ class PlantRepository {
     final platform = Platform.isAndroid ? 'android' : 'ios';
     final postaction =
         '&source=1&app_id=${package.packageName}&app_version=${package.version}&app_client=$platform';
-    final action = '&action=delPlant&plantid=$plantId';
+    final action = '&action=delPlant&i18n=en_US&plantid=$plantId';
     final data = salt + secret + token + action + postaction;
     final sign = sha1.convert(utf8.encode(data)).toString();
     final url =
         'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
     try {
-      final resp = await http.post(Uri.parse(url));
+      final resp = await Dio().post(
+        url,
+        options: Options(headers: {'Content-Type': 'application/json'}),
+      );
       if (resp.statusCode != 200) return false;
-      final Map<String, dynamic> jsonBody = json.decode(resp.body);
-      return (jsonBody['err'] == 0);
+      final data = resp.data is String ? json.decode(resp.data) : resp.data;
+      final ok = data is Map && data['err'] == 0;
+      if (!ok) {
+        try {
+          final desc = data is Map ? data['desc'] : null;
+          if (desc != null) {
+            // ignore: avoid_print
+            print('PlantRepository.deletePlant failed: $desc');
+          }
+        } catch (_) {}
+      }
+      return ok;
     } catch (e) {
       print('PlantRepository.deletePlant error: $e');
       return false;
