@@ -1320,6 +1320,8 @@ class DeviceRepository {
     final sign = sha1.convert(utf8.encode(data)).toString();
     final url =
         'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+    // Debug: print full paging URL for inspection/testing in Postman
+    print('fetchDeviceDataOneDayPaging URL: $url');
     try {
       final response = await _apiClient.signedPost(url);
       final jsonMap = json.decode(response.body);

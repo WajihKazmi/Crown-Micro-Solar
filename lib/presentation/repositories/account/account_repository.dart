@@ -317,12 +317,14 @@ class AccountRepository {
   Future<Map<String, dynamic>> deleteAccount() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final userId = prefs.get('UserID'); // keep exact stored type
+      final userIdStr = prefs.getString('UserID');
+      int? userIdInt = int.tryParse(userIdStr ?? '');
+      userIdInt ??= prefs.getInt('UserID');
 
       print('====== DELETE ACCOUNT (IDENTICAL) ======');
-      print('UserID raw from storage: $userId');
+      print('UserID string from storage: $userIdStr, parsed/int: $userIdInt');
 
-      if (userId == null) {
+      if (userIdInt == null) {
         return {'success': false, 'message': 'No user id in session'};
       }
 
@@ -332,7 +334,7 @@ class AccountRepository {
       };
 
       final body = {
-        'UserID': userId,
+        'UserID': userIdInt, // old app sends integer UserID
       };
 
       final url =
@@ -341,20 +343,39 @@ class AccountRepository {
       print('Headers: ${headers.keys.toList()}');
       print('Body: $body');
 
+      final dio = Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 15),
+      ));
+
       // Do not validate status beyond non-500 to mirror old app's fire-and-forget
-      final resp = await Dio().post(
-        url,
-        data: body,
-        options: Options(
-          headers: headers,
-          validateStatus: (s) => s != null && s < 500,
-        ),
-      );
+      Response resp;
+      try {
+        resp = await dio.post(
+          url,
+          data: body,
+          options: Options(
+            headers: headers,
+            validateStatus: (s) => s != null && s < 500,
+          ),
+        );
+      } catch (e) {
+        // One quick retry for transient issues
+        print('DeleteAccount request error, retrying once: $e');
+        resp = await dio.post(
+          url,
+          data: body,
+          options: Options(
+            headers: headers,
+            validateStatus: (s) => s != null && s < 500,
+          ),
+        );
+      }
 
       print('Response status: ${resp.statusCode}');
       print('Response data: ${resp.data}');
 
-      // Old app: on any response, navigate to login; we return success regardless of code
+      // Old app: on any response, treat as success
       return {'success': true, 'message': 'Account deleted successfully'};
     } catch (e) {
       print('deleteAccount (identical) error: $e');

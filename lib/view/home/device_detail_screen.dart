@@ -311,8 +311,10 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
           [];
       final rows = (dat['row'] as List?)?.cast<Map<String, dynamic>>() ?? [];
       if (titles.isEmpty || rows.isEmpty) return res;
-      final last = rows.last;
-      final field = (last['field'] as List?) ?? const [];
+      // Use the FIRST row for summary values so that detail popups (PV/Grid/etc.)
+      // reflect the primary record of the current fetch instead of the latest.
+      final first = rows.first;
+      final field = (first['field'] as List?) ?? const [];
 
       int idxOf(List<String> candidates) {
         for (final cand in candidates) {
@@ -340,6 +342,36 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         else
           n = d.toStringAsFixed(prec2);
         return unit.isNotEmpty ? '$n $unit' : n;
+      }
+
+      // 0) Generic mapping: store every API title -> formatted value from first row.
+      // This allows popup configs to refer directly to raw API titles via apiCandidates.
+      for (int i = 0; i < titles.length && i < field.length; i++) {
+        final t = titles[i];
+        if (t.isEmpty) continue;
+        final raw = field[i];
+        final numVal = toNum(raw);
+        // Try to get unit from title metadata if present
+        String unit = '';
+        final titleMeta = (dat['title'] as List?);
+        if (titleMeta != null && i < titleMeta.length) {
+          final m = titleMeta[i];
+          if (m is Map && m['unit'] != null) {
+            unit = m['unit'].toString();
+          }
+        }
+        res[t] = fmtNum(numVal, unit);
+      }
+      // Debug: log a subset of keys for quick verification
+      final sampleKeys = [
+        'AC output voltage', 'Output load percent',
+        'Mains input voltage', 'Mains frequency',
+        'PV1 Input voltage', 'PV2 Input voltage',
+        'Battery Voltage', 'Battery Capacity',
+      ];
+      print('_buildLatestFromPaging stored keys (sample):');
+      for (final k in sampleKeys) {
+        print('  $k: ${res[k]}');
       }
 
       void setBy(List<String> candidates, String uiLabel, String unit,
@@ -1074,7 +1106,11 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     final fieldConfigs = modelConfig.getFieldsForCategory(category);
 
     print(
-        'Device model: ${deviceModel.name}, Field configs count: ${fieldConfigs.length}');
+        'Popup category=$category | Detected model: ${deviceModel.name} (devcode=${deviceForModel.devcode}, alias="${deviceForModel.alias}")');
+    print('  Field configs count: ${fieldConfigs.length}');
+    for (final fc in fieldConfigs) {
+      print('    - label="${fc.label}", candidates=${fc.apiCandidates}');
+    }
 
     String title = '';
     List<DeviceEnergyFlowItem> items = const [];
@@ -1110,6 +1146,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
           print(
               '  Looking for fieldConfig: label="${fieldConfig.label}", candidates=${fieldConfig.apiCandidates}');
           final item = findByCandidate(list, fieldConfig.apiCandidates);
+          bool added = false;
           if (item != null) {
             print('    Found match: par="${item.par}", value=${item.value}');
             // Create a normalized item with clean label from config
@@ -1119,10 +1156,18 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
               unit: fieldConfig.unit.isNotEmpty ? fieldConfig.unit : item.unit,
               status: item.status,
             ));
+            added = true;
           } else {
             print('    No match found in energy flow, checking paging data');
             // If not found in energy flow, try to get from paging data
-            final pagingValue = _latestPagingValues[fieldConfig.label];
+            String? pagingValue;
+            // Prefer explicit API titles listed in apiCandidates
+            for (final cand in fieldConfig.apiCandidates) {
+              pagingValue = _latestPagingValues[cand];
+              if (pagingValue != null) break;
+            }
+            // Fallback to label-based lookup
+            pagingValue ??= _latestPagingValues[fieldConfig.label];
             if (pagingValue != null) {
               print('    Found in paging data: $pagingValue');
               // Parse the value from formatted string (e.g., "230 V" -> 230)
@@ -1137,9 +1182,20 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                     unit: fieldConfig.unit,
                     status: 0,
                   ));
+                  added = true;
                 }
               }
             }
+          }
+          // Always add an entry for this configured field so popup rows
+          // exactly mirror DeviceModelPopupConfig, even if value is missing.
+          if (!added) {
+            ordered.add(DeviceEnergyFlowItem(
+              par: fieldConfig.label,
+              value: null,
+              unit: fieldConfig.unit,
+              status: 0,
+            ));
           }
         }
 
@@ -1151,7 +1207,10 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
 
         print(
             'PV ordered count: ${ordered.length}, rest count: ${rest.length}');
-        items = [...ordered, ...rest];
+        // For PV category, show only the ordered, model-configured fields.
+        // This ensures the popup matches DeviceModelPopupConfig (e.g. Nova PV card)
+        // instead of including extra raw pvStatus entries that may be irrelevant.
+        items = ordered;
         icon = Icons.solar_power;
         break;
 
@@ -1162,6 +1221,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         final ordered = <DeviceEnergyFlowItem>[];
         for (final fieldConfig in fieldConfigs) {
           final item = findByCandidate(list, fieldConfig.apiCandidates);
+          bool added = false;
           if (item != null) {
             ordered.add(DeviceEnergyFlowItem(
               par: fieldConfig.label,
@@ -1169,9 +1229,15 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
               unit: fieldConfig.unit.isNotEmpty ? fieldConfig.unit : item.unit,
               status: item.status,
             ));
+            added = true;
           } else {
             // If not found in energy flow, try to get from paging data
-            final pagingValue = _latestPagingValues[fieldConfig.label];
+            String? pagingValue;
+            for (final cand in fieldConfig.apiCandidates) {
+              pagingValue = _latestPagingValues[cand];
+              if (pagingValue != null) break;
+            }
+            pagingValue ??= _latestPagingValues[fieldConfig.label];
             if (pagingValue != null) {
               // Parse the value from formatted string
               final match =
@@ -1185,6 +1251,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                     unit: fieldConfig.unit,
                     status: 0,
                   ));
+                  added = true;
                 }
               } else {
                 // If it's not a number (e.g., Battery Type), add as-is
@@ -1195,8 +1262,17 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                       pagingValue, // Store the string value in unit for display
                   status: 0,
                 ));
+                added = true;
               }
             }
+          }
+          if (!added) {
+            ordered.add(DeviceEnergyFlowItem(
+              par: fieldConfig.label,
+              value: null,
+              unit: fieldConfig.unit,
+              status: 0,
+            ));
           }
         }
 
@@ -1227,6 +1303,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         final ordered = <DeviceEnergyFlowItem>[];
         for (final fieldConfig in fieldConfigs) {
           final item = findByCandidate(list, fieldConfig.apiCandidates);
+          bool added = false;
           if (item != null) {
             ordered.add(DeviceEnergyFlowItem(
               par: fieldConfig.label,
@@ -1234,9 +1311,24 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
               unit: fieldConfig.unit.isNotEmpty ? fieldConfig.unit : item.unit,
               status: item.status,
             ));
+            added = true;
           } else {
             // If not found in energy flow, try to get from paging data
-            final pagingValue = _latestPagingValues[fieldConfig.label];
+            String? pagingValue;
+            // Prefer explicit API titles listed in apiCandidates
+            for (final cand in fieldConfig.apiCandidates) {
+              pagingValue = _latestPagingValues[cand];
+              print('  Trying candidate "$cand" -> ${pagingValue != null ? "FOUND" : "null"}');
+              if (pagingValue != null) break;
+            }
+            // Fallback to label-based lookup
+            if (pagingValue == null) {
+              pagingValue = _latestPagingValues[fieldConfig.label];
+              print('  Fallback label "${fieldConfig.label}" -> ${pagingValue != null ? "FOUND" : "null"}');
+            }
+            // Debug: log search attempts for Load category
+            print('Load fieldConfig label="${fieldConfig.label}", candidates=${fieldConfig.apiCandidates}');
+            print('  _latestPagingValues lookup result: $pagingValue');
             if (pagingValue != null) {
               // Parse the value from formatted string
               final match =
@@ -1250,24 +1342,31 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                     unit: fieldConfig.unit,
                     status: 0,
                   ));
+                  added = true;
+                  print('  Successfully parsed numeric value: $numValue');
+                } else {
+                  print('  Failed to parse numeric from: "$pagingValue"');
                 }
+              } else {
+                print('  No numeric match in: "$pagingValue"');
               }
+            } else {
+              print('  No paging value found for this field.');
             }
+          }
+          if (!added) {
+            ordered.add(DeviceEnergyFlowItem(
+              par: fieldConfig.label,
+              value: null,
+              unit: fieldConfig.unit,
+              status: 0,
+            ));
           }
         }
 
-        // Filter out unwanted power fields from rest
-        final rest = list
-            .where((e) =>
-                !fieldConfigs.any((fc) => fc.apiCandidates
-                    .any((c) => c.toLowerCase() == e.par.toLowerCase())) &&
-                !e.par.toLowerCase().contains('ac output active power') &&
-                !e.par.toLowerCase().contains('ac active output power') &&
-                !e.par.toLowerCase().contains('oil output power') &&
-                !e.par.toLowerCase().contains('oil_output_power'))
-            .toList();
-
-        items = [...ordered, ...rest];
+        // For load category, ONLY show the configured fields (ordered).
+        // This keeps the popup aligned with DeviceModelPopupConfig.
+        items = ordered;
         print('Load items count: ${items.length}');
         icon = Icons.home;
         break;
@@ -1279,6 +1378,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         final ordered = <DeviceEnergyFlowItem>[];
         for (final fieldConfig in fieldConfigs) {
           final item = findByCandidate(list, fieldConfig.apiCandidates);
+          bool added = false;
           if (item != null) {
             ordered.add(DeviceEnergyFlowItem(
               par: fieldConfig.label,
@@ -1286,9 +1386,24 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
               unit: fieldConfig.unit.isNotEmpty ? fieldConfig.unit : item.unit,
               status: item.status,
             ));
+            added = true;
           } else {
             // If not found in energy flow, try to get from paging data
-            final pagingValue = _latestPagingValues[fieldConfig.label];
+            String? pagingValue;
+            // Prefer explicit API titles listed in apiCandidates
+            for (final cand in fieldConfig.apiCandidates) {
+              pagingValue = _latestPagingValues[cand];
+              print('  Trying candidate "$cand" -> ${pagingValue != null ? "FOUND" : "null"}');
+              if (pagingValue != null) break;
+            }
+            // Fallback to label-based lookup
+            if (pagingValue == null) {
+              pagingValue = _latestPagingValues[fieldConfig.label];
+              print('  Fallback label "${fieldConfig.label}" -> ${pagingValue != null ? "FOUND" : "null"}');
+            }
+            // Debug: log search attempts for Grid category
+            print('Grid fieldConfig label="${fieldConfig.label}", candidates=${fieldConfig.apiCandidates}');
+            print('  _latestPagingValues lookup result: $pagingValue');
             if (pagingValue != null) {
               // Parse the value from formatted string
               final match =
@@ -1302,9 +1417,25 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                     unit: fieldConfig.unit,
                     status: 0,
                   ));
+                  added = true;
+                  print('  Successfully parsed numeric value: $numValue');
+                } else {
+                  print('  Failed to parse numeric from: "$pagingValue"');
                 }
+              } else {
+                print('  No numeric match in: "$pagingValue"');
               }
+            } else {
+              print('  No paging value found for this field.');
             }
+          }
+          if (!added) {
+            ordered.add(DeviceEnergyFlowItem(
+              par: fieldConfig.label,
+              value: null,
+              unit: fieldConfig.unit,
+              status: 0,
+            ));
           }
         }
 
@@ -1400,7 +1531,9 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                                     setState(() {});
                                   },
                                   child: _FlowDetailRow(
-                                    label: _formatLabel(it.par),
+                                    // Use configured label as-is so popup rows
+                                    // match DeviceModelPopupConfig exactly.
+                                    label: it.par,
                                     value:
                                         _formatValueWithUnit(it.value, it.unit),
                                     status: it.status,
@@ -1417,10 +1550,6 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                                     }(),
                                   ),
                                 ),
-                              // Extras from paging for missing required labels
-                              // Pass both formatted and raw labels to ensure proper matching
-                              ..._extraRowsForCategory(category,
-                                  items.map((e) => e.par).toSet(), ctx),
                             ],
                           ),
                         ),
