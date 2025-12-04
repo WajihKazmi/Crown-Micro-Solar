@@ -24,6 +24,7 @@ enum DeviceModel {
 
     // Check alias first (most specific)
     if (aliasLower.contains('nova')) return DeviceModel.nova;
+
     if (aliasLower.contains('elego')) return DeviceModel.elego;
     if (aliasLower.contains('xavier')) return DeviceModel.xavier;
     if (aliasLower.contains('arceus')) return DeviceModel.arceus;
@@ -34,11 +35,11 @@ enum DeviceModel {
     // Elego
     if (devcode == 2452) return DeviceModel.elego;
     // Nova explicit code
-    if (devcode == 2449) return DeviceModel.nova;
+    if (devcode == 2449 || devcode == 2488) return DeviceModel.nova;
     // Xavier vs Nova ambiguity on 2451: prefer Xavier if alias hinted above, otherwise Nova
-    if (devcode == 2451) return DeviceModel.xavier;
+    if (devcode == 2451 || devcode == 2547) return DeviceModel.xavier;
     // Datalogger
-    if (devcode == 2547 || devcode == 2329) return DeviceModel.datalogger;
+    if (devcode == 2329) return DeviceModel.datalogger;
 
     return DeviceModel.unknown;
   }
@@ -114,7 +115,6 @@ class DeviceModelPopupConfig {
         unit: 'W',
         apiCandidates: [
           'PV1 Charging Power',
-          
         ],
       ),
       PopupFieldConfig(
@@ -151,9 +151,10 @@ class DeviceModelPopupConfig {
       ),
       PopupFieldConfig(
         label: 'Battery Type',
-        unit: '',
+        unit: ' ',
         apiCandidates: [
           'Battery Type',
+          'Bat Type',
         ],
       ),
     ],
@@ -172,14 +173,12 @@ class DeviceModelPopupConfig {
           'ac_output_voltage',
         ],
       ),
-      
       PopupFieldConfig(
         label: 'Load Watts',
         unit: 'W',
         apiCandidates: [
           'AC Output Active Power',
           'Ac Output Active power',
-          
         ],
       ),
       PopupFieldConfig(
@@ -187,7 +186,6 @@ class DeviceModelPopupConfig {
         unit: '%',
         apiCandidates: [
           'Output Load Percent',
-          
         ],
       ),
     ],
@@ -197,8 +195,7 @@ class DeviceModelPopupConfig {
         unit: 'V',
         apiCandidates: [
           'Grid Voltage',
-          'Grid volts',
-         
+          'Grid Rating Voltage',
         ],
       ),
       PopupFieldConfig(
@@ -209,7 +206,6 @@ class DeviceModelPopupConfig {
           'Grid frequency',
         ],
       ),
-      
     ],
   );
 
@@ -222,7 +218,6 @@ class DeviceModelPopupConfig {
         unit: 'V',
         apiCandidates: [
           'PV1 Input voltage',
-
         ],
       ),
       PopupFieldConfig(
@@ -302,7 +297,6 @@ class DeviceModelPopupConfig {
         unit: 'V',
         apiCandidates: [
           'PV1 Input Voltage',
-         
         ],
       ),
       PopupFieldConfig(
@@ -310,7 +304,6 @@ class DeviceModelPopupConfig {
         unit: 'W',
         apiCandidates: [
           'PV1 Charging Power',
-         
         ],
       ),
     ],
@@ -412,7 +405,11 @@ class DeviceModelPopupConfig {
       PopupFieldConfig(
         label: 'Battery Percentage',
         unit: '%',
-        apiCandidates: ['Battery Capacity', 'Battery SOC', 'Battery Percentage'],
+        apiCandidates: [
+          'Battery Capacity',
+          'Battery SOC',
+          'Battery Percentage'
+        ],
       ),
       PopupFieldConfig(
         label: 'Charging Current',

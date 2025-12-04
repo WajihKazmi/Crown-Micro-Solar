@@ -32,7 +32,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
 
   // State variables
-  String _selectedRole = 'user'; // Default role
+  String _selectedRole = 'User'; // Default role
   bool _isAgreed = false; // Terms and conditions agreement
 
   @override
@@ -274,7 +274,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                               vertical: 12,
                             ),
                           ),
-                          items: const [
+                          items: [
                             DropdownMenuItem(
                                 value: 'User', child: Text('User')),
                             DropdownMenuItem(
@@ -282,15 +282,15 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           ],
                           onChanged: (value) {
                             setState(() {
-                              _selectedRole = value ?? 'user';
+                              _selectedRole = value!;
                             });
                           },
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please select your role';
-                            }
-                            return null;
-                          },
+                          // validator: (value) {
+                          //   if (value == null || value.isEmpty) {
+                          //     return 'Please select your role';
+                          //   }
+                          //   return null;
+                          // },
                         ),
                         const SizedBox(height: 15.0),
                         Text('WiFi Module PN',
