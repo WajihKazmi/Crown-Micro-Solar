@@ -334,7 +334,7 @@ class AccountRepository {
       };
 
       final body = {
-        'UserID': userIdInt, // old app sends integer UserID
+        'UserID': userIdInt.toString(), // Send UserID as string to match server expectations
       };
 
       final url =

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:crown_micro_solar/l10n/app_localizations.dart' as gen;
 import 'package:crown_micro_solar/core/di/service_locator.dart';
@@ -32,6 +31,7 @@ import 'plant_info_screen.dart';
 import 'dart:ui' as ui;
 import 'package:crown_micro_solar/core/utils/navigation_service.dart';
 // MetricAggregatorViewModel not directly used here; metric resolution handled via repository.
+import 'widgets/overview_syncfusion_chart.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -541,14 +541,16 @@ class _OverviewBodyState extends State<_OverviewBody> {
   @override
   void initState() {
     super.initState();
-    // Fetch energy data immediately when Overview screen loads
+    // Fetch energy data immediately when Overview screen loads - this is our primary source for power generation
     _fetchEnergyDataOnInit();
-    // Also fetch API-based metrics
+    // Also fetch API-based metrics as secondary source
     _fetchAPIBasedMetrics();
     // Set up periodic refresh for current power values (every 15 seconds)
     _metricsRefreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (mounted) {
         _fetchAPIBasedMetrics();
+        // Also refresh device energy data periodically for latest outpower values
+        _fetchEnergyDataOnInit();
       }
     });
   }
@@ -561,15 +563,16 @@ class _OverviewBodyState extends State<_OverviewBody> {
 
   /// Fetch total current power and total installed capacity from API
   /// Matches old app's CurrentOuputPowerof_ALLPSQuery() and InstalledCapacity_ALLPSQuery()
+  /// This is now secondary to device energy data (outpower field)
   Future<void> _fetchAPIBasedMetrics() async {
     print('_OverviewBodyState: _fetchAPIBasedMetrics called');
     try {
       final plantRepo = getIt<PlantRepository>();
 
-      // Fetch both metrics in parallel
+      // Fetch both metrics in parallel with shorter timeout
       final results = await Future.wait([
-        plantRepo.getTotalCurrentPower(),
-        plantRepo.getTotalInstalledCapacity(),
+        plantRepo.getTotalCurrentPower().timeout(const Duration(seconds: 10)),
+        plantRepo.getTotalInstalledCapacity().timeout(const Duration(seconds: 10)),
       ]);
 
       if (mounted) {
@@ -581,40 +584,9 @@ class _OverviewBodyState extends State<_OverviewBody> {
           '_OverviewBodyState: API metrics updated - Current Power: ${results[0]}W, Installed Capacity: ${results[1]}kW',
         );
       }
-
-      // ALSO refresh device-level energy data to get current outpower
-      // This ensures we have the most recent device output power values
-      final plantViewModel = getIt<PlantViewModel>();
-      if (plantViewModel.plants.isNotEmpty) {
-        final firstPlantId = plantViewModel.plants.first.id;
-        try {
-          final deviceRepo = getIt<DeviceRepository>();
-          final deviceBundle = await deviceRepo.getDevicesAndCollectors(
-            firstPlantId,
-          );
-          final allDevices = (deviceBundle['allDevices'] as List?) ?? [];
-
-          final deviceSNs = <String>[];
-          for (final d in allDevices) {
-            final sn =
-                (d is Map ? d['sn'] : (d as dynamic).sn)?.toString() ?? '';
-            if (sn.isNotEmpty) {
-              deviceSNs.add(sn);
-            }
-          }
-
-          if (deviceSNs.isNotEmpty) {
-            print(
-              '_OverviewBodyState: Refreshing energy data for ${deviceSNs.length} devices',
-            );
-            await _fetchAllDevicesEnergyData(deviceSNs);
-          }
-        } catch (e) {
-          print('_OverviewBodyState: Failed to refresh device energy data: $e');
-        }
-      }
     } catch (e) {
       print('_OverviewBodyState: Failed to fetch API metrics: $e');
+      // Don't update state on error to keep existing values
     }
   }
 
@@ -665,7 +637,7 @@ class _OverviewBodyState extends State<_OverviewBody> {
 
   /// Fetch energy data for all devices using webQueryDeviceEs with SN
   /// This matches the old app's implementation to get energyToday, energyTotal, and outpower
-  /// OLD APP APPROACH: Use collector SN to get ALL devices in one API call
+  /// The outpower field is our primary source for current power generation
   Future<void> _fetchAllDevicesEnergyData(List<String> deviceSNs) async {
     if (_fetchingDeviceEnergy) return;
     _fetchingDeviceEnergy = true;
@@ -694,7 +666,7 @@ class _OverviewBodyState extends State<_OverviewBody> {
       double totalSum = 0.0;
       double powerSum = 0.0;
 
-      // OLD APP APPROACH: Use the first collector/datalogger SN to get ALL devices at once
+      // Use the first collector/datalogger SN to get ALL devices at once
       String? collectorSN;
       if (deviceSNs.isNotEmpty) {
         // Find collector (shorter SN, typically 15-17 chars) or use first device
@@ -721,24 +693,19 @@ class _OverviewBodyState extends State<_OverviewBody> {
             'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
 
         print('Fetching energy data with SN: $collectorSN');
-        print('URL: $url');
 
         final response = await getIt<ApiClient>()
             .signedPost(url)
             .timeout(
-              const Duration(seconds: 15),
+              const Duration(seconds: 10), // Reduced timeout for faster response
               onTimeout: () =>
                   throw TimeoutException('Request timeout for SN $collectorSN'),
             );
 
         final jsonData = json.decode(response.body);
 
-        print('webQueryDeviceEs Response: $jsonData');
-
         if (jsonData['err'] == 0 && jsonData['dat'] != null) {
           final dat = jsonData['dat'];
-          print('dat keys: ${dat.keys.toList()}');
-          print('Full dat content: $dat');
 
           // The API returns device data in dat['device'] as an array
           List<dynamic> devices;
@@ -746,42 +713,30 @@ class _OverviewBodyState extends State<_OverviewBody> {
             devices = dat['device'] is List
                 ? dat['device'] as List
                 : [dat['device']];
-            print('Found dat["device"] array with ${devices.length} items');
           } else {
             // Single device response - data is directly in dat
             devices = [dat];
-            print('No dat["device"], using dat directly as single device');
           }
 
-          print('Processing ${devices.length} device(s) from response');
-
           for (var device in devices) {
-            print('Device keys: ${device.keys.toList()}');
-            print('Raw device data: $device');
+            // Parse outpower (current power generation) - this is our primary field
+            final outpowerStr = device['outpower']?.toString() ?? '0';
+            final outpower = double.tryParse(outpowerStr) ?? 0.0;
+            powerSum += outpower;
 
             // Parse energyToday
             final energyTodayStr = device['energyToday']?.toString() ?? '0';
             final energyToday = double.tryParse(energyTodayStr) ?? 0.0;
-            print(
-              'Device SN: ${device['sn']}, energyToday: "$energyTodayStr" = $energyToday kWh',
-            );
             todaySum += energyToday;
 
             // Parse energyTotal
             final energyTotalStr = device['energyTotal']?.toString() ?? '0';
             final energyTotal = double.tryParse(energyTotalStr) ?? 0.0;
-            print(
-              'Device SN: ${device['sn']}, energyTotal: "$energyTotalStr" = $energyTotal kWh',
-            );
             totalSum += energyTotal;
 
-            // Parse outpower (current power generation)
-            final outpowerStr = device['outpower']?.toString() ?? '0';
-            final outpower = double.tryParse(outpowerStr) ?? 0.0;
             print(
-              'Device SN: ${device['sn']}, outpower: "$outpowerStr" = $outpower W',
+              'Device SN: ${device['sn']}, outpower: $outpower W, energyToday: $energyToday kWh, energyTotal: $energyTotal kWh',
             );
-            powerSum += outpower;
           }
         } else {
           print(
@@ -802,13 +757,9 @@ class _OverviewBodyState extends State<_OverviewBody> {
         print(
           'Today: $todaySum kWh, Total: $totalSum kWh, Current: $powerSum W',
         );
-        print(
-          'State updated: _todayGenerationSum=$_todayGenerationSum, _totalGenerationSum=$_totalGenerationSum, _currentPowerSum=$_currentPowerSum',
-        );
       }
     } catch (e) {
       print('Error in _fetchAllDevicesEnergyData: $e');
-      print('Stack trace: ${StackTrace.current}');
     } finally {
       _fetchingDeviceEnergy = false;
       print('=== Finished _fetchAllDevicesEnergyData ===');
@@ -1058,8 +1009,8 @@ class _OverviewBodyState extends State<_OverviewBody> {
               'Overview: Installed Capacity - API: $_totalInstalledCapacityFromAPI, Using: $installedCapacity',
             );
 
-            // FIXED: Current power generation from API
-            // Prefer API value from getTotalCurrentPower(), then fall back to existing logic
+            // FIXED: Current power generation from device data (outpower field)
+            // Prioritize device energy sum (outpower) as it's most reliable and responsive
             double devicesSumLegacy = 0.0;
             if (deviceVM.allDevices.isNotEmpty) {
               for (final d in deviceVM.allDevices) {
@@ -1070,24 +1021,23 @@ class _OverviewBodyState extends State<_OverviewBody> {
             }
 
             print(
-              'Overview: Current Power Sources - API: $_totalCurrentPowerFromAPI, Energy Sum: $_currentPowerSum, Resolved: $_resolvedCurrentPowerKw, Realtime: ${realtimeService.totalCurrentPower}, Legacy: $devicesSumLegacy',
+              'Overview: Current Power Sources - Energy Sum: $_currentPowerSum, API: $_totalCurrentPowerFromAPI, Resolved: $_resolvedCurrentPowerKw, Realtime: ${realtimeService.totalCurrentPower}, Legacy: $devicesSumLegacy',
             );
 
-            // Priority: API value (if > 0) > device energy sum > resolved metric > realtime service > legacy sum
             final totalOutput =
-                (_totalCurrentPowerFromAPI != null &&
+                (_currentPowerSum > 0)
+                ? _currentPowerSum
+                : (_totalCurrentPowerFromAPI != null &&
                     _totalCurrentPowerFromAPI! > 0)
                 ? _totalCurrentPowerFromAPI!
-                : (_currentPowerSum > 0
-                      ? _currentPowerSum
-                      : (_resolvedCurrentPowerKw != null
+                : (_resolvedCurrentPowerKw != null
                             ? _resolvedCurrentPowerKw! *
                                   1000 // convert kW back to W for consistency below then format
                             : (realtimeService.totalCurrentPower > 0
                                   ? realtimeService.totalCurrentPower
                                   : (devicesSumLegacy > 0
                                         ? devicesSumLegacy
-                                        : 0.0))));
+                                        : 0.0)));
 
             print(
               'Overview: Total Output Power Using: $totalOutput W (${totalOutput / 1000} kW)',
@@ -1739,363 +1689,11 @@ class _OverviewChart extends StatelessWidget {
       return const Center(child: Text('No data'));
     }
     // Return the chart directly to avoid nested boxes/containers
-    return _LineChart(state: state);
+    return OverviewSyncfusionChart(state: state);
   }
 }
 
-class _LineChart extends StatelessWidget {
-  final OverviewGraphState state;
-  const _LineChart({required this.state});
 
-  @override
-  Widget build(BuildContext context) {
-    // Avoid heavy import in this file: use fl_chart types lazily via import at top of file
-    final theme = Theme.of(context);
-    final Color lineColor = theme.colorScheme.primary;
-
-    // Detect daily by label style (24 entries like 00:00)
-    final bool isDaily =
-        state.labels.length == 24 &&
-        (state.labels.first.contains(':') || state.labels.last.contains(':'));
-
-    final double minY = 0; // start Y-axis at zero for clarity
-    final double maxY = state.max == state.min ? state.min + 1 : state.max;
-    // range not needed with hidden left axis
-    // Choose up to 5 horizontal ticks (min + 3 intervals + max)
-    // interval no longer needed since left axis labels removed
-
-    // Custom bottom tick strategy: day => 12AM, 6AM, 12PM, 6PM; month => 1, 15, last; year => Jan, Jun, Dec.
-    // Unified graph card + chart to match device detail
-    final chart = LineChart(
-      LineChartData(
-        minY: minY,
-        maxY: maxY,
-        backgroundColor: Colors.transparent,
-        borderData: FlBorderData(
-          show: true,
-          border: Border(
-            left: BorderSide(color: Colors.black.withOpacity(.15), width: 1),
-            bottom: BorderSide(color: Colors.black.withOpacity(.15), width: 1),
-            right: const BorderSide(color: Colors.transparent),
-            top: const BorderSide(color: Colors.transparent),
-          ),
-        ),
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: true,
-          drawHorizontalLine: true,
-          getDrawingHorizontalLine: (v) =>
-              FlLine(color: Colors.black.withOpacity(.04), strokeWidth: 1),
-          getDrawingVerticalLine: (v) =>
-              FlLine(color: Colors.black.withOpacity(.04), strokeWidth: 1),
-        ),
-        titlesData: FlTitlesData(
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 42,
-              getTitlesWidget: (value, meta) {
-                final range = (maxY - minY).abs();
-                final tick1 = minY;
-                final tick2 = minY + range / 2.0;
-                final tick3 = maxY;
-                bool near(double a, double b) => (a - b).abs() <= range * 0.02;
-                if (!(near(value, tick1) ||
-                    near(value, tick2) ||
-                    near(value, tick3))) {
-                  return const SizedBox.shrink();
-                }
-                String unit = state.unit;
-                double disp = value;
-                if (unit.toLowerCase() == 'w' && maxY >= 1000) {
-                  disp = value / 1000.0;
-                  unit = 'kW';
-                }
-                String numStr;
-                final abs = disp.abs();
-                if (abs >= 100)
-                  numStr = disp.toStringAsFixed(0);
-                else if (abs >= 10)
-                  numStr = disp.toStringAsFixed(1);
-                else
-                  numStr = disp.toStringAsFixed(2);
-                return Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: Text(
-                    '$numStr $unit',
-                    style: const TextStyle(fontSize: 10, color: Colors.black54),
-                  ),
-                );
-              },
-            ),
-          ),
-          rightTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          topTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              // reduce reserved space to lessen blank area below line graph
-              reservedSize: 38,
-              interval: isDaily ? 360 : 1,
-              getTitlesWidget: (value, meta) {
-                String text = '';
-                bool isFirst = false;
-                if (isDaily) {
-                  final minute = value.round();
-                  if (minute == 0) {
-                    text = '12AM';
-                    isFirst = true;
-                  } else if (minute == 360)
-                    text = '6AM';
-                  else if (minute == 720)
-                    text = '12PM';
-                  else if (minute == 1080)
-                    text = '6PM';
-                } else {
-                  final len = state.labels.length;
-                  if (len == 0) return const SizedBox.shrink();
-                  final idx = value.round();
-                  // Detect yearly-month view (12 months)
-                  final isYearMonths = len == 12;
-                  // Detect total-year view: all labels are 4-digit years
-                  final isTotalYears =
-                      len > 1 &&
-                      state.labels.every(
-                        (l) =>
-                            RegExp(r'^\d{4} ? ?').hasMatch(l) ||
-                            RegExp(r'^\d{4} ?$').hasMatch(l) ||
-                            RegExp(r'^\d{4}  $').hasMatch(l) ||
-                            RegExp(r'^\d{4}$').hasMatch(l),
-                      );
-                  if (isYearMonths) {
-                    // Year view (12 months)
-                    if (idx == 0) {
-                      text = state.labels.first; // Jan
-                      isFirst = true;
-                    } else if (idx == 5)
-                      text = state.labels[5]; // Jun
-                    else if (idx == 11)
-                      text = state.labels.last; // Dec
-                  } else if (isTotalYears) {
-                    // Total view (per-year). Show first, middle, last
-                    final lastIdx = len - 1;
-                    if (idx == 0) {
-                      text = state.labels.first;
-                      isFirst = true;
-                    } else if (idx == (len ~/ 2)) {
-                      text = state.labels[len ~/ 2];
-                    } else if (idx == lastIdx) {
-                      text = state.labels.last;
-                    }
-                  } else {
-                    // Month view (days)
-                    final lastIdx = len - 1;
-                    // Always show day 1
-                    if (idx == 0) {
-                      text = state.labels.first; // 1
-                      isFirst = true;
-                    }
-                    // Middle (15th) if exists
-                    else if (int.tryParse(state.labels[idx]) == 15) {
-                      text = '15';
-                    } else if (idx == lastIdx) {
-                      text = state.labels.last; // 30/31/28/29
-                    }
-                  }
-                }
-                if (text.isEmpty) return const SizedBox.shrink();
-                final style = const TextStyle(
-                  fontSize: 11,
-                  height: 1.0,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.black54,
-                );
-                final textDir = Directionality.of(context);
-                final tp = TextPainter(
-                  text: TextSpan(text: text, style: style),
-                  textDirection: textDir,
-                )..layout();
-                final sign = (textDir == ui.TextDirection.ltr) ? 1.0 : -1.0;
-                final dx = isFirst ? sign * (tp.width / 2 + 2) : 0.0;
-                return Padding(
-                  padding: const EdgeInsets.only(top: 8, right: 6),
-                  child: Transform.translate(
-                    offset: Offset(dx, 2),
-                    child: Text(
-                      text,
-                      textAlign: TextAlign.center,
-                      style: style,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-        lineTouchData: LineTouchData(
-          enabled: true,
-          touchTooltipData: LineTouchTooltipData(
-            tooltipBgColor: Colors.white,
-            fitInsideHorizontally: true,
-            fitInsideVertically: true,
-            tooltipPadding: const EdgeInsets.symmetric(
-              horizontal: 8,
-              vertical: 6,
-            ),
-            getTooltipItems: (items) => items.map((it) {
-              String label;
-              if (isDaily) {
-                int minute = it.x.round();
-                if (minute < 0) minute = 0;
-                if (minute >= 1440) minute = 1439;
-                final h = minute ~/ 60;
-                final m = minute % 60;
-                // Convert 24-hour to 12-hour format
-                final hour12 = (h == 0 || h == 12) ? 12 : (h % 12);
-                final ampm = h < 12 ? 'AM' : 'PM';
-                label =
-                    '${hour12.toString()}:${m.toString().padLeft(2, '0')} $ampm';
-              } else {
-                final len = state.labels.length;
-                int idx = it.x.round();
-                if (idx < 0)
-                  idx = 0;
-                else if (idx >= len)
-                  idx = len - 1;
-                label = len > 0 ? state.labels[idx] : '';
-              }
-              return LineTooltipItem(
-                '$label\n${it.y.toStringAsFixed(1)} ${state.unit}',
-                const TextStyle(color: Colors.black),
-              );
-            }).toList(),
-          ),
-        ),
-        minX: 0,
-        maxX: isDaily ? 1439 : null,
-        lineBarsData: state.series.map((s) {
-          final spots = isDaily
-              ? _spotsDailyPerMinute(s.data)
-              : _upsampleSpots(s.data, 16);
-          return LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            curveSmoothness: 0.36,
-            color: lineColor,
-            barWidth: 2,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(
-              show: true,
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  lineColor.withOpacity(0.30),
-                  lineColor.withOpacity(0.10),
-                  Colors.transparent,
-                ],
-                stops: const [0.0, 0.55, 1.0],
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(.06),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        // align with device detail chart card padding
-        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-        child: chart,
-      ),
-    );
-  }
-
-  // Daily per-minute linear interpolation (24 points -> 1440 spots)
-  List<FlSpot> _spotsDailyPerMinute(List<double> hourly) {
-    if (hourly.isEmpty) return const <FlSpot>[];
-    if (hourly.length == 1) {
-      // flat line across a day
-      return List<FlSpot>.generate(
-        1440,
-        (i) => FlSpot(i.toDouble(), hourly.first),
-      );
-    }
-    final spots = <FlSpot>[];
-    // Ensure we have exactly 24 hours of data
-    final hours = hourly.length > 24 ? hourly.sublist(0, 24) : hourly;
-
-    // Interpolate between each hour
-    for (int h = 0; h < hours.length - 1; h++) {
-      final y0 = hours[h];
-      final y1 = hours[h + 1];
-      // Create 60 data points for this hour (one per minute)
-      for (int m = 0; m < 60; m++) {
-        final r = m / 60.0;
-        final y = y0 + (y1 - y0) * r;
-        final x =
-            h * 60 +
-            m; // Minute of the day: hour 0 = 0-59, hour 1 = 60-119, etc.
-        spots.add(FlSpot(x.toDouble(), y));
-      }
-    }
-    // Add the last hour's worth of points (hour 23: minutes 1380-1439)
-    final lastValue = hours.last;
-    for (int m = 0; m < 60; m++) {
-      final x = (hours.length - 1) * 60 + m;
-      if (x < 1440) {
-        spots.add(FlSpot(x.toDouble(), lastValue));
-      }
-    }
-    return spots;
-  }
-
-  // Linear interpolation upsampling: inserts (factor-1) points between each pair
-  List<FlSpot> _upsampleSpots(List<double> data, int factor) {
-    if (data.isEmpty) return const <FlSpot>[];
-    if (data.length == 1 || factor <= 1) {
-      return List<FlSpot>.generate(
-        data.length,
-        (i) => FlSpot(i.toDouble(), data[i]),
-      );
-    }
-    final spots = <FlSpot>[];
-    for (int i = 0; i < data.length - 1; i++) {
-      final x0 = i.toDouble();
-      final y0 = data[i];
-      final x1 = (i + 1).toDouble();
-      final y1 = data[i + 1];
-      // include start point
-      spots.add(FlSpot(x0, y0));
-      // add intermediate points (exclude the end to avoid duplicates)
-      for (int t = 1; t < factor; t++) {
-        final r = t / factor;
-        final xr = x0 + (x1 - x0) * r;
-        final yr = y0 + (y1 - y0) * r; // linear interp
-        spots.add(FlSpot(xr, yr));
-      }
-    }
-    // add last original point
-    spots.add(FlSpot((data.length - 1).toDouble(), data.last));
-    return spots;
-  }
-}
 
 class _InfoCard extends StatelessWidget {
   final String icon;

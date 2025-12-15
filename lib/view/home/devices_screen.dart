@@ -549,6 +549,9 @@ class _DevicesScreenState extends State<DevicesScreen>
             devaddr: devaddr,
           );
 
+          print('Delete result: $result');
+
+          // Check for various success/error codes
           if (result['err'] == 0 || result['err'] == 258) {
             // Success (258 is also considered success) - reload devices
             await _loadDevices(force: true);
@@ -561,9 +564,32 @@ class _DevicesScreenState extends State<DevicesScreen>
                 ),
               );
             }
+          } else if (result['err'] == -1) {
+            // Format error or other issue - show detailed error and reload to restore collector
+            final errorMsg = result['desc'] ?? 'Unknown format error';
+            print('Delete device format error: $errorMsg');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Delete failed: $errorMsg'),
+                  backgroundColor: Colors.red,
+                  duration: const Duration(seconds: 5),
+                  action: SnackBarAction(
+                    label: 'Details',
+                    textColor: Colors.white,
+                    onPressed: () {
+                      // Could show a dialog with more details here
+                    },
+                  ),
+                ),
+              );
+            }
+            // Reload to restore collector in list
+            await _loadDevices(force: true);
           } else {
             // Failed - show error and reload to restore collector
             final errorMsg = result['desc'] ?? 'Unknown error';
+            print('Delete device failed: $errorMsg');
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -817,6 +843,8 @@ class _DevicesScreenState extends State<DevicesScreen>
             devaddr: device.devaddr,
           );
 
+          print('Delete device result: $result');
+
           if (result['err'] == 0) {
             // Success - reload devices
             await _loadDevices(force: true);
@@ -830,9 +858,32 @@ class _DevicesScreenState extends State<DevicesScreen>
                 ),
               );
             }
+          } else if (result['err'] == -1) {
+            // Format error or other issue - show detailed error and reload to restore device
+            final errorMsg = result['desc'] ?? 'Unknown format error';
+            print('Delete device format error: $errorMsg');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Delete failed: $errorMsg'),
+                  backgroundColor: Colors.red,
+                  duration: const Duration(seconds: 5),
+                  action: SnackBarAction(
+                    label: 'Details',
+                    textColor: Colors.white,
+                    onPressed: () {
+                      // Could show a dialog with more details here
+                    },
+                  ),
+                ),
+              );
+            }
+            // Reload to restore device in list
+            await _loadDevices(force: true);
           } else {
             // Failed - show error and reload to restore device
             final errorMsg = result['desc'] ?? 'Unknown error';
+            print('Delete device failed: $errorMsg');
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(

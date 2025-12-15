@@ -1522,14 +1522,13 @@ class DeviceRepository {
     // Build postaction metadata like the old app
     String postaction = '';
     try {
-      final info = await PackageInfo.fromPlatform();
+      final package = await PackageInfo.fromPlatform();
       final platform = Platform.isAndroid ? 'android' : 'ios';
-      const source = '1';
       postaction =
-          '&source=$source&app_id=${info.packageName}&app_version=${info.version}&app_client=$platform';
-    } catch (e) {
-      postaction =
-          '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+          '&source=1&app_id=${package.packageName}&app_version=${package.version}&app_client=$platform';
+    } catch (_) {
+      // Fallback if package info fails
+      postaction = '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
     }
 
     if (pn.isEmpty) {
@@ -1554,12 +1553,35 @@ class DeviceRepository {
     try {
       print('Delete device URL: $url');
       final response = await _apiClient.signedPost(url);
-      final jsonData = json.decode(response.body);
+      
+      // Check if response body is empty or not valid JSON
+      if (response.body.isEmpty) {
+        print('DeviceRepository.deleteDevice: Empty response body');
+        return {'err': -1, 'desc': 'Empty response from server'};
+      }
+      
+      // Try to parse JSON with better error handling
+      Map<String, dynamic> jsonData;
+      try {
+        jsonData = json.decode(response.body) as Map<String, dynamic>;
+      } catch (jsonError) {
+        print('DeviceRepository.deleteDevice: JSON parse error: $jsonError');
+        print('DeviceRepository.deleteDevice: Raw response: ${response.body}');
+        return {'err': -1, 'desc': 'Invalid response format from server'};
+      }
+      
       print('DeviceRepository.deleteDevice response: $jsonData');
+      
+      // Ensure the response has the expected structure
+      if (!jsonData.containsKey('err')) {
+        print('DeviceRepository.deleteDevice: Response missing "err" field');
+        return {'err': -1, 'desc': 'Invalid response format - missing error code'};
+      }
+      
       return Map<String, dynamic>.from(jsonData);
     } catch (e) {
       print('DeviceRepository.deleteDevice error: $e');
-      throw Exception('Failed to delete device: $e');
+      return {'err': -1, 'desc': 'Failed to delete device: $e'};
     }
   }
 

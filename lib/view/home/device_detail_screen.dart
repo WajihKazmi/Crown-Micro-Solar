@@ -835,7 +835,6 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       rawCards.add({
         'title': 'PV',
         'value': primaryValue,
-        'subtitle': secondaryValue,
         'extraInfo': selected == null &&
                 pvVoltage != null &&
                 pvCurrent != null &&
@@ -854,16 +853,6 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             (batteryVoltage != null
                 ? _fmtVoltage(batteryVoltage)
                 : _fmtSoc(batSoc)),
-        'subtitle': () {
-          if (selected != null)
-            return _formatLabel(_selectedParByCategory['battery'] ?? '');
-          if (batteryVoltage != null && batSoc != null) return _fmtSoc(batSoc);
-          final pw = _energyFlow?.batteryPower;
-          if (batteryVoltage == null && pw != null && pw.abs() > 0) {
-            return _fmtPowerW(pw);
-          }
-          return null;
-        }(),
         'icon': Icons.battery_full,
         'key': 'battery',
       });
@@ -894,31 +883,38 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       rawCards.add({
         'title': 'Load',
         'value': primaryValue,
-        'subtitle': secondaryValue,
         'icon': Icons.home,
         'key': 'load',
       });
     }
-    // Grid card: show Power (Watts) as primary value; voltage/frequency as secondary
+    // Grid card: show Voltage as primary value; power/frequency as secondary
     final selectedGrid = _selectedValueFor('grid');
     String? gridValueStr;
     String? gridSubtitle;
 
+    // Get the grid voltage parameter name from device model config
+    final deviceModel = DeviceModel.detect(devcode: widget.device.devcode, alias: widget.device.alias ?? '');
+    final modelConfig = DeviceModelPopupConfig.forModel(deviceModel);
+    final gridVoltageField = modelConfig.gridFields.firstWhere(
+      (field) => field.unit == 'V',
+      orElse: () => const PopupFieldConfig(label: 'Grid Voltage', unit: 'V', apiCandidates: ['Grid Voltage']),
+    );
+
     if (selectedGrid != null) {
       gridValueStr = selectedGrid;
       gridSubtitle = _formatLabel(_selectedParByCategory['grid'] ?? '');
-    } else if (gridPowerVal != null) {
-      // Primary: Grid Power in Watts
-      gridValueStr = _fmtPowerW(gridPowerVal);
-      // Secondary: Voltage or Frequency
-      if (gridVoltageVal != null) {
-        gridSubtitle = _fmtVoltage(gridVoltageVal);
+    } else if (gridVoltageVal != null) {
+      // Primary: Grid Voltage
+      gridValueStr = _fmtVoltage(gridVoltageVal);
+      // Secondary: Power or Frequency
+      if (gridPowerVal != null) {
+        gridSubtitle = _fmtPowerW(gridPowerVal);
       } else if (gridFreqVal != null) {
         gridSubtitle = '${gridFreqVal.toStringAsFixed(1)} Hz';
       }
-    } else if (gridVoltageVal != null) {
-      // Fallback if no power: show voltage
-      gridValueStr = _fmtVoltage(gridVoltageVal);
+    } else if (gridPowerVal != null) {
+      // Fallback if no voltage: show power
+      gridValueStr = _fmtPowerW(gridPowerVal);
       if (gridFreqVal != null) {
         gridSubtitle = '${gridFreqVal.toStringAsFixed(1)} Hz';
       }
@@ -926,9 +922,11 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       // Fallback if only frequency available
       gridValueStr = '${gridFreqVal.toStringAsFixed(1)} Hz';
     } else {
-      // Last resort: check paging values
-      gridValueStr = _latestPagingValues['Grid Power'] ??
+      // Last resort: check paging values, prioritize voltage
+      gridValueStr = _latestPagingValues[gridVoltageField.label] ??
           _latestPagingValues['Grid Voltage'] ??
+          _latestPagingValues['Mains input voltage'] ??
+          _latestPagingValues['Grid Power'] ??
           _latestPagingValues['Grid Frequency (Hz)'] ??
           '--';
     }
@@ -937,7 +935,6 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     rawCards.add({
       'title': 'Grid',
       'value': gridValueStr,
-      'subtitle': gridSubtitle,
       'icon': Icons.electrical_services,
       'key': 'grid',
     });
@@ -1871,11 +1868,10 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                                       'PV1 Input Power (Watts)'
                                     ]),
                                 loadW: _energyFlow?.loadPower,
-                                gridW: _energyFlow?.gridVoltage ??
-                                    _energyFlow?.gridPower ??
+                                gridW: _energyFlow?.gridPower ??
                                     _numFromLatest([
-                                      'Grid Voltage',
-                                      'Grid Frequency (Hz)'
+                                      'Grid Power',
+                                      'Grid Active Power'
                                     ]),
                                 batterySoc: _energyFlow?.batterySoc,
                                 batteryFlowW: _energyFlow?.batteryVoltage ??
@@ -3030,6 +3026,33 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
 
   bool _present(double? v, {double threshold = 5}) => (v ?? 0) > threshold;
 
+  /// Get grid voltage using device model configuration
+  /// This ensures we use the correct voltage parameter for each device model
+  double _getGridVoltageFromModel() {
+    // First try to get from energy flow data
+    if (widget.energyFlow?.gridVoltage != null) {
+      return widget.energyFlow!.gridVoltage!;
+    }
+    
+    // If energy flow doesn't have grid voltage, try to get it from gdStatus items
+    if (widget.energyFlow != null) {
+      for (final item in widget.energyFlow!.gdStatus) {
+        final par = item.par.toLowerCase();
+        final unit = (item.unit ?? '').toLowerCase();
+        if ((unit == 'v' || par.contains('voltage')) &&
+            (par.contains('grid') ||
+                par.contains('utility') ||
+                par.contains('ac'))) {
+          return item.value ?? 0;
+        }
+      }
+    }
+    
+    // Fallback to widget's gridW if available (though this is power, not voltage)
+    // This is a last resort to maintain functionality
+    return widget.gridW ?? 0;
+  }
+
   /// Check if all energy values are zero/empty (should show empty SVG)
   bool _isAllZero() {
     // Check energyFlow if available - use more sophisticated logic
@@ -3038,8 +3061,8 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
       final batteryPower = widget.energyFlow?.batteryPower?.abs() ?? 0;
       final gridPower = widget.energyFlow?.gridPower?.abs() ?? 0;
       final loadPower = widget.energyFlow?.loadPower ?? 0;
-      final batterySoc = widget.batterySoc ?? 0;
-      final gridVoltage = widget.energyFlow?.gridVoltage ?? 0;
+      final batterySoc = widget.energyFlow?.batterySoc ?? 0;
+      final gridVoltage = _getGridVoltageFromModel();
 
       // Check status directions to see if devices are actually ON
       final int? pvStatus = widget.energyFlow?.pvStatusDir;
@@ -3135,7 +3158,8 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
 
     // CRITICAL: Get grid voltage to determine if grid is CONNECTED (not just power flowing)
     // Grid can be connected (voltage present) even when power is 0W
-    final double gridVoltage = widget.energyFlow?.gridVoltage ?? 0;
+    // Use device model configuration to get the correct grid voltage parameter
+    final double gridVoltage = _getGridVoltageFromModel();
 
     print(
         'EnergyFlowDiagram: pvStatus=$pvStatus, batteryStatus=$batteryStatus, gridStatus=$gridStatus');
@@ -3162,16 +3186,17 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
     final bool gridConnected =
         gridVoltage > 100; // Typically 220V-240V for connected grid
 
-    // Grid is supplying power to inverter (status > 0 OR grid connected with positive power)
-    // Check voltage first to detect grid connection even when power is minimal
-    // LOWERED threshold from 50W to 10W to detect smaller grid power flows
+    // Grid is supplying power to inverter (status > 0 OR grid connected with minimal power)
+    // Primary check: grid voltage presence indicates connection
+    // Secondary check: status direction or minimal power flow for actual supply
     final bool gridSupplying =
-        gridConnected && ((gridStatus ?? 0) > 0 || gridPower > 10);
+        gridConnected && ((gridStatus ?? 0) > 0 || gridPower > 0);
 
     // Grid is receiving power (exporting/selling) (status < 0 AND power flowing out)
-    // LOWERED threshold from 50W to 10W to detect smaller exports
+    // Primary check: grid voltage presence indicates connection
+    // Secondary check: status direction and actual power flow for export
     final bool gridReceiving =
-        gridConnected && (gridStatus ?? 0) < 0 && gridPower > 10;
+        gridConnected && (gridStatus ?? 0) < 0 && gridPower > 0;
 
     // Load is present (device is online and consuming power)
     // Load is considered active if there's any power consumption
@@ -3407,10 +3432,15 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
       final batteryPower = w.energyFlow?.batteryPower?.abs() ?? 0;
       final gridPower = w.energyFlow?.gridPower?.abs() ?? 0;
       final loadPower = w.energyFlow?.loadPower ?? 0;
+      final gridVoltage = _getGridVoltageFromModel(); // Use the new method
+      final gridStatus = w.energyFlow?.gridStatusDir ?? 0;
+
+      // Consider grid active if voltage > 100V OR status indicates activity OR power > 10W
+      final bool hasGrid = gridVoltage > 100 || gridStatus != 0 || gridPower > 10;
 
       return pvPower < 10 &&
           batteryPower < 10 &&
-          gridPower < 10 &&
+          !hasGrid &&
           loadPower < 10;
     }
 

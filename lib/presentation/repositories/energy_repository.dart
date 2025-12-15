@@ -6,6 +6,48 @@ import 'package:crown_micro_solar/presentation/models/energy/profit_model.dart';
 import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Model for old app's ActiveOutputPowerOneDay API response
+class OldAppPowerData {
+  final int? err;
+  final String? desc;
+  final PowerDat? dat;
+
+  OldAppPowerData({this.err, this.desc, this.dat});
+
+  factory OldAppPowerData.fromJson(Map<String, dynamic> json) => OldAppPowerData(
+        err: json["err"],
+        desc: json["desc"],
+        dat: json["dat"] == null ? null : PowerDat.fromJson(json["dat"]),
+      );
+}
+
+class PowerDat {
+  final List<OutputPower>? outputPower;
+  final bool? activePowerSwitch;
+
+  PowerDat({this.outputPower, this.activePowerSwitch});
+
+  factory PowerDat.fromJson(Map<String, dynamic> json) => PowerDat(
+        outputPower: json["outputPower"] == null
+            ? null
+            : List<OutputPower>.from(
+                json["outputPower"].map((x) => OutputPower.fromJson(x))),
+        activePowerSwitch: json["activePowerSwitch"],
+      );
+}
+
+class OutputPower {
+  final String? val;
+  final DateTime? ts;
+
+  OutputPower({this.val, this.ts});
+
+  factory OutputPower.fromJson(Map<String, dynamic> json) => OutputPower(
+        val: json["val"],
+        ts: json["ts"] == null ? null : DateTime.parse(json["ts"]),
+      );
+}
+
 class EnergyRepository {
   final ApiClient _apiClient;
 
@@ -771,5 +813,31 @@ class EnergyRepository {
       averagePower: points.isEmpty ? 0 : total / points.length,
       hourlyData: points,
     );
+  }
+
+  /// Old app's API method for getting plant active output power for one day
+  /// This matches exactly what the old app homepage graph uses
+  Future<OldAppPowerData> getPlantsActiveOutputPowerOneDay(String date) async {
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+
+    // Use the exact same action as the old app
+    final action = '&action=queryPlantsActiveOuputPowerOneDay&date=$date';
+    const postaction = '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+    
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url = 'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
+    try {
+      final response = await _apiClient.signedPost(url);
+      final jsonResponse = json.decode(response.body);
+      return OldAppPowerData.fromJson(jsonResponse);
+    } catch (e) {
+      print('Error in getPlantsActiveOutputPowerOneDay: $e');
+      rethrow;
+    }
   }
 }

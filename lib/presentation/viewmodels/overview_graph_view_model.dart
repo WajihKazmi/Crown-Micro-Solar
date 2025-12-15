@@ -40,12 +40,23 @@ enum GraphMetric {
 
 enum GraphPeriod { day, month, year, total }
 
+class OverviewGraphDataPoint {
+  final DateTime timestamp;
+  final double value;
+  OverviewGraphDataPoint({required this.timestamp, required this.value});
+}
+
 class OverviewGraphSeries {
   final String label;
   final Color color;
-  final List<double> data; // aligned to labels
-  OverviewGraphSeries(
-      {required this.label, required this.color, required this.data});
+  final List<double> data; // aligned to labels (for non-daily periods)
+  final List<OverviewGraphDataPoint>? timestampData; // exact timestamp-value pairs (for daily period)
+  OverviewGraphSeries({
+    required this.label,
+    required this.color,
+    required this.data,
+    this.timestampData,
+  });
 }
 
 class OverviewGraphState {
@@ -84,8 +95,7 @@ class OverviewGraphViewModel extends ChangeNotifier {
   final _energyRepo = getIt<EnergyRepository>();
   final _deviceRepo = getIt<DeviceRepository>();
 
-  GraphMetric _metric = GraphMetric
-      .todayGeneration; // Default to power generation instead of output power
+  GraphMetric _metric = GraphMetric.outputPower; // Default to output power (matching old app)
   GraphPeriod _period = GraphPeriod.day;
   DateTime _anchor = DateTime.now();
   String? _error;
@@ -381,34 +391,186 @@ class OverviewGraphViewModel extends ChangeNotifier {
     } else {
       if (_metric == GraphMetric.outputPower ||
           _metric == GraphMetric.todayGeneration) {
-        // Plant-level series from DESS aggregated energy endpoint
-        final summary = await _energyRepo.getDailyEnergy(plantId, dateStr);
-        values = List<double>.filled(24, 0);
-        for (final h in summary.hourlyData) {
-          final idx = h.timestamp.hour;
-          if (idx >= 0 && idx < 24) {
-            // For generation use energy (kWh), for output power use power (kW)
-            values[idx] = (_metric == GraphMetric.todayGeneration)
-                ? h.energy.toDouble()
-                : h.power.toDouble();
-          }
-        }
-        // Fallback: if all zeros (common when plant API returns err=12) try aggregating devices directly
-        final allZero = values.every((v) => v == 0.0);
-        if (allZero) {
-          try {
-            final deviceDerived = await _aggregateDevicesDaily(
-              plantId: plantId,
-              metric: _metric == GraphMetric.todayGeneration
-                  ? GraphMetric.todayGeneration
-                  : GraphMetric.outputPower,
-              date: dateStr,
-            );
-            // Only replace if deviceDerived has some non-zero data
-            if (deviceDerived.any((v) => v > 0)) {
-              values = deviceDerived;
+        // Use the exact same API and processing as the old app homepage graph
+        // The old app calls queryPlantsActiveOuputPowerOneDay ONCE PER COLLECTOR
+        // and combines all responses, even though each call returns data for all plants
+        // This matches the old app's fetchGraphData behavior exactly
+        try {
+          // Get all collectors/plants for the current user
+          final devicesBundle = await _deviceRepo.getDevicesAndCollectors(plantId);
+          final collectors = (devicesBundle['collectors'] as List?) ?? [];
+          
+          // If no collectors, try to get from all devices
+          List<dynamic> collectorsList = collectors;
+          if (collectorsList.isEmpty) {
+            final allDevices = (devicesBundle['allDevices'] as List?) ?? [];
+            // Extract unique plant IDs from devices
+            final plantIds = <String>{};
+            for (final d in allDevices) {
+              final pid = (d is Map ? d['pid'] : (d as dynamic).pid)?.toString() ?? '';
+              if (pid.isNotEmpty) plantIds.add(pid);
             }
-          } catch (_) {}
+            collectorsList = plantIds.map((pid) => {'pid': pid}).toList();
+          }
+          
+          // Call API once per collector/plant (matching old app behavior)
+          // Even though the API returns all plants, we call it per collector like the old app
+          final List<OldAppPowerData> allResponses = [];
+          for (final _ in collectorsList) {
+            try {
+              // Even though the API returns all plants, we call it per collector like the old app
+              final response = await _energyRepo.getPlantsActiveOutputPowerOneDay(dateStr);
+              if (response.err == 0) {
+                allResponses.add(response);
+              }
+            } catch (e) {
+              print('OverviewGraphViewModel: Error fetching data for collector: $e');
+            }
+          }
+          
+          // If no collectors found, call API once with the plantId
+          if (allResponses.isEmpty) {
+            final response = await _energyRepo.getPlantsActiveOutputPowerOneDay(dateStr);
+            if (response.err == 0) {
+              allResponses.add(response);
+            }
+          }
+          
+          values = List<double>.filled(24, 0);
+          
+          if (allResponses.isNotEmpty) {
+            // Process data to show EVERY point from API response
+            // Store all points with exact timestamps - preserve millisecond precision
+            final List<OverviewGraphDataPoint> timestampPoints = [];
+            
+            print('OverviewGraphViewModel: Processing ${allResponses.length} API responses');
+            int totalPoints = 0;
+            
+            for (final response in allResponses) {
+              if (response.err == 0 && response.dat?.outputPower != null) {
+                final pointCount = response.dat!.outputPower!.length;
+                print('OverviewGraphViewModel: Response has $pointCount outputPower points');
+                for (final detail in response.dat!.outputPower!) {
+                  // Apply the same time filtering as the old app (5 AM to 7 PM)
+                  if (detail.ts != null && detail.ts!.hour >= 5 && detail.ts!.hour <= 19) {
+                    final timestamp = detail.ts!;
+                    // Parse value exactly like old app: double.parse(detail.val!)
+                    // Use double.parse (not tryParse) to match old app exactly
+                    double value;
+                    try {
+                      value = double.parse(detail.val ?? '0');
+                    } catch (e) {
+                      print('OverviewGraphViewModel: Failed to parse value "${detail.val}": $e');
+                      value = 0.0;
+                    }
+                    
+                    // Add EVERY point with its exact timestamp (preserve all points)
+                    timestampPoints.add(OverviewGraphDataPoint(
+                      timestamp: timestamp,
+                      value: value,
+                    ));
+                    totalPoints++;
+                  }
+                }
+              } else {
+                print('OverviewGraphViewModel: Response error ${response.err}: ${response.desc}');
+              }
+            }
+            
+            print('OverviewGraphViewModel: Total points collected: $totalPoints');
+            
+            // Sort by timestamp to ensure proper ordering
+            timestampPoints.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+            
+            // Log sample values for debugging
+            if (timestampPoints.isNotEmpty) {
+              print('OverviewGraphViewModel: First 5 data points:');
+              for (int i = 0; i < timestampPoints.length && i < 5; i++) {
+                final p = timestampPoints[i];
+                print('  ${p.timestamp.toIso8601String()}: ${p.value}');
+              }
+              print('OverviewGraphViewModel: Last 5 data points:');
+              final start = timestampPoints.length > 5 ? timestampPoints.length - 5 : 0;
+              for (int i = start; i < timestampPoints.length; i++) {
+                final p = timestampPoints[i];
+                print('  ${p.timestamp.toIso8601String()}: ${p.value}');
+              }
+              print('OverviewGraphViewModel: Min value: ${timestampPoints.map((p) => p.value).reduce((a, b) => a < b ? a : b)}');
+              print('OverviewGraphViewModel: Max value: ${timestampPoints.map((p) => p.value).reduce((a, b) => a > b ? a : b)}');
+            }
+            
+            // For backward compatibility, also create hour buckets (but we'll use timestampData)
+            values = List<double>.filled(24, 0);
+            final Map<int, double> hourMaxValues = {};
+            for (final point in timestampPoints) {
+              final hour = point.timestamp.hour;
+              if (hour >= 0 && hour < 24) {
+                if (!hourMaxValues.containsKey(hour) || point.value > hourMaxValues[hour]!) {
+                  hourMaxValues[hour] = point.value;
+                }
+              }
+            }
+            hourMaxValues.forEach((hour, maxValue) {
+              values[hour] = maxValue;
+            });
+            
+            // Create state with timestamp data for precise plotting
+            final stats = _stats(timestampPoints.map((p) => p.value).toList());
+            _state = OverviewGraphState(
+              labels: labels,
+              series: [
+                OverviewGraphSeries(
+                  label: _labelForMetric(_metric),
+                  color: _colorForMetric(_metric),
+                  data: values, // Keep for backward compatibility
+                  timestampData: timestampPoints, // Use this for precise plotting
+                )
+              ],
+              unit: _unitForMetric(_metric),
+              min: stats.min,
+              max: stats.max,
+              avg: stats.avg,
+              isLoading: false,
+            );
+            
+            print('OverviewGraphViewModel: Successfully loaded old app style data for $dateStr - ${allResponses.length} responses, ${timestampPoints.length} exact data points');
+            return; // Early return since we've set the state
+          } else {
+            print('OverviewGraphViewModel: No valid responses for $dateStr');
+            // Create empty state with no timestamp data
+            final stats = _stats([]);
+            _state = OverviewGraphState(
+              labels: labels,
+              series: [
+                OverviewGraphSeries(
+                  label: _labelForMetric(_metric),
+                  color: _colorForMetric(_metric),
+                  data: List<double>.filled(24, 0),
+                  timestampData: [],
+                )
+              ],
+              unit: _unitForMetric(_metric),
+              min: stats.min,
+              max: stats.max,
+              avg: stats.avg,
+              isLoading: false,
+            );
+            return;
+          }
+        } catch (e) {
+          print('OverviewGraphViewModel: Error using old app API, falling back to energy repo: $e');
+          // Fallback to the existing energy repository method
+          final summary = await _energyRepo.getDailyEnergy(plantId, dateStr);
+          values = List<double>.filled(24, 0);
+          for (final h in summary.hourlyData) {
+            final idx = h.timestamp.hour;
+            if (idx >= 0 && idx < 24) {
+              // For generation use energy (kWh), for output power use power (kW)
+              values[idx] = (_metric == GraphMetric.todayGeneration)
+                  ? h.energy.toDouble()
+                  : h.power.toDouble();
+            }
+          }
         }
       } else {
         values = await _aggregateDevicesDaily(
