@@ -145,8 +145,8 @@ class DeviceModelPopupConfig {
         label: 'Battery Charging Current',
         unit: 'A',
         apiCandidates: [
-          'Battery charging current',
-          'Battery Discharging Current',
+          'Battery Charging Current',
+          'Battery Discharge Current',
         ],
       ),
       PopupFieldConfig(
@@ -278,7 +278,11 @@ class DeviceModelPopupConfig {
       PopupFieldConfig(
         label: 'Grid Voltage',
         unit: 'V',
-        apiCandidates: ['Grid Voltage', 'Grid volts'],
+        apiCandidates: [
+          'Grid Voltage',
+          'Grid volts',
+          'AC output voltage', // Elego reports grid voltage as AC output voltage
+        ],
       ),
       PopupFieldConfig(
         label: 'Grid Frequency',
@@ -295,15 +299,14 @@ class DeviceModelPopupConfig {
       PopupFieldConfig(
         label: 'Input Voltage',
         unit: 'V',
-        apiCandidates: [
-          'PV1 Input Voltage',
-        ],
+        apiCandidates: ['PV1 Input Voltage', 'PV2 Input Voltage'],
       ),
       PopupFieldConfig(
         label: 'Input Watts',
         unit: 'W',
         apiCandidates: [
           'PV1 Charging Power',
+          'PV2 Charging Power',
         ],
       ),
     ],

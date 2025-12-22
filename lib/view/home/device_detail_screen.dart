@@ -6,12 +6,12 @@ import 'dart:convert';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import 'package:crown_micro_solar/l10n/app_localizations.dart' as gen;
-import 'package:fl_chart/fl_chart.dart';
+
 import 'package:crown_micro_solar/core/di/service_locator.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:crown_micro_solar/core/services/report_download_service.dart';
 import 'package:crown_micro_solar/core/utils/navigation_service.dart';
-import 'dart:ui' as ui;
+
 import 'package:crown_micro_solar/presentation/models/device/device_live_signal_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/overview_graph_view_model.dart';
@@ -26,6 +26,8 @@ import 'package:crown_micro_solar/view/home/data_control_old_screen.dart';
 import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
 import 'package:crown_micro_solar/core/utils/device_model_config.dart';
 import 'package:crown_micro_solar/view/home/home_screen.dart';
+import 'package:crown_micro_solar/view/home/widgets/overview_syncfusion_chart.dart';
+import 'package:crown_micro_solar/presentation/viewmodels/overview_graph_view_model.dart';
 
 class DeviceDetailScreen extends StatefulWidget {
   final Device device;
@@ -364,10 +366,14 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       }
       // Debug: log a subset of keys for quick verification
       final sampleKeys = [
-        'AC output voltage', 'Output load percent',
-        'Mains input voltage', 'Mains frequency',
-        'PV1 Input voltage', 'PV2 Input voltage',
-        'Battery Voltage', 'Battery Capacity',
+        'AC output voltage',
+        'Output load percent',
+        'Mains input voltage',
+        'Mains frequency',
+        'PV1 Input voltage',
+        'PV2 Input voltage',
+        'Battery Voltage',
+        'Battery Capacity',
       ];
       print('_buildLatestFromPaging stored keys (sample):');
       for (final k in sampleKeys) {
@@ -708,20 +714,45 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         loadPowerMetric?.latestValue ??
         _live?.outputPower;
 
-    // Grid voltage - try multiple sources including gdStatus items
+    // Grid voltage - try multiple sources using device model config
+    // Get the grid voltage parameter name from device model config
+    final deviceModel = DeviceModel.detect(
+      devcode: widget.device.devcode,
+      alias: widget.device.alias ?? '',
+    );
+    final modelConfig = DeviceModelPopupConfig.forModel(deviceModel);
+    final gridVoltageConfig = modelConfig.gridFields.firstWhere(
+      (field) => field.unit == 'V',
+      orElse: () => const PopupFieldConfig(
+        label: 'Grid Voltage',
+        unit: 'V',
+        apiCandidates: ['Grid Voltage'],
+      ),
+    );
+
+    print(
+        'GridVoltage Debug: model=$deviceModel, candidates=${gridVoltageConfig.apiCandidates}');
+
     double? gridVoltageVal =
         _energyFlow?.gridVoltage ?? gridVoltageMetric?.latestValue;
     if (gridVoltageVal == null && _energyFlow != null) {
+      print(
+          'GridVoltage: Searching ${_energyFlow!.gdStatus.length} gdStatus items');
+      for (var item in _energyFlow!.gdStatus) {
+        print('  gdStatus: "${item.par}" = ${item.value} ${item.unit}');
+      }
+      // Search using device-specific API candidates
       for (final item in _energyFlow!.gdStatus) {
-        final par = item.par.toLowerCase();
-        final unit = (item.unit ?? '').toLowerCase();
-        if ((unit == 'v' || par.contains('voltage')) &&
-            (par.contains('grid') ||
-                par.contains('utility') ||
-                par.contains('ac'))) {
-          gridVoltageVal = item.value;
-          break;
+        final itemParLower = item.par.toLowerCase().trim();
+
+        // Check against device-specific API candidates
+        for (final candidate in gridVoltageConfig.apiCandidates) {
+          if (itemParLower == candidate.toLowerCase().trim()) {
+            gridVoltageVal = item.value;
+            break;
+          }
         }
+        if (gridVoltageVal != null) break;
       }
     }
 
@@ -892,19 +923,14 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     String? gridValueStr;
     String? gridSubtitle;
 
-    // Get the grid voltage parameter name from device model config
-    final deviceModel = DeviceModel.detect(devcode: widget.device.devcode, alias: widget.device.alias ?? '');
-    final modelConfig = DeviceModelPopupConfig.forModel(deviceModel);
-    final gridVoltageField = modelConfig.gridFields.firstWhere(
-      (field) => field.unit == 'V',
-      orElse: () => const PopupFieldConfig(label: 'Grid Voltage', unit: 'V', apiCandidates: ['Grid Voltage']),
-    );
+    print(
+        'Grid Card Debug: selectedGrid=$selectedGrid, gridVoltageVal=$gridVoltageVal, gridPowerVal=$gridPowerVal');
 
     if (selectedGrid != null) {
       gridValueStr = selectedGrid;
       gridSubtitle = _formatLabel(_selectedParByCategory['grid'] ?? '');
     } else if (gridVoltageVal != null) {
-      // Primary: Grid Voltage
+      // Primary: Grid Voltage (show even if 0)
       gridValueStr = _fmtVoltage(gridVoltageVal);
       // Secondary: Power or Frequency
       if (gridPowerVal != null) {
@@ -912,29 +938,35 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
       } else if (gridFreqVal != null) {
         gridSubtitle = '${gridFreqVal.toStringAsFixed(1)} Hz';
       }
-    } else if (gridPowerVal != null) {
-      // Fallback if no voltage: show power
-      gridValueStr = _fmtPowerW(gridPowerVal);
-      if (gridFreqVal != null) {
-        gridSubtitle = '${gridFreqVal.toStringAsFixed(1)} Hz';
-      }
-    } else if (gridFreqVal != null) {
-      // Fallback if only frequency available
-      gridValueStr = '${gridFreqVal.toStringAsFixed(1)} Hz';
     } else {
-      // Last resort: check paging values, prioritize voltage
-      gridValueStr = _latestPagingValues[gridVoltageField.label] ??
-          _latestPagingValues['Grid Voltage'] ??
-          _latestPagingValues['Mains input voltage'] ??
-          _latestPagingValues['Grid Power'] ??
-          _latestPagingValues['Grid Frequency (Hz)'] ??
-          '--';
+      // No voltage data available - check paging values for voltage using device config
+      String? pagingVoltage;
+      for (final candidate in gridVoltageConfig.apiCandidates) {
+        pagingVoltage = _latestPagingValues[candidate];
+        if (pagingVoltage != null) break;
+      }
+
+      if (pagingVoltage != null) {
+        gridValueStr = pagingVoltage;
+      } else if (gridFreqVal != null) {
+        // Fallback: show frequency
+        gridValueStr = '${gridFreqVal.toStringAsFixed(1)} Hz';
+      } else {
+        // Ultimate fallback: show 0 V (grid disconnected)
+        gridValueStr = '0 V';
+      }
+
+      // Add power as subtitle if available
+      if (gridPowerVal != null) {
+        gridSubtitle = _fmtPowerW(gridPowerVal);
+      }
     }
 
-    // Always show Grid card
+    // Always show Grid card with subtitle
     rawCards.add({
       'title': 'Grid',
       'value': gridValueStr,
+      'subtitle': gridSubtitle,
       'icon': Icons.electrical_services,
       'key': 'grid',
     });
@@ -1315,16 +1347,19 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             // Prefer explicit API titles listed in apiCandidates
             for (final cand in fieldConfig.apiCandidates) {
               pagingValue = _latestPagingValues[cand];
-              print('  Trying candidate "$cand" -> ${pagingValue != null ? "FOUND" : "null"}');
+              print(
+                  '  Trying candidate "$cand" -> ${pagingValue != null ? "FOUND" : "null"}');
               if (pagingValue != null) break;
             }
             // Fallback to label-based lookup
             if (pagingValue == null) {
               pagingValue = _latestPagingValues[fieldConfig.label];
-              print('  Fallback label "${fieldConfig.label}" -> ${pagingValue != null ? "FOUND" : "null"}');
+              print(
+                  '  Fallback label "${fieldConfig.label}" -> ${pagingValue != null ? "FOUND" : "null"}');
             }
             // Debug: log search attempts for Load category
-            print('Load fieldConfig label="${fieldConfig.label}", candidates=${fieldConfig.apiCandidates}');
+            print(
+                'Load fieldConfig label="${fieldConfig.label}", candidates=${fieldConfig.apiCandidates}');
             print('  _latestPagingValues lookup result: $pagingValue');
             if (pagingValue != null) {
               // Parse the value from formatted string
@@ -1390,16 +1425,19 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             // Prefer explicit API titles listed in apiCandidates
             for (final cand in fieldConfig.apiCandidates) {
               pagingValue = _latestPagingValues[cand];
-              print('  Trying candidate "$cand" -> ${pagingValue != null ? "FOUND" : "null"}');
+              print(
+                  '  Trying candidate "$cand" -> ${pagingValue != null ? "FOUND" : "null"}');
               if (pagingValue != null) break;
             }
             // Fallback to label-based lookup
             if (pagingValue == null) {
               pagingValue = _latestPagingValues[fieldConfig.label];
-              print('  Fallback label "${fieldConfig.label}" -> ${pagingValue != null ? "FOUND" : "null"}');
+              print(
+                  '  Fallback label "${fieldConfig.label}" -> ${pagingValue != null ? "FOUND" : "null"}');
             }
             // Debug: log search attempts for Grid category
-            print('Grid fieldConfig label="${fieldConfig.label}", candidates=${fieldConfig.apiCandidates}');
+            print(
+                'Grid fieldConfig label="${fieldConfig.label}", candidates=${fieldConfig.apiCandidates}');
             print('  _latestPagingValues lookup result: $pagingValue');
             if (pagingValue != null) {
               // Parse the value from formatted string
@@ -1858,29 +1896,112 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                               duration: const Duration(milliseconds: 400),
                               switchInCurve: Curves.easeOut,
                               switchOutCurve: Curves.easeIn,
-                              child: _EnergyFlowDiagram(
-                                key: ValueKey(_lastFlowKey ?? 'empty'),
-                                pvW: _energyFlow?.pvVoltage ??
-                                    _energyFlow?.pvPower ??
-                                    _numFromLatest([
-                                      'PV1 Input Voltage',
-                                      'PV2 Input Voltage',
-                                      'PV1 Input Power (Watts)'
-                                    ]),
-                                loadW: _energyFlow?.loadPower,
-                                gridW: _energyFlow?.gridPower ??
-                                    _numFromLatest([
-                                      'Grid Power',
-                                      'Grid Active Power'
-                                    ]),
-                                batterySoc: _energyFlow?.batterySoc,
-                                batteryFlowW: _energyFlow?.batteryVoltage ??
-                                    _energyFlow?.batteryPower ??
-                                    _numFromLatest(['Battery Voltage']),
-                                lastUpdated: _live?.timestamp,
-                                energyFlow:
-                                    _energyFlow, // Pass full model for status
-                              ),
+                              child: _latestPagingValues.isEmpty
+                                  ? const SizedBox(
+                                      key: ValueKey('loading_paging'),
+                                      height: 300,
+                                      child: Center(
+                                        child: CircularProgressIndicator(),
+                                      ),
+                                    )
+                                  : Builder(
+                                      builder: (context) {
+                                        // Compute grid voltage from paging values
+                                        double? gridVoltageFromPaging;
+                                        final deviceModel = DeviceModel.detect(
+                                          devcode: widget.device.devcode,
+                                          alias: widget.device.alias ?? '',
+                                        );
+                                        final modelConfig =
+                                            DeviceModelPopupConfig.forModel(
+                                                deviceModel);
+
+                                        // Get grid voltage config
+                                        final gridVoltageConfig =
+                                            modelConfig.gridFields.firstWhere(
+                                          (field) => field.unit == 'V',
+                                          orElse: () => const PopupFieldConfig(
+                                            label: 'Grid Voltage',
+                                            unit: 'V',
+                                            apiCandidates: ['Grid Voltage'],
+                                          ),
+                                        );
+                                        for (final candidate
+                                            in gridVoltageConfig
+                                                .apiCandidates) {
+                                          final value =
+                                              _latestPagingValues[candidate];
+                                          if (value != null) {
+                                            final numMatch = RegExp(r'[\d.]+')
+                                                .firstMatch(value);
+                                            if (numMatch != null) {
+                                              gridVoltageFromPaging =
+                                                  double.tryParse(
+                                                      numMatch.group(0)!);
+                                              break;
+                                            }
+                                          }
+                                        }
+
+                                        // Compute PV power from paging values using device model config
+                                        double? pvPowerFromPaging;
+                                        // Get all PV fields with unit 'W' (watts)
+                                        final pvPowerFields = modelConfig
+                                            .pvFields
+                                            .where((field) => field.unit == 'W')
+                                            .toList();
+                                        for (final powerField
+                                            in pvPowerFields) {
+                                          for (final candidate
+                                              in powerField.apiCandidates) {
+                                            final value =
+                                                _latestPagingValues[candidate];
+                                            if (value != null) {
+                                              final numMatch = RegExp(r'[\d.]+')
+                                                  .firstMatch(value);
+                                              if (numMatch != null) {
+                                                final powerValue =
+                                                    double.tryParse(
+                                                        numMatch.group(0)!);
+                                                if (powerValue != null) {
+                                                  // Sum all PV power values (for multi-PV systems like Nova)
+                                                  pvPowerFromPaging =
+                                                      (pvPowerFromPaging ?? 0) +
+                                                          powerValue;
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+
+                                        return _EnergyFlowDiagram(
+                                          key:
+                                              ValueKey(_lastFlowKey ?? 'empty'),
+                                          device: widget.device,
+                                          gridVoltageFromPaging:
+                                              gridVoltageFromPaging,
+                                          // Use computed PV power from paging, fallback to energy flow, then to 0
+                                          pvW: pvPowerFromPaging ??
+                                              _energyFlow?.pvPower ??
+                                              0,
+                                          loadW: _energyFlow?.loadPower,
+                                          gridW: _energyFlow?.gridPower ??
+                                              _numFromLatest([
+                                                'Grid Power',
+                                                'Grid Active Power'
+                                              ]),
+                                          batterySoc: _energyFlow?.batterySoc,
+                                          batteryFlowW:
+                                              _energyFlow?.batteryVoltage ??
+                                                  _energyFlow?.batteryPower ??
+                                                  _numFromLatest(
+                                                      ['Battery Voltage']),
+                                          lastUpdated: _live?.timestamp,
+                                          energyFlow:
+                                              _energyFlow, // Pass full model for status
+                                        );
+                                      },
+                                    ),
                             ),
                             const SizedBox(height: 16),
                             _summaryCards(),
@@ -2632,9 +2753,10 @@ class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: Padding(
-                  // adjust bottom padding to reduce excess whitespace below chart
-                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-                  child: SizedBox(height: 240, child: _LineChart(state: state)),
+                  padding: const EdgeInsets.all(8),
+                  child: SizedBox(
+                      height: 240,
+                      child: OverviewSyncfusionChart(state: state)),
                 ),
               ),
             ],
@@ -2672,271 +2794,6 @@ class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
         ),
       ),
     );
-  }
-}
-
-class _LineChart extends StatelessWidget {
-  final OverviewGraphState state;
-  const _LineChart({required this.state});
-  @override
-  Widget build(BuildContext context) {
-    if (state.isLoading)
-      return const Center(child: CircularProgressIndicator());
-    if (state.error != null) {
-      return Center(
-        child: Text(state.error!, style: const TextStyle(color: Colors.red)),
-      );
-    }
-    if (state.labels.isEmpty || state.series.isEmpty) {
-      return const Center(child: Text('No data'));
-    }
-    final theme = Theme.of(context);
-    final lineColor = theme.colorScheme.primary;
-    final isDaily = state.labels.length == 24 &&
-        (state.labels.first.contains(':') || state.labels.last.contains(':'));
-    final minY = state.min;
-    final maxY = state.max == state.min ? state.min + 1 : state.max;
-    // range calculation not needed without left tick labels
-    // interval removed (no left axis labels)
-    // Unified axis style: ticks on bottom only with custom labels
-    return LineChart(
-      LineChartData(
-        minY: minY,
-        maxY: maxY,
-        backgroundColor: Colors.transparent,
-        borderData: FlBorderData(
-          show: true,
-          border: Border(
-            left: BorderSide(color: Colors.black.withOpacity(.15), width: 1),
-            bottom: BorderSide(color: Colors.black.withOpacity(.15), width: 1),
-            right: const BorderSide(color: Colors.transparent),
-            top: const BorderSide(color: Colors.transparent),
-          ),
-        ),
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: true,
-          drawHorizontalLine: true,
-          getDrawingHorizontalLine: (v) =>
-              FlLine(color: Colors.black.withOpacity(.04), strokeWidth: 1),
-          getDrawingVerticalLine: (v) =>
-              FlLine(color: Colors.black.withOpacity(.04), strokeWidth: 1),
-        ),
-        titlesData: FlTitlesData(
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 42,
-              getTitlesWidget: (value, meta) {
-                final range = (maxY - minY).abs();
-                final tick1 = minY;
-                final tick2 = minY + range / 2.0;
-                final tick3 = maxY;
-                bool near(double a, double b) => (a - b).abs() <= range * 0.02;
-
-                if (!(near(value, tick1) ||
-                    near(value, tick2) ||
-                    near(value, tick3))) {
-                  return const SizedBox.shrink();
-                }
-
-                String unit = state.unit;
-                double disp = value;
-                if (unit.toLowerCase() == 'w' && maxY >= 1000) {
-                  disp = value / 1000.0;
-                  unit = 'kW';
-                }
-                String numStr;
-                final abs = disp.abs();
-                if (abs >= 100)
-                  numStr = disp.toStringAsFixed(0);
-                else if (abs >= 10)
-                  numStr = disp.toStringAsFixed(1);
-                else
-                  numStr = disp.toStringAsFixed(2);
-                return Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: Text(
-                    '$numStr $unit',
-                    style: const TextStyle(fontSize: 10, color: Colors.black54),
-                  ),
-                );
-              },
-            ),
-          ),
-          rightTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          topTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              // reduced reserved size to lessen bottom whitespace
-              reservedSize: 38,
-              interval: isDaily ? 360 : 1,
-              getTitlesWidget: (value, meta) {
-                String text = '';
-                bool isFirst = false;
-                if (isDaily) {
-                  final minute = value.round();
-                  if (minute == 0) {
-                    text = '12AM';
-                    isFirst = true;
-                  } else if (minute == 360)
-                    text = '6AM';
-                  else if (minute == 720)
-                    text = '12PM';
-                  else if (minute == 1080) text = '6PM';
-                } else {
-                  final len = state.labels.length;
-                  if (len == 0) return const SizedBox.shrink();
-                  final idx = value.round();
-                  if (len == 12) {
-                    if (idx == 0) {
-                      text = state.labels.first; // Jan
-                      isFirst = true;
-                    } else if (idx == 5)
-                      text = state.labels[5]; // Jun
-                    else if (idx == 11) text = state.labels.last; // Dec
-                  } else {
-                    final lastIdx = len - 1;
-                    if (idx == 0) {
-                      text = state.labels.first; // 1
-                      isFirst = true;
-                    } else if (int.tryParse(state.labels[idx]) == 15)
-                      text = '15';
-                    else if (idx == lastIdx)
-                      text = state.labels.last; // last day
-                  }
-                }
-                if (text.isEmpty) return const SizedBox.shrink();
-                final style = const TextStyle(
-                  fontSize: 11,
-                  height: 1.0,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.black54,
-                );
-                final textDir = Directionality.of(context);
-                final tp = TextPainter(
-                  text: TextSpan(text: text, style: style),
-                  textDirection: textDir,
-                )..layout();
-                final sign = (textDir == ui.TextDirection.ltr) ? 1.0 : -1.0;
-                final dx = isFirst ? sign * (tp.width / 2 + 2) : 0.0;
-                return Padding(
-                  padding: const EdgeInsets.only(top: 8, right: 6),
-                  child: Transform.translate(
-                    offset: Offset(dx, 2),
-                    child: Text(
-                      text,
-                      textAlign: TextAlign.center,
-                      style: style,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-        lineTouchData: LineTouchData(
-          enabled: true,
-          touchTooltipData: LineTouchTooltipData(
-            tooltipBgColor: Colors.white,
-            fitInsideHorizontally: true,
-            fitInsideVertically: true,
-            tooltipPadding: const EdgeInsets.symmetric(
-              horizontal: 8,
-              vertical: 6,
-            ),
-            getTooltipItems: (items) => items.map((it) {
-              String label;
-              if (isDaily) {
-                int minute = it.x.round();
-                minute = minute.clamp(0, 1439);
-                final h = minute ~/ 60;
-                final m = minute % 60;
-                final hour12 = ((h + 11) % 12) + 1;
-                final ampm = h < 12 ? 'AM' : 'PM';
-                label = '$hour12:${m.toString().padLeft(2, '0')} $ampm';
-              } else {
-                final len = state.labels.length;
-                int idx = it.x.round();
-                if (idx < 0) idx = 0;
-                if (idx >= len) idx = len - 1;
-                label = len > 0 ? state.labels[idx] : '';
-              }
-              return LineTooltipItem(
-                '$label\n${it.y.toStringAsFixed(1)} ${state.unit}',
-                const TextStyle(color: Colors.black),
-              );
-            }).toList(),
-          ),
-        ),
-        minX: 0,
-        maxX: isDaily ? 1439 : null,
-        lineBarsData: state.series.map((s) {
-          final spots = isDaily ? _expandDaily(s.data) : _upsample(s.data, 16);
-          return LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            curveSmoothness: 0.36,
-            color: lineColor,
-            barWidth: 2,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(
-              show: true,
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  lineColor.withOpacity(.30),
-                  lineColor.withOpacity(.10),
-                  Colors.transparent,
-                ],
-                stops: const [0.0, 0.55, 1.0],
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  List<FlSpot> _expandDaily(List<double> hourly) {
-    if (hourly.isEmpty) return const [];
-    if (hourly.length == 1)
-      return List.generate(1440, (i) => FlSpot(i.toDouble(), hourly.first));
-    final spots = <FlSpot>[];
-    for (int h = 0; h < hourly.length - 1; h++) {
-      final y0 = hourly[h];
-      final y1 = hourly[h + 1];
-      for (int m = 0; m < 60; m++) {
-        final r = m / 60.0;
-        spots.add(FlSpot(h * 60 + m.toDouble(), y0 + (y1 - y0) * r));
-      }
-    }
-    spots.add(FlSpot(1439, hourly.last));
-    return spots;
-  }
-
-  List<FlSpot> _upsample(List<double> data, int factor) {
-    if (data.isEmpty) return const [];
-    if (data.length == 1 || factor <= 1)
-      return List.generate(data.length, (i) => FlSpot(i.toDouble(), data[i]));
-    final out = <FlSpot>[];
-    for (int i = 0; i < data.length - 1; i++) {
-      final x0 = i.toDouble(), y0 = data[i];
-      final x1 = (i + 1).toDouble(), y1 = data[i + 1];
-      out.add(FlSpot(x0, y0));
-      for (int t = 1; t < factor; t++) {
-        final r = t / factor;
-        out.add(FlSpot(x0 + (x1 - x0) * r, y0 + (y1 - y0) * r));
-      }
-    }
-    out.add(FlSpot((data.length - 1).toDouble(), data.last));
-    return out;
   }
 }
 
@@ -3005,6 +2862,9 @@ class _EnergyFlowDiagram extends StatefulWidget {
   final double? batteryFlowW; // using battery voltage/power for presence
   final DateTime? lastUpdated;
   final DeviceEnergyFlowModel? energyFlow; // Full model for status directions
+  final Device device; // Device for model config access
+  final double?
+      gridVoltageFromPaging; // Grid voltage from paging data (computed in _summaryCards)
   const _EnergyFlowDiagram({
     Key? key,
     required this.pvW,
@@ -3013,6 +2873,8 @@ class _EnergyFlowDiagram extends StatefulWidget {
     required this.batterySoc,
     required this.batteryFlowW,
     required this.lastUpdated,
+    required this.device,
+    this.gridVoltageFromPaging,
     this.energyFlow,
   }) : super(key: key);
   @override
@@ -3029,28 +2891,50 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
   /// Get grid voltage using device model configuration
   /// This ensures we use the correct voltage parameter for each device model
   double _getGridVoltageFromModel() {
-    // First try to get from energy flow data
+    // PRIORITY 1: Use voltage from paging data (already computed in _summaryCards)
+    if (widget.gridVoltageFromPaging != null) {
+      return widget.gridVoltageFromPaging!;
+    }
+
+    // PRIORITY 2: Try to get from energy flow data's gridVoltage field
     if (widget.energyFlow?.gridVoltage != null) {
       return widget.energyFlow!.gridVoltage!;
     }
-    
-    // If energy flow doesn't have grid voltage, try to get it from gdStatus items
+
+    // Get device model config to find correct grid voltage candidates
+    final deviceModel = DeviceModel.detect(
+      devcode: widget.device.devcode,
+      alias: widget.device.alias ?? '',
+    );
+    final modelConfig = DeviceModelPopupConfig.forModel(deviceModel);
+
+    // Get grid voltage field configuration
+    final gridVoltageConfig = modelConfig.gridFields.firstWhere(
+      (field) => field.unit == 'V',
+      orElse: () => const PopupFieldConfig(
+        label: 'Grid Voltage',
+        unit: 'V',
+        apiCandidates: ['Grid Voltage'],
+      ),
+    );
+
+    // If energy flow data available, search using device-specific API candidates
     if (widget.energyFlow != null) {
       for (final item in widget.energyFlow!.gdStatus) {
-        final par = item.par.toLowerCase();
-        final unit = (item.unit ?? '').toLowerCase();
-        if ((unit == 'v' || par.contains('voltage')) &&
-            (par.contains('grid') ||
-                par.contains('utility') ||
-                par.contains('ac'))) {
-          return item.value ?? 0;
+        final itemParLower = item.par.toLowerCase().trim();
+
+        // Check against device-specific API candidates
+        for (final candidate in gridVoltageConfig.apiCandidates) {
+          if (itemParLower == candidate.toLowerCase().trim()) {
+            return item.value ?? 0;
+          }
         }
       }
     }
-    
-    // Fallback to widget's gridW if available (though this is power, not voltage)
-    // This is a last resort to maintain functionality
-    return widget.gridW ?? 0;
+
+    // No grid voltage found - return 0 to indicate grid is disconnected
+    // DO NOT use widget.gridW as fallback since that's power (W), not voltage (V)
+    return 0;
   }
 
   /// Check if all energy values are zero/empty (should show empty SVG)
@@ -3436,12 +3320,10 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
       final gridStatus = w.energyFlow?.gridStatusDir ?? 0;
 
       // Consider grid active if voltage > 100V OR status indicates activity OR power > 10W
-      final bool hasGrid = gridVoltage > 100 || gridStatus != 0 || gridPower > 10;
+      final bool hasGrid =
+          gridVoltage > 100 || gridStatus != 0 || gridPower > 10;
 
-      return pvPower < 10 &&
-          batteryPower < 10 &&
-          !hasGrid &&
-          loadPower < 10;
+      return pvPower < 10 && batteryPower < 10 && !hasGrid && loadPower < 10;
     }
 
     return pvZero && batteryZero && gridZero && loadZero;

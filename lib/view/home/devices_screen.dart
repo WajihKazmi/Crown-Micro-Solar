@@ -100,24 +100,27 @@ class _DevicesScreenState extends State<DevicesScreen>
       }
       final plantId = _plantVM.plants.first.id;
 
-      // INSTANT CACHE LOAD: Show cached data immediately if available
-      final hadCache = await _deviceVM.loadDevicesFromCache(plantId);
-      if (hadCache && mounted) {
-        setState(() {
-          _loading = false;
-          _initialLoadDone = true;
-        });
+      // When force=true (e.g., after deletion), skip cache and load fresh from network
+      if (!force) {
+        // INSTANT CACHE LOAD: Show cached data immediately if available
+        final hadCache = await _deviceVM.loadDevicesFromCache(plantId);
+        if (hadCache && mounted) {
+          setState(() {
+            _loading = false;
+            _initialLoadDone = true;
+          });
 
-        // Then refresh from network in background WITHOUT blocking UI
-        _deviceVM.loadDevicesAndCollectors(plantId).then((_) {
-          // ViewModel will notify listeners when done
-        }).catchError((e) {
-          print('Background refresh error: $e');
-        });
-        return; // Exit early to prevent duplicate loading
+          // Then refresh from network in background WITHOUT blocking UI
+          _deviceVM.loadDevicesAndCollectors(plantId).then((_) {
+            // ViewModel will notify listeners when done
+          }).catchError((e) {
+            print('Background refresh error: $e');
+          });
+          return; // Exit early to prevent duplicate loading
+        }
       }
 
-      // No cache available, load from network
+      // No cache available OR force=true, load from network
       await _deviceVM.loadDevicesAndCollectors(plantId);
       if (!mounted) return;
       setState(() {
@@ -551,9 +554,9 @@ class _DevicesScreenState extends State<DevicesScreen>
 
           print('Delete result: $result');
 
-          // Check for various success/error codes
-          if (result['err'] == 0 || result['err'] == 258) {
-            // Success (258 is also considered success) - reload devices
+          // Check for various success/error codes (matching old app: err == 0 || err == 257)
+          if (result['err'] == 0 || result['err'] == 257) {
+            // Success (257 = collector not found, also considered success) - reload devices
             await _loadDevices(force: true);
 
             if (mounted) {

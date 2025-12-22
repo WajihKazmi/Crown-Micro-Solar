@@ -50,7 +50,8 @@ class OverviewGraphSeries {
   final String label;
   final Color color;
   final List<double> data; // aligned to labels (for non-daily periods)
-  final List<OverviewGraphDataPoint>? timestampData; // exact timestamp-value pairs (for daily period)
+  final List<OverviewGraphDataPoint>?
+      timestampData; // exact timestamp-value pairs (for daily period)
   OverviewGraphSeries({
     required this.label,
     required this.color,
@@ -95,7 +96,8 @@ class OverviewGraphViewModel extends ChangeNotifier {
   final _energyRepo = getIt<EnergyRepository>();
   final _deviceRepo = getIt<DeviceRepository>();
 
-  GraphMetric _metric = GraphMetric.outputPower; // Default to output power (matching old app)
+  GraphMetric _metric =
+      GraphMetric.outputPower; // Default to output power (matching old app)
   GraphPeriod _period = GraphPeriod.day;
   DateTime _anchor = DateTime.now();
   String? _error;
@@ -168,9 +170,8 @@ class OverviewGraphViewModel extends ChangeNotifier {
   }
 
   List<GraphMetric> get allowedMetricsForSelectedDevice =>
-      _selectedDevice == null
-          ? GraphMetric.values
-          : allowedMetricsForDevice(_selectedDevice!.devcode);
+      // Return all metrics so user can select any parameter to graph
+      GraphMetric.values;
 
   // Public API
   Future<void> init(String plantId) async {
@@ -285,6 +286,9 @@ class OverviewGraphViewModel extends ChangeNotifier {
 
     // If a specific device is selected, build the series for that device only
     if (_selectedDevice != null) {
+      // Collect all timestamp points for precise plotting
+      final List<OverviewGraphDataPoint> timestampPoints = [];
+
       // New approach: use DeviceRepository metric resolver to get series when available
       values = List<double>.filled(24, 0);
       final logical = _metricToLogical[_metric]!;
@@ -296,34 +300,84 @@ class OverviewGraphViewModel extends ChangeNotifier {
         devaddr: _selectedDevice!.devaddr,
         date: dateStr,
       );
+
       if (metricResult.series.isNotEmpty) {
-        // Series contains ts -> map to hour buckets
+        print(
+            'OverviewGraphViewModel: Processing ${metricResult.series.length} data points for device');
+
+        // Collect ALL points with exact timestamps (don't aggregate into hours)
         for (final point in metricResult.series) {
           final ts = point['ts']?.toString();
           final val = point['val'];
           if (ts != null && val is num) {
-            // Expect formats like '2025-08-22 05:17:30' or ISO 8601
-            int hour;
             try {
+              DateTime timestamp;
               if (ts.contains('T')) {
-                hour = DateTime.parse(ts).hour;
+                timestamp = DateTime.parse(ts);
               } else {
-                final timePart = ts.split(' ').last;
-                hour = int.tryParse(timePart.split(':').first) ?? 0;
+                // Format: '2025-08-22 05:17:30' or similar
+                timestamp = DateTime.parse(ts.replaceAll(' ', 'T'));
               }
-            } catch (_) {
-              hour = 0;
-            }
-            if (hour >= 0 && hour < 24) {
-              // For sum metrics accumulate; for avg style we overwrite (will average later if needed)
-              if (_aggregationForMetric(_metric) == _Agg.sum) {
-                values[hour] += val.toDouble();
-              } else {
-                values[hour] = val.toDouble();
-              }
+
+              // Add every point with exact timestamp
+              // API already returns values in the correct unit (kW for power metrics)
+              timestampPoints.add(OverviewGraphDataPoint(
+                timestamp: timestamp,
+                value: val.toDouble(),
+              ));
+            } catch (e) {
+              print(
+                  'OverviewGraphViewModel: Failed to parse timestamp "$ts": $e');
             }
           }
         }
+
+        // Sort by timestamp
+        timestampPoints.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+        print(
+            'OverviewGraphViewModel: Collected ${timestampPoints.length} timestamp points for device');
+        if (timestampPoints.isNotEmpty) {
+          print(
+              '  First: ${timestampPoints.first.timestamp} -> ${timestampPoints.first.value}');
+          print(
+              '  Last: ${timestampPoints.last.timestamp} -> ${timestampPoints.last.value}');
+        }
+
+        // Also create hourly buckets for backward compatibility
+        final Map<int, double> hourMaxValues = {};
+        for (final point in timestampPoints) {
+          final hour = point.timestamp.hour;
+          if (hour >= 0 && hour < 24) {
+            if (!hourMaxValues.containsKey(hour) ||
+                point.value > hourMaxValues[hour]!) {
+              hourMaxValues[hour] = point.value;
+            }
+          }
+        }
+        hourMaxValues.forEach((hour, maxValue) {
+          values[hour] = maxValue;
+        });
+
+        // Create state with timestamp data for precise plotting
+        final stats = _stats(timestampPoints.map((p) => p.value).toList());
+        _state = OverviewGraphState(
+          labels: labels,
+          series: [
+            OverviewGraphSeries(
+              label: _labelForMetric(_metric),
+              color: _colorForMetric(_metric),
+              data: values, // Keep for backward compatibility
+              timestampData: timestampPoints, // Use this for precise plotting
+            )
+          ],
+          unit: _unitForMetric(_metric),
+          min: stats.min,
+          max: stats.max,
+          avg: stats.avg,
+          isLoading: false,
+        );
+        return; // Early return since we've set the state
       } else {
         // Fallback to existing key parameter approach if series empty
         final deviceVm = getIt<vm.DeviceViewModel>();
@@ -397,9 +451,10 @@ class OverviewGraphViewModel extends ChangeNotifier {
         // This matches the old app's fetchGraphData behavior exactly
         try {
           // Get all collectors/plants for the current user
-          final devicesBundle = await _deviceRepo.getDevicesAndCollectors(plantId);
+          final devicesBundle =
+              await _deviceRepo.getDevicesAndCollectors(plantId);
           final collectors = (devicesBundle['collectors'] as List?) ?? [];
-          
+
           // If no collectors, try to get from all devices
           List<dynamic> collectorsList = collectors;
           if (collectorsList.isEmpty) {
@@ -407,52 +462,60 @@ class OverviewGraphViewModel extends ChangeNotifier {
             // Extract unique plant IDs from devices
             final plantIds = <String>{};
             for (final d in allDevices) {
-              final pid = (d is Map ? d['pid'] : (d as dynamic).pid)?.toString() ?? '';
+              final pid =
+                  (d is Map ? d['pid'] : (d as dynamic).pid)?.toString() ?? '';
               if (pid.isNotEmpty) plantIds.add(pid);
             }
             collectorsList = plantIds.map((pid) => {'pid': pid}).toList();
           }
-          
+
           // Call API once per collector/plant (matching old app behavior)
           // Even though the API returns all plants, we call it per collector like the old app
           final List<OldAppPowerData> allResponses = [];
           for (final _ in collectorsList) {
             try {
               // Even though the API returns all plants, we call it per collector like the old app
-              final response = await _energyRepo.getPlantsActiveOutputPowerOneDay(dateStr);
+              final response =
+                  await _energyRepo.getPlantsActiveOutputPowerOneDay(dateStr);
               if (response.err == 0) {
                 allResponses.add(response);
               }
             } catch (e) {
-              print('OverviewGraphViewModel: Error fetching data for collector: $e');
+              print(
+                  'OverviewGraphViewModel: Error fetching data for collector: $e');
             }
           }
-          
+
           // If no collectors found, call API once with the plantId
           if (allResponses.isEmpty) {
-            final response = await _energyRepo.getPlantsActiveOutputPowerOneDay(dateStr);
+            final response =
+                await _energyRepo.getPlantsActiveOutputPowerOneDay(dateStr);
             if (response.err == 0) {
               allResponses.add(response);
             }
           }
-          
+
           values = List<double>.filled(24, 0);
-          
+
           if (allResponses.isNotEmpty) {
             // Process data to show EVERY point from API response
             // Store all points with exact timestamps - preserve millisecond precision
             final List<OverviewGraphDataPoint> timestampPoints = [];
-            
-            print('OverviewGraphViewModel: Processing ${allResponses.length} API responses');
+
+            print(
+                'OverviewGraphViewModel: Processing ${allResponses.length} API responses');
             int totalPoints = 0;
-            
+
             for (final response in allResponses) {
               if (response.err == 0 && response.dat?.outputPower != null) {
                 final pointCount = response.dat!.outputPower!.length;
-                print('OverviewGraphViewModel: Response has $pointCount outputPower points');
+                print(
+                    'OverviewGraphViewModel: Response has $pointCount outputPower points');
                 for (final detail in response.dat!.outputPower!) {
                   // Apply the same time filtering as the old app (5 AM to 7 PM)
-                  if (detail.ts != null && detail.ts!.hour >= 5 && detail.ts!.hour <= 19) {
+                  if (detail.ts != null &&
+                      detail.ts!.hour >= 5 &&
+                      detail.ts!.hour <= 19) {
                     final timestamp = detail.ts!;
                     // Parse value exactly like old app: double.parse(detail.val!)
                     // Use double.parse (not tryParse) to match old app exactly
@@ -460,10 +523,11 @@ class OverviewGraphViewModel extends ChangeNotifier {
                     try {
                       value = double.parse(detail.val ?? '0');
                     } catch (e) {
-                      print('OverviewGraphViewModel: Failed to parse value "${detail.val}": $e');
+                      print(
+                          'OverviewGraphViewModel: Failed to parse value "${detail.val}": $e');
                       value = 0.0;
                     }
-                    
+
                     // Add EVERY point with its exact timestamp (preserve all points)
                     timestampPoints.add(OverviewGraphDataPoint(
                       timestamp: timestamp,
@@ -473,15 +537,17 @@ class OverviewGraphViewModel extends ChangeNotifier {
                   }
                 }
               } else {
-                print('OverviewGraphViewModel: Response error ${response.err}: ${response.desc}');
+                print(
+                    'OverviewGraphViewModel: Response error ${response.err}: ${response.desc}');
               }
             }
-            
-            print('OverviewGraphViewModel: Total points collected: $totalPoints');
-            
+
+            print(
+                'OverviewGraphViewModel: Total points collected: $totalPoints');
+
             // Sort by timestamp to ensure proper ordering
             timestampPoints.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-            
+
             // Log sample values for debugging
             if (timestampPoints.isNotEmpty) {
               print('OverviewGraphViewModel: First 5 data points:');
@@ -490,22 +556,26 @@ class OverviewGraphViewModel extends ChangeNotifier {
                 print('  ${p.timestamp.toIso8601String()}: ${p.value}');
               }
               print('OverviewGraphViewModel: Last 5 data points:');
-              final start = timestampPoints.length > 5 ? timestampPoints.length - 5 : 0;
+              final start =
+                  timestampPoints.length > 5 ? timestampPoints.length - 5 : 0;
               for (int i = start; i < timestampPoints.length; i++) {
                 final p = timestampPoints[i];
                 print('  ${p.timestamp.toIso8601String()}: ${p.value}');
               }
-              print('OverviewGraphViewModel: Min value: ${timestampPoints.map((p) => p.value).reduce((a, b) => a < b ? a : b)}');
-              print('OverviewGraphViewModel: Max value: ${timestampPoints.map((p) => p.value).reduce((a, b) => a > b ? a : b)}');
+              print(
+                  'OverviewGraphViewModel: Min value: ${timestampPoints.map((p) => p.value).reduce((a, b) => a < b ? a : b)}');
+              print(
+                  'OverviewGraphViewModel: Max value: ${timestampPoints.map((p) => p.value).reduce((a, b) => a > b ? a : b)}');
             }
-            
+
             // For backward compatibility, also create hour buckets (but we'll use timestampData)
             values = List<double>.filled(24, 0);
             final Map<int, double> hourMaxValues = {};
             for (final point in timestampPoints) {
               final hour = point.timestamp.hour;
               if (hour >= 0 && hour < 24) {
-                if (!hourMaxValues.containsKey(hour) || point.value > hourMaxValues[hour]!) {
+                if (!hourMaxValues.containsKey(hour) ||
+                    point.value > hourMaxValues[hour]!) {
                   hourMaxValues[hour] = point.value;
                 }
               }
@@ -513,7 +583,7 @@ class OverviewGraphViewModel extends ChangeNotifier {
             hourMaxValues.forEach((hour, maxValue) {
               values[hour] = maxValue;
             });
-            
+
             // Create state with timestamp data for precise plotting
             final stats = _stats(timestampPoints.map((p) => p.value).toList());
             _state = OverviewGraphState(
@@ -523,7 +593,8 @@ class OverviewGraphViewModel extends ChangeNotifier {
                   label: _labelForMetric(_metric),
                   color: _colorForMetric(_metric),
                   data: values, // Keep for backward compatibility
-                  timestampData: timestampPoints, // Use this for precise plotting
+                  timestampData:
+                      timestampPoints, // Use this for precise plotting
                 )
               ],
               unit: _unitForMetric(_metric),
@@ -532,8 +603,9 @@ class OverviewGraphViewModel extends ChangeNotifier {
               avg: stats.avg,
               isLoading: false,
             );
-            
-            print('OverviewGraphViewModel: Successfully loaded old app style data for $dateStr - ${allResponses.length} responses, ${timestampPoints.length} exact data points');
+
+            print(
+                'OverviewGraphViewModel: Successfully loaded old app style data for $dateStr - ${allResponses.length} responses, ${timestampPoints.length} exact data points');
             return; // Early return since we've set the state
           } else {
             print('OverviewGraphViewModel: No valid responses for $dateStr');
@@ -558,7 +630,8 @@ class OverviewGraphViewModel extends ChangeNotifier {
             return;
           }
         } catch (e) {
-          print('OverviewGraphViewModel: Error using old app API, falling back to energy repo: $e');
+          print(
+              'OverviewGraphViewModel: Error using old app API, falling back to energy repo: $e');
           // Fallback to the existing energy repository method
           final summary = await _energyRepo.getDailyEnergy(plantId, dateStr);
           values = List<double>.filled(24, 0);
@@ -1386,6 +1459,22 @@ class OverviewGraphViewModel extends ChangeNotifier {
       case GraphMetric.todayGeneration:
       case GraphMetric.totalGeneration:
         return 'kWh';
+    }
+  }
+
+  // Check if metric represents power (needs W to kW conversion)
+  bool _isPowerMetric(GraphMetric m) {
+    switch (m) {
+      case GraphMetric.outputPower:
+      case GraphMetric.loadPower:
+      case GraphMetric.gridPower:
+      case GraphMetric.pv1ChargingPower:
+      case GraphMetric.pv2ChargingPower:
+      case GraphMetric.acOutputActivePower:
+      case GraphMetric.inputPower:
+        return true;
+      default:
+        return false;
     }
   }
 

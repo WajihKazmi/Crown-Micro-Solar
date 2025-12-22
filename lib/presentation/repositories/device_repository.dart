@@ -12,9 +12,9 @@ import 'package:crown_micro_solar/presentation/models/device/device_live_signal_
 class MetricResolutionResult {
   final String logicalMetric;
   final String?
-  apiParameter; // Resolved API param or indicator (paging_column / live_signal)
+      apiParameter; // Resolved API param or indicator (paging_column / live_signal)
   final String
-  source; // key_param_one_day | paging | live_signal | unsupported | none
+      source; // key_param_one_day | paging | live_signal | unsupported | none
   final double? latestValue;
   final int pointCount;
   final String? timestamp; // ISO8601 string of latest point
@@ -65,12 +65,12 @@ class DeviceEnergyFlowModel {
   factory DeviceEnergyFlowModel.fromJson(Map<String, dynamic> j) {
     List<DeviceEnergyFlowItem> _list(String key) => (j[key] is List)
         ? (j[key] as List)
-              .whereType<Map>()
-              .map(
-                (e) =>
-                    DeviceEnergyFlowItem.fromJson(Map<String, dynamic>.from(e)),
-              )
-              .toList()
+            .whereType<Map>()
+            .map(
+              (e) =>
+                  DeviceEnergyFlowItem.fromJson(Map<String, dynamic>.from(e)),
+            )
+            .toList()
         : <DeviceEnergyFlowItem>[];
     return DeviceEnergyFlowModel(
       btStatus: _list('bt_status'),
@@ -581,11 +581,11 @@ class DeviceRepository {
           apiParameter: keyRes['source'] == 'live_signal'
               ? keyRes['source']
               : _parameterResolutionCache.entries
-                    .firstWhere(
-                      (e) => e.key.contains(':$devaddr:$logicalMetric'),
-                      orElse: () => MapEntry('', logicalMetric),
-                    )
-                    .value,
+                  .firstWhere(
+                    (e) => e.key.contains(':$devaddr:$logicalMetric'),
+                    orElse: () => MapEntry('', logicalMetric),
+                  )
+                  .value,
           source: keyRes['source'] == 'live_signal'
               ? 'live_signal'
               : 'key_param_one_day',
@@ -612,8 +612,7 @@ class DeviceRepository {
       if (latest != null) {
         // Build series from paging rows (improved mapping using real column titles)
         final dat = paging['dat'];
-        final titles =
-            (dat['title'] as List?)
+        final titles = (dat['title'] as List?)
                 ?.map((e) => (e as Map)['title']?.toString() ?? '')
                 .toList() ??
             [];
@@ -622,8 +621,8 @@ class DeviceRepository {
           (t) => t.toLowerCase().trim() == 'timestamp',
         ); // timestamp column index
         int indexOf(String name) => titles.indexWhere(
-          (t) => t.toLowerCase().trim() == name.toLowerCase().trim(),
-        );
+              (t) => t.toLowerCase().trim() == name.toLowerCase().trim(),
+            );
         double? toDouble(dynamic raw) =>
             raw is num ? raw.toDouble() : double.tryParse(raw.toString());
 
@@ -850,8 +849,7 @@ class DeviceRepository {
           final dat = js['dat'];
           List list = const [];
           if (dat is Map) {
-            list =
-                dat['perday'] ??
+            list = dat['perday'] ??
                 dat['permonth'] ??
                 dat['parameter'] ??
                 dat['row'] ??
@@ -945,8 +943,7 @@ class DeviceRepository {
           final dat = js['dat'];
           List list = const [];
           if (dat is Map) {
-            list =
-                dat['permonth'] ??
+            list = dat['permonth'] ??
                 dat['peryear'] ??
                 dat['parameter'] ??
                 dat['row'] ??
@@ -1181,9 +1178,8 @@ class DeviceRepository {
     }
 
     // 4. Standalone devices = all devices not under any collector
-    final standaloneDevices = devices
-        .where((d) => !subordinateSNs.contains(d.sn))
-        .toList();
+    final standaloneDevices =
+        devices.where((d) => !subordinateSNs.contains(d.sn)).toList();
 
     print(
       'DeviceRepository: Total devices=${devices.length}, Collectors=${collectors.length}, Subordinate SNs=${subordinateSNs.length}, Standalone=${standaloneDevices.length}',
@@ -1336,9 +1332,8 @@ class DeviceRepository {
     try {
       final dat = jsonMap['dat'];
       if (dat == null) return null;
-      final titles = (dat['title'] as List?)
-          ?.map((e) => e['title'] as String?)
-          .toList();
+      final titles =
+          (dat['title'] as List?)?.map((e) => e['title'] as String?).toList();
       final rows = (dat['row'] as List?);
       if (titles == null || rows == null || rows.isEmpty) return null;
       final idx = titles.indexWhere(
@@ -1528,7 +1523,8 @@ class DeviceRepository {
           '&source=1&app_id=${package.packageName}&app_version=${package.version}&app_client=$platform';
     } catch (_) {
       // Fallback if package info fails
-      postaction = '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+      postaction =
+          '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
     }
 
     if (pn.isEmpty) {
@@ -1542,9 +1538,9 @@ class DeviceRepository {
       'DeviceRepository.deleteDevice: plantId=$plantId, pn=$pn, sn=$sn, devcode=$devcode, devaddr=$devaddr',
     );
 
-    // Use old app's action format: delDeviceFromPlant (not webManageDeviceEs)
-    final action =
-        '&action=delDeviceFromPlant&pn=$pn&sn=$sn&devaddr=$devaddr&devcode=$devcode';
+    // Use old app's EXACT action format: delCollectorFromPlant with ONLY pn parameter
+    // Old app: action=delCollectorFromPlant&pn=$PN (CollectorDevicesStatus.dart line 26)
+    final action = '&action=delCollectorFromPlant&pn=$pn';
     final data = salt + secret + token + action + postaction;
     final sign = sha1.convert(utf8.encode(data)).toString();
     final url =
@@ -1553,13 +1549,13 @@ class DeviceRepository {
     try {
       print('Delete device URL: $url');
       final response = await _apiClient.signedPost(url);
-      
+
       // Check if response body is empty or not valid JSON
       if (response.body.isEmpty) {
         print('DeviceRepository.deleteDevice: Empty response body');
         return {'err': -1, 'desc': 'Empty response from server'};
       }
-      
+
       // Try to parse JSON with better error handling
       Map<String, dynamic> jsonData;
       try {
@@ -1569,15 +1565,18 @@ class DeviceRepository {
         print('DeviceRepository.deleteDevice: Raw response: ${response.body}');
         return {'err': -1, 'desc': 'Invalid response format from server'};
       }
-      
+
       print('DeviceRepository.deleteDevice response: $jsonData');
-      
+
       // Ensure the response has the expected structure
       if (!jsonData.containsKey('err')) {
         print('DeviceRepository.deleteDevice: Response missing "err" field');
-        return {'err': -1, 'desc': 'Invalid response format - missing error code'};
+        return {
+          'err': -1,
+          'desc': 'Invalid response format - missing error code'
+        };
       }
-      
+
       return Map<String, dynamic>.from(jsonData);
     } catch (e) {
       print('DeviceRepository.deleteDevice error: $e');
@@ -2113,8 +2112,7 @@ class DeviceRepository {
     try {
       final dat = pagingJson['dat'];
       if (dat == null) return null;
-      final titles =
-          (dat['title'] as List?)
+      final titles = (dat['title'] as List?)
               ?.map((e) => (e as Map)['title']?.toString() ?? '')
               .toList() ??
           [];
@@ -2201,9 +2199,8 @@ class DeviceRepository {
             page: 0,
             pageSize: 50,
           );
-          final realtime = paging != null
-              ? extractRealtimeFromPaging(paging)
-              : null;
+          final realtime =
+              paging != null ? extractRealtimeFromPaging(paging) : null;
           pvW = realtime?['pvPowerW'] as double?;
         }
         // 3. Key parameter / metric resolution fallback
@@ -2871,8 +2868,7 @@ class DeviceRepository {
     }
     final dat = paging['dat'];
     if (dat == null) return null;
-    final titles =
-        (dat['title'] as List?)
+    final titles = (dat['title'] as List?)
             ?.map((e) => (e as Map)['title']?.toString() ?? '')
             .toList() ??
         [];
@@ -2900,9 +2896,8 @@ class DeviceRepository {
             bool any = false;
             if (pv1Idx != null && pv1Idx < field.length) {
               final raw = field[pv1Idx];
-              final v = raw is num
-                  ? raw.toDouble()
-                  : double.tryParse(raw.toString());
+              final v =
+                  raw is num ? raw.toDouble() : double.tryParse(raw.toString());
               if (v != null) {
                 sum += v;
                 any = true;
@@ -2910,9 +2905,8 @@ class DeviceRepository {
             }
             if (pv2Idx != null && pv2Idx < field.length) {
               final raw = field[pv2Idx];
-              final v = raw is num
-                  ? raw.toDouble()
-                  : double.tryParse(raw.toString());
+              final v =
+                  raw is num ? raw.toDouble() : double.tryParse(raw.toString());
               if (v != null) {
                 sum += v;
                 any = true;
@@ -2944,9 +2938,8 @@ class DeviceRepository {
           final field = r['field'];
           if (field is List && feedIdx < field.length) {
             final raw = field[feedIdx];
-            final v = raw is num
-                ? raw.toDouble()
-                : double.tryParse(raw.toString());
+            final v =
+                raw is num ? raw.toDouble() : double.tryParse(raw.toString());
             if (v != null) {
               latestVal = v;
               ts = r['ts']?.toString();
@@ -2971,9 +2964,8 @@ class DeviceRepository {
           final field = r['field'];
           if (field is List && socIdx < field.length) {
             final raw = field[socIdx];
-            final v = raw is num
-                ? raw.toDouble()
-                : double.tryParse(raw.toString());
+            final v =
+                raw is num ? raw.toDouble() : double.tryParse(raw.toString());
             if (v != null) {
               latestVal = v;
               ts = r['ts']?.toString();
@@ -2999,9 +2991,8 @@ class DeviceRepository {
           final field = r['field'];
           if (field is List && vIdx < field.length) {
             final raw = field[vIdx];
-            final v = raw is num
-                ? raw.toDouble()
-                : double.tryParse(raw.toString());
+            final v =
+                raw is num ? raw.toDouble() : double.tryParse(raw.toString());
             if (v != null) {
               latestVal = v;
               ts = r['ts']?.toString();
@@ -3073,9 +3064,8 @@ class DeviceRepository {
           int? useIdx = pv1Idx ?? pv2Idx; // prefer pv1
           if (useIdx != null && useIdx < field.length) {
             final raw = field[useIdx];
-            final v = raw is num
-                ? raw.toDouble()
-                : double.tryParse(raw.toString());
+            final v =
+                raw is num ? raw.toDouble() : double.tryParse(raw.toString());
             if (v != null) {
               latestVal = v;
               ts = r['ts']?.toString();
@@ -3217,9 +3207,8 @@ class DeviceRepository {
         }
       }
       final desc = dataJson['desc']?.toString() ?? '';
-      final extra = (dataJson['err'] == 0)
-          ? ' (empty dat: row/parameter missing)'
-          : '';
+      final extra =
+          (dataJson['err'] == 0) ? ' (empty dat: row/parameter missing)' : '';
       return null;
     } catch (e) {
       return null;
