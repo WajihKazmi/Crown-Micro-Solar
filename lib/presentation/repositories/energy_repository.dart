@@ -14,7 +14,8 @@ class OldAppPowerData {
 
   OldAppPowerData({this.err, this.desc, this.dat});
 
-  factory OldAppPowerData.fromJson(Map<String, dynamic> json) => OldAppPowerData(
+  factory OldAppPowerData.fromJson(Map<String, dynamic> json) =>
+      OldAppPowerData(
         err: json["err"],
         desc: json["desc"],
         dat: json["dat"] == null ? null : PowerDat.fromJson(json["dat"]),
@@ -242,6 +243,398 @@ class EnergyRepository {
     return await _getPlantEnergyYearPerMonthDess(
       plantId: plantId,
       year: year,
+    );
+  }
+
+  // ========== ALL-PLANTS AGGREGATE ENDPOINTS (for Home Screen Overview) ==========
+  // These use the plural "Plants" endpoints which aggregate across ALL power stations
+  // Matching old app's behavior: PID='all' uses queryPlantsEnergy* endpoints
+
+  /// Get monthly energy data aggregated across ALL plants (for Home screen Month view)
+  /// Uses queryPlantsEnergyMonthPerDay endpoint (note: Plants plural)
+  Future<EnergySummary> getPlantsEnergyMonthPerDay(String yearMonth) async {
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+
+    // Note: queryPlantsEnergyMonthPerDay (plural) - no plantid parameter needed
+    final action = '&action=queryPlantsEnergyMonthPerDay&date=$yearMonth';
+    const postaction =
+        '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url =
+        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
+    print('EnergyRepository: getPlantsEnergyMonthPerDay URL: $url');
+    final resp = await _apiClient.signedPost(url);
+    final dataJson = json.decode(resp.body);
+    print('EnergyRepository: getPlantsEnergyMonthPerDay response: $dataJson');
+
+    final parts = yearMonth.split('-');
+    final year = int.tryParse(parts[0]) ?? DateTime.now().year;
+    final month = parts.length > 1 ? int.tryParse(parts[1]) ?? 1 : 1;
+    final baseDate = DateTime(year, month, 1);
+    final daysInMonth = DateTime(year, month + 1, 0).day;
+    final points = <EnergyData>[];
+
+    if (dataJson['err'] == 0 && dataJson['dat'] != null) {
+      final dat = dataJson['dat'];
+      // Parse perday array (same structure as single-plant endpoint)
+      List items = (dat['perday'] as List?) ??
+          (dat['energy'] as List?) ??
+          (dat['detail'] as List?) ??
+          [];
+      if (items.isEmpty) {
+        // Try table format
+        final rows = dat['row'] as List?;
+        if (rows != null && rows.isNotEmpty) {
+          for (final r in rows) {
+            try {
+              final timeStr = (r is Map ? r['time'] : null)?.toString();
+              final fields = (r is Map ? r['field'] : null) as List?;
+              if (fields == null || fields.isEmpty) continue;
+              final val = fields.first is num
+                  ? (fields.first as num).toDouble()
+                  : double.tryParse(fields.first.toString()) ?? 0.0;
+              DateTime ts;
+              if (timeStr != null && timeStr.isNotEmpty) {
+                if (timeStr.contains('-')) {
+                  ts = DateTime.tryParse(timeStr) ?? baseDate;
+                } else {
+                  final day = int.tryParse(timeStr) ?? 1;
+                  ts = DateTime(year, month, day);
+                }
+              } else {
+                ts = DateTime(year, month, points.length + 1);
+              }
+              points.add(EnergyData(
+                deviceId: 'all',
+                timestamp: ts,
+                power: 0,
+                energy: val,
+                voltage: 0,
+                current: 0,
+                temperature: 0,
+                additionalData: const {},
+              ));
+            } catch (_) {}
+          }
+        }
+      }
+      if (items.isNotEmpty) {
+        for (int i = 0; i < items.length; i++) {
+          final it = items[i];
+          try {
+            final tsRaw = (it is Map ? it['ts'] : null)?.toString();
+            final val = it is Map
+                ? (double.tryParse(it['val']?.toString() ?? '0') ?? 0.0)
+                : 0.0;
+            DateTime ts;
+            if (tsRaw != null) {
+              ts = DateTime.tryParse(tsRaw) ?? DateTime(year, month, i + 1);
+            } else {
+              ts = DateTime(year, month, i + 1);
+            }
+            points.add(EnergyData(
+              deviceId: 'all',
+              timestamp: ts,
+              power: 0,
+              energy: val,
+              voltage: 0,
+              current: 0,
+              temperature: 0,
+              additionalData: const {},
+            ));
+          } catch (_) {}
+        }
+      }
+    }
+
+    // Pad to full month
+    while (points.length < daysInMonth) {
+      final d = points.length + 1;
+      points.add(EnergyData(
+        deviceId: 'all',
+        timestamp: DateTime(year, month, d),
+        power: 0,
+        energy: 0,
+        voltage: 0,
+        current: 0,
+        temperature: 0,
+        additionalData: const {},
+      ));
+    }
+
+    double total = 0, peak = 0;
+    for (final p in points) {
+      total += p.energy;
+      if (p.energy > peak) peak = p.energy;
+    }
+    return EnergySummary(
+      deviceId: 'all',
+      date: baseDate,
+      totalEnergy: total,
+      peakPower: peak,
+      averagePower: points.isEmpty ? 0 : total / points.length,
+      hourlyData: points,
+    );
+  }
+
+  /// Get yearly energy data aggregated across ALL plants (for Home screen Year view)
+  /// Uses queryPlantsEnergyYearPerMonth endpoint (note: Plants plural)
+  Future<EnergySummary> getPlantsEnergyYearPerMonth(String year) async {
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+
+    // Note: queryPlantsEnergyYearPerMonth (plural) - no plantid parameter needed
+    final action = '&action=queryPlantsEnergyYearPerMonth&date=$year';
+    const postaction =
+        '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url =
+        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
+    print('EnergyRepository: getPlantsEnergyYearPerMonth URL: $url');
+    final resp = await _apiClient.signedPost(url);
+    final dataJson = json.decode(resp.body);
+    print('EnergyRepository: getPlantsEnergyYearPerMonth response: $dataJson');
+
+    final yearInt = int.tryParse(year) ?? DateTime.now().year;
+    final baseDate = DateTime(yearInt, 1, 1);
+    final points = <EnergyData>[];
+
+    if (dataJson['err'] == 0 && dataJson['dat'] != null) {
+      final dat = dataJson['dat'];
+      List items = (dat['permonth'] as List?) ??
+          (dat['parameter'] as List?) ??
+          (dat['energy'] as List?) ??
+          [];
+      if (items.isEmpty) {
+        // Try table format
+        final rows = dat['row'] as List?;
+        if (rows != null && rows.isNotEmpty) {
+          for (final r in rows) {
+            try {
+              final timeStr = (r is Map ? r['time'] : null)?.toString();
+              final fields = (r is Map ? r['field'] : null) as List?;
+              if (fields == null || fields.isEmpty) continue;
+              final val = fields.first is num
+                  ? (fields.first as num).toDouble()
+                  : double.tryParse(fields.first.toString()) ?? 0.0;
+              DateTime ts;
+              if (timeStr != null && timeStr.isNotEmpty) {
+                if (timeStr.contains('-')) {
+                  final parsed = DateTime.tryParse(
+                      timeStr.length == 7 ? '$timeStr-01' : timeStr);
+                  ts = parsed ?? baseDate;
+                } else {
+                  final m = int.tryParse(timeStr) ?? 1;
+                  ts = DateTime(yearInt, m, 1);
+                }
+              } else {
+                ts = DateTime(yearInt, points.length + 1, 1);
+              }
+              points.add(EnergyData(
+                deviceId: 'all',
+                timestamp: ts,
+                power: 0,
+                energy: val,
+                voltage: 0,
+                current: 0,
+                temperature: 0,
+                additionalData: const {},
+              ));
+            } catch (_) {}
+          }
+        }
+      }
+      if (items.isNotEmpty) {
+        for (int i = 0; i < items.length; i++) {
+          final it = items[i];
+          try {
+            final tsRaw = (it is Map ? it['ts'] : null)?.toString();
+            final val = it is Map
+                ? (double.tryParse(it['val']?.toString() ?? '0') ?? 0.0)
+                : 0.0;
+            DateTime ts;
+            if (tsRaw != null) {
+              ts = DateTime.tryParse(tsRaw) ?? DateTime(yearInt, i + 1, 1);
+            } else {
+              ts = DateTime(yearInt, i + 1, 1);
+            }
+            points.add(EnergyData(
+              deviceId: 'all',
+              timestamp: ts,
+              power: 0,
+              energy: val,
+              voltage: 0,
+              current: 0,
+              temperature: 0,
+              additionalData: const {},
+            ));
+          } catch (_) {}
+        }
+      }
+    }
+
+    // Ensure 12 months
+    while (points.length < 12) {
+      final m = points.length + 1;
+      points.add(EnergyData(
+        deviceId: 'all',
+        timestamp: DateTime(yearInt, m, 1),
+        power: 0,
+        energy: 0,
+        voltage: 0,
+        current: 0,
+        temperature: 0,
+        additionalData: const {},
+      ));
+    }
+    if (points.length > 12) {
+      points.removeRange(12, points.length);
+    }
+
+    double total = 0, peak = 0;
+    for (final p in points) {
+      total += p.energy;
+      if (p.energy > peak) peak = p.energy;
+    }
+    return EnergySummary(
+      deviceId: 'all',
+      date: baseDate,
+      totalEnergy: total,
+      peakPower: peak,
+      averagePower: points.isEmpty ? 0 : total / points.length,
+      hourlyData: points,
+    );
+  }
+
+  /// Get total energy data per year aggregated across ALL plants (for Home screen Total view)
+  /// Uses queryPlantsEnergyTotalPerYear endpoint (note: Plants plural)
+  Future<EnergySummary> getPlantsEnergyTotalPerYear() async {
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+
+    // Note: queryPlantsEnergyTotalPerYear (plural) - no plantid parameter needed
+    final action = '&action=queryPlantsEnergyTotalPerYear&source=1';
+    const postaction =
+        '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url =
+        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
+    print('EnergyRepository: getPlantsEnergyTotalPerYear URL: $url');
+    final resp = await _apiClient.signedPost(url);
+    final dataJson = json.decode(resp.body);
+    print('EnergyRepository: getPlantsEnergyTotalPerYear response: $dataJson');
+
+    final now = DateTime.now();
+    final baseDate = DateTime(now.year, 1, 1);
+    final points = <EnergyData>[];
+
+    if (dataJson['err'] == 0 && dataJson['dat'] != null) {
+      final dat = dataJson['dat'];
+      List items =
+          (dat['peryear'] as List?) ?? (dat['parameter'] as List?) ?? [];
+      if (items.isEmpty) {
+        // Try table format
+        final rows = dat['row'] as List?;
+        if (rows != null && rows.isNotEmpty) {
+          for (final r in rows) {
+            try {
+              final timeStr = (r is Map ? r['time'] : null)?.toString();
+              final fields = (r is Map ? r['field'] : null) as List?;
+              if (fields == null || fields.isEmpty) continue;
+              final val = fields.first is num
+                  ? (fields.first as num).toDouble()
+                  : double.tryParse(fields.first.toString()) ?? 0.0;
+              DateTime ts;
+              if (timeStr != null && timeStr.isNotEmpty) {
+                final y = int.tryParse(timeStr) ?? now.year;
+                ts = DateTime(y, 1, 1);
+              } else {
+                ts = DateTime(now.year - (rows.indexOf(r)), 1, 1);
+              }
+              points.add(EnergyData(
+                deviceId: 'all',
+                timestamp: ts,
+                power: 0,
+                energy: val,
+                voltage: 0,
+                current: 0,
+                temperature: 0,
+                additionalData: const {},
+              ));
+            } catch (_) {}
+          }
+        }
+      }
+      if (items.isNotEmpty) {
+        for (final it in items) {
+          try {
+            final v = it['val'];
+            final d = v is num ? v.toDouble() : double.tryParse('$v') ?? 0.0;
+            final tsRaw = it['ts']?.toString();
+            DateTime ts;
+            if (tsRaw != null) {
+              ts = DateTime.tryParse(tsRaw) ??
+                  DateTime(int.tryParse(tsRaw) ?? now.year, 1, 1);
+            } else {
+              final y = it['year'] is num ? it['year'] as int : now.year;
+              ts = DateTime(y, 1, 1);
+            }
+            points.add(EnergyData(
+              deviceId: 'all',
+              timestamp: ts,
+              power: 0,
+              energy: d,
+              voltage: 0,
+              current: 0,
+              temperature: 0,
+              additionalData: const {},
+            ));
+          } catch (_) {}
+        }
+      }
+    }
+
+    // If empty, create placeholder for last 5 years
+    if (points.isEmpty) {
+      for (int i = 4; i >= 0; i--) {
+        points.add(EnergyData(
+          deviceId: 'all',
+          timestamp: DateTime(now.year - i, 1, 1),
+          power: 0,
+          energy: 0,
+          voltage: 0,
+          current: 0,
+          temperature: 0,
+          additionalData: const {},
+        ));
+      }
+    }
+
+    double total = 0, peak = 0;
+    for (final p in points) {
+      total += p.energy;
+      if (p.energy > peak) peak = p.energy;
+    }
+    return EnergySummary(
+      deviceId: 'all',
+      date: baseDate,
+      totalEnergy: total,
+      peakPower: peak,
+      averagePower: points.isEmpty ? 0 : total / points.length,
+      hourlyData: points,
     );
   }
 
@@ -825,11 +1218,13 @@ class EnergyRepository {
 
     // Use the exact same action as the old app
     final action = '&action=queryPlantsActiveOuputPowerOneDay&date=$date';
-    const postaction = '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
-    
+    const postaction =
+        '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+
     final data = salt + secret + token + action + postaction;
     final sign = sha1.convert(utf8.encode(data)).toString();
-    final url = 'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+    final url =
+        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
 
     try {
       final response = await _apiClient.signedPost(url);

@@ -14,7 +14,7 @@ class AlarmRepository {
 
   Future<List<Alarm>> getAlarms(String plantId) async {
     // For now, return warnings as alarms since the API returns warnings
-    return await getWarnings(plantId).then((warnings) => warnings
+    return await getWarnings(plantId).then((result) => result.warnings
         .map((warning) => Alarm(
               id: warning.id,
               deviceId: warning.sn,
@@ -29,7 +29,7 @@ class AlarmRepository {
         .toList());
   }
 
-  Future<List<Warning>> getWarnings(
+  Future<({List<Warning> warnings, int total})> getWarnings(
     String plantId, {
     String? startDate,
     String? endDate,
@@ -48,7 +48,10 @@ class AlarmRepository {
       if (token.isEmpty || secret.isEmpty) {
         print(
             'AlarmRepository: Missing token/secret, returning sample warnings');
-        return _getSampleWarnings();
+        return (
+          warnings: _getSampleWarnings(),
+          total: _getSampleWarnings().length
+        );
       }
 
       // Defaults like old app
@@ -116,8 +119,9 @@ class AlarmRepository {
       }
 
       // Build action variants similar to old app
+      // FIXED: Increased pagesize from 100 to 9999 to fetch all alarms (matching old app)
       String actionBase =
-          '&action=webQueryPlantsWarning&source=1&i18n=en_US&page=0&pagesize=100&plantid=$plantId';
+          '&action=webQueryPlantsWarning&source=1&i18n=en_US&page=0&pagesize=9999&plantid=$plantId';
       if (sn != null && sn.isNotEmpty) actionBase += '&sn=$sn';
 
       String action = actionBase;
@@ -147,23 +151,35 @@ class AlarmRepository {
       if (response.statusCode == 200) {
         final data = response.data;
         print('AlarmRepository: warnings response: $data');
-        if (data == null) return [];
-        if (data is String && data.isEmpty) return [];
+        if (data == null) return (warnings: <Warning>[], total: 0);
+        if (data is String && data.isEmpty)
+          return (warnings: <Warning>[], total: 0);
         if (data['err'] != 0) {
           print('AlarmRepository: API error: ${data['desc']}');
-          return [];
+          return (warnings: <Warning>[], total: 0);
         }
         if (data['dat'] != null && data['dat']['warning'] != null) {
           final List<dynamic> warningsJson = data['dat']['warning'];
-          return warningsJson.map((j) => Warning.fromJson(j)).toList();
+          final int total = data['dat']['total'] ?? warningsJson.length;
+          print(
+              'AlarmRepository: Loaded ${warningsJson.length} warnings, total: $total');
+          // Return record with both warnings and total count
+          return (
+            warnings: warningsJson.map((j) => Warning.fromJson(j)).toList(),
+            total: total
+          );
         }
-        return [];
+        // Return empty record
+        return (warnings: <Warning>[], total: 0);
       }
       print('AlarmRepository: HTTP error ${response.statusCode}');
-      return [];
+      return (warnings: <Warning>[], total: 0);
     } catch (e) {
       print('Error fetching warnings: $e');
-      return _getSampleWarnings();
+      return (
+        warnings: _getSampleWarnings(),
+        total: _getSampleWarnings().length
+      );
     }
   }
 

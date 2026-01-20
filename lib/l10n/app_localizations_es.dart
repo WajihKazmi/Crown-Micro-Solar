@@ -81,37 +81,136 @@ class AppLocalizationsEs extends AppLocalizations {
       'No se pudo cambiar la contraseña. Verifique su contraseña anterior e inténtelo nuevamente.';
 
   @override
-  String get drawer_download_report => 'Download Report';
+  String get location_details => 'Detalles de ubicación';
 
   @override
-  String get drawer_plant_info => 'Plant Info';
+  String get action_download => 'Download';
 
   @override
-  String get drawer_contact_support => 'Contact Support';
+  String get energy_statistics => 'Estadísticas de Energía';
 
   @override
-  String get drawer_logout => 'Log Out';
+  String get income_formula => 'Fórmula de Ingresos';
 
   @override
-  String get current_power_generation => 'Current Power Generation';
+  String get today_power_generation => 'Generación de Energía Hoy';
 
   @override
-  String get total_installed_capacity => 'Total Installed Capacity';
+  String get total_plant => 'Total Plantas';
 
   @override
-  String get output_power => 'Output Power';
+  String get total_device => 'Total Dispositivos';
 
   @override
-  String get live_data => 'Live Data';
+  String get total_alarm => 'Total Alarmas';
 
   @override
-  String get online => 'Online';
+  String get profit_today => 'Ganancia Hoy';
 
   @override
-  String get offline => 'Offline';
+  String get total_profit => 'Ganancia Total';
 
   @override
-  String get location_details => 'Location Details';
+  String get last_updated => 'Última actualización';
+
+  @override
+  String get all_power_stations => 'Todas las Estaciones';
+
+  @override
+  String get sn_device_detail => 'Detalle del Dispositivo';
+
+  @override
+  String get tooltip_power_report => 'Informe de Generación de Energía';
+
+  @override
+  String get tooltip_device_report => 'Informe de Datos del Dispositivo';
+
+  @override
+  String get tooltip_settings => 'Configuración';
+
+  @override
+  String get action_retry => 'Reintentar';
+
+  @override
+  String get label_error => 'Error';
+
+  @override
+  String get msg_generating_report =>
+      'Generando informe de datos del dispositivo...';
+
+  @override
+  String get msg_report_saved =>
+      'Informe del dispositivo guardado en Descargas';
+
+  @override
+  String get msg_download_failed => 'Error al descargar';
+
+  @override
+  String get header_device_settings => 'Configuración del Dispositivo';
+
+  @override
+  String get no_settings_available => 'No hay configuraciones disponibles';
+
+  @override
+  String get header_alarm_management => 'Gestión de Alarmas > Planta';
+
+  @override
+  String get msg_no_alarms => 'No se encontraron alarmas';
+
+  @override
+  String get status_processed => 'Procesado';
+
+  @override
+  String get status_untreated => 'No tratado';
+
+  @override
+  String get label_sn_colon => 'SN: ';
+
+  @override
+  String get label_code_colon => 'Código: ';
+
+  @override
+  String get label_occurrence_time => 'Hora de ocurrencia: ';
+
+  @override
+  String get label_device_pn => 'PN del Dispositivo: ';
+
+  @override
+  String get label_device_type => 'Tipo de Dispositivo: ';
+
+  @override
+  String get label_description => 'Descripción: ';
+
+  @override
+  String get tooltip_mark_processed => 'Marcar como procesado';
+
+  @override
+  String get tooltip_delete => 'Eliminar';
+
+  @override
+  String get msg_alarm_deleted => 'Alarma eliminada';
+
+  @override
+  String get msg_failed_delete => 'Error al eliminar la alarma';
+
+  @override
+  String get dialog_title_delete_alarm => 'Eliminar Alarma';
+
+  @override
+  String get dialog_msg_delete_alarm =>
+      '¿Está seguro de que desea eliminar esta alarma?';
+
+  @override
+  String get action_yes_delete => 'Sí, Eliminar';
+
+  @override
+  String get action_cancel => 'Cancelar';
+
+  @override
+  String get report_select_collector_hint => 'Select a collector (PN)';
+
+  @override
+  String get report_download_full_title => 'Download Full Report';
 
   @override
   String get range_day => 'Day';
@@ -123,20 +222,47 @@ class AppLocalizationsEs extends AppLocalizations {
   String get range_year => 'Year';
 
   @override
-  String get report_download_full_title => 'Download Full Report';
+  String get plant_create_time => 'Create Time';
 
   @override
-  String get report_no_collectors => 'No collectors available for this plant.';
+  String get plant_location => 'Location';
 
   @override
-  String get report_collector_label => 'Collector';
+  String get live_data => 'Live Data';
 
   @override
-  String get report_select_collector_hint => 'Select a collector (PN)';
+  String get status_normal => 'Normal';
 
   @override
-  String get action_cancel => 'Cancel';
+  String get status_offline => 'Offline';
 
   @override
-  String get action_download => 'Download';
+  String get status_alarm => 'Alarma';
+
+  @override
+  String get current_power_generation => 'Generación de Energía Actual';
+
+  @override
+  String get total_power_generation => 'Total Power Generation';
+
+  @override
+  String get total_installed_capacity => 'Capacidad Instalada Total';
+
+  @override
+  String get drawer_plant_info => 'Info de Planta';
+
+  @override
+  String get drawer_download_report => 'Descargar Informe';
+
+  @override
+  String get drawer_contact_support => 'Contactar Soporte';
+
+  @override
+  String get drawer_logout => 'Cerrar Sesión';
+
+  @override
+  String get report_no_collectors => 'No se encontraron colectores';
+
+  @override
+  String get report_collector_label => 'Colector';
 }

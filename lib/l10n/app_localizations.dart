@@ -242,71 +242,263 @@ abstract class AppLocalizations {
   /// **'Failed to change password. Please check your old password and try again.'**
   String get password_change_failed;
 
-  /// No description provided for @drawer_download_report.
-  ///
-  /// In en, this message translates to:
-  /// **'Download Report'**
-  String get drawer_download_report;
-
-  /// No description provided for @drawer_plant_info.
-  ///
-  /// In en, this message translates to:
-  /// **'Plant Info'**
-  String get drawer_plant_info;
-
-  /// No description provided for @drawer_contact_support.
-  ///
-  /// In en, this message translates to:
-  /// **'Contact Support'**
-  String get drawer_contact_support;
-
-  /// No description provided for @drawer_logout.
-  ///
-  /// In en, this message translates to:
-  /// **'Log Out'**
-  String get drawer_logout;
-
-  /// No description provided for @current_power_generation.
-  ///
-  /// In en, this message translates to:
-  /// **'Current Power Generation'**
-  String get current_power_generation;
-
-  /// No description provided for @total_installed_capacity.
-  ///
-  /// In en, this message translates to:
-  /// **'Total Installed Capacity'**
-  String get total_installed_capacity;
-
-  /// No description provided for @output_power.
-  ///
-  /// In en, this message translates to:
-  /// **'Output Power'**
-  String get output_power;
-
-  /// No description provided for @live_data.
-  ///
-  /// In en, this message translates to:
-  /// **'Live Data'**
-  String get live_data;
-
-  /// No description provided for @online.
-  ///
-  /// In en, this message translates to:
-  /// **'Online'**
-  String get online;
-
-  /// No description provided for @offline.
-  ///
-  /// In en, this message translates to:
-  /// **'Offline'**
-  String get offline;
-
   /// No description provided for @location_details.
   ///
   /// In en, this message translates to:
   /// **'Location Details'**
   String get location_details;
+
+  /// No description provided for @action_download.
+  ///
+  /// In en, this message translates to:
+  /// **'Download'**
+  String get action_download;
+
+  /// No description provided for @energy_statistics.
+  ///
+  /// In en, this message translates to:
+  /// **'Energy Statistics'**
+  String get energy_statistics;
+
+  /// No description provided for @income_formula.
+  ///
+  /// In en, this message translates to:
+  /// **'Income Formula'**
+  String get income_formula;
+
+  /// No description provided for @today_power_generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Today\'s Power Generation'**
+  String get today_power_generation;
+
+  /// No description provided for @total_plant.
+  ///
+  /// In en, this message translates to:
+  /// **'Total Plant'**
+  String get total_plant;
+
+  /// No description provided for @total_device.
+  ///
+  /// In en, this message translates to:
+  /// **'Total Device'**
+  String get total_device;
+
+  /// No description provided for @total_alarm.
+  ///
+  /// In en, this message translates to:
+  /// **'Total Alarm'**
+  String get total_alarm;
+
+  /// No description provided for @profit_today.
+  ///
+  /// In en, this message translates to:
+  /// **'Profit Today'**
+  String get profit_today;
+
+  /// No description provided for @total_profit.
+  ///
+  /// In en, this message translates to:
+  /// **'Total Profit'**
+  String get total_profit;
+
+  /// No description provided for @last_updated.
+  ///
+  /// In en, this message translates to:
+  /// **'Last updated'**
+  String get last_updated;
+
+  /// No description provided for @all_power_stations.
+  ///
+  /// In en, this message translates to:
+  /// **'All Power Stations'**
+  String get all_power_stations;
+
+  /// No description provided for @sn_device_detail.
+  ///
+  /// In en, this message translates to:
+  /// **'SN Device Detail'**
+  String get sn_device_detail;
+
+  /// No description provided for @tooltip_power_report.
+  ///
+  /// In en, this message translates to:
+  /// **'Power Generation Report'**
+  String get tooltip_power_report;
+
+  /// No description provided for @tooltip_device_report.
+  ///
+  /// In en, this message translates to:
+  /// **'Device Data Report'**
+  String get tooltip_device_report;
+
+  /// No description provided for @tooltip_settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get tooltip_settings;
+
+  /// No description provided for @action_retry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get action_retry;
+
+  /// No description provided for @label_error.
+  ///
+  /// In en, this message translates to:
+  /// **'Error'**
+  String get label_error;
+
+  /// No description provided for @msg_generating_report.
+  ///
+  /// In en, this message translates to:
+  /// **'Generating device data report...'**
+  String get msg_generating_report;
+
+  /// No description provided for @msg_report_saved.
+  ///
+  /// In en, this message translates to:
+  /// **'Device report saved to Downloads'**
+  String get msg_report_saved;
+
+  /// No description provided for @msg_download_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to download'**
+  String get msg_download_failed;
+
+  /// No description provided for @header_device_settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Device Settings'**
+  String get header_device_settings;
+
+  /// No description provided for @no_settings_available.
+  ///
+  /// In en, this message translates to:
+  /// **'No settings available'**
+  String get no_settings_available;
+
+  /// No description provided for @header_alarm_management.
+  ///
+  /// In en, this message translates to:
+  /// **'Alarm Management > Plant'**
+  String get header_alarm_management;
+
+  /// No description provided for @msg_no_alarms.
+  ///
+  /// In en, this message translates to:
+  /// **'No alarms found'**
+  String get msg_no_alarms;
+
+  /// No description provided for @status_processed.
+  ///
+  /// In en, this message translates to:
+  /// **'Processed'**
+  String get status_processed;
+
+  /// No description provided for @status_untreated.
+  ///
+  /// In en, this message translates to:
+  /// **'Untreated'**
+  String get status_untreated;
+
+  /// No description provided for @label_sn_colon.
+  ///
+  /// In en, this message translates to:
+  /// **'SN: '**
+  String get label_sn_colon;
+
+  /// No description provided for @label_code_colon.
+  ///
+  /// In en, this message translates to:
+  /// **'Code: '**
+  String get label_code_colon;
+
+  /// No description provided for @label_occurrence_time.
+  ///
+  /// In en, this message translates to:
+  /// **'Occurrence time: '**
+  String get label_occurrence_time;
+
+  /// No description provided for @label_device_pn.
+  ///
+  /// In en, this message translates to:
+  /// **'Device PN: '**
+  String get label_device_pn;
+
+  /// No description provided for @label_device_type.
+  ///
+  /// In en, this message translates to:
+  /// **'Device Type: '**
+  String get label_device_type;
+
+  /// No description provided for @label_description.
+  ///
+  /// In en, this message translates to:
+  /// **'Description: '**
+  String get label_description;
+
+  /// No description provided for @tooltip_mark_processed.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as processed'**
+  String get tooltip_mark_processed;
+
+  /// No description provided for @tooltip_delete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get tooltip_delete;
+
+  /// No description provided for @msg_alarm_deleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Alarm deleted'**
+  String get msg_alarm_deleted;
+
+  /// No description provided for @msg_failed_delete.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to delete alarm'**
+  String get msg_failed_delete;
+
+  /// No description provided for @dialog_title_delete_alarm.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete Alarm'**
+  String get dialog_title_delete_alarm;
+
+  /// No description provided for @dialog_msg_delete_alarm.
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to delete this alarm?'**
+  String get dialog_msg_delete_alarm;
+
+  /// No description provided for @action_yes_delete.
+  ///
+  /// In en, this message translates to:
+  /// **'Yes, Delete'**
+  String get action_yes_delete;
+
+  /// No description provided for @action_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get action_cancel;
+
+  /// No description provided for @report_select_collector_hint.
+  ///
+  /// In en, this message translates to:
+  /// **'Select a collector (PN)'**
+  String get report_select_collector_hint;
+
+  /// No description provided for @report_download_full_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Download Full Report'**
+  String get report_download_full_title;
 
   /// No description provided for @range_day.
   ///
@@ -326,16 +518,88 @@ abstract class AppLocalizations {
   /// **'Year'**
   String get range_year;
 
-  /// No description provided for @report_download_full_title.
+  /// No description provided for @plant_create_time.
   ///
   /// In en, this message translates to:
-  /// **'Download Full Report'**
-  String get report_download_full_title;
+  /// **'Create Time'**
+  String get plant_create_time;
+
+  /// No description provided for @plant_location.
+  ///
+  /// In en, this message translates to:
+  /// **'Location'**
+  String get plant_location;
+
+  /// No description provided for @live_data.
+  ///
+  /// In en, this message translates to:
+  /// **'Live Data'**
+  String get live_data;
+
+  /// No description provided for @status_normal.
+  ///
+  /// In en, this message translates to:
+  /// **'Normal'**
+  String get status_normal;
+
+  /// No description provided for @status_offline.
+  ///
+  /// In en, this message translates to:
+  /// **'Offline'**
+  String get status_offline;
+
+  /// No description provided for @status_alarm.
+  ///
+  /// In en, this message translates to:
+  /// **'Alarm'**
+  String get status_alarm;
+
+  /// No description provided for @current_power_generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Current Power Generation'**
+  String get current_power_generation;
+
+  /// No description provided for @total_power_generation.
+  ///
+  /// In en, this message translates to:
+  /// **'Total Power Generation'**
+  String get total_power_generation;
+
+  /// No description provided for @total_installed_capacity.
+  ///
+  /// In en, this message translates to:
+  /// **'Total Installed Capacity'**
+  String get total_installed_capacity;
+
+  /// No description provided for @drawer_plant_info.
+  ///
+  /// In en, this message translates to:
+  /// **'Plant Info'**
+  String get drawer_plant_info;
+
+  /// No description provided for @drawer_download_report.
+  ///
+  /// In en, this message translates to:
+  /// **'Download Report'**
+  String get drawer_download_report;
+
+  /// No description provided for @drawer_contact_support.
+  ///
+  /// In en, this message translates to:
+  /// **'Contact Support'**
+  String get drawer_contact_support;
+
+  /// No description provided for @drawer_logout.
+  ///
+  /// In en, this message translates to:
+  /// **'Logout'**
+  String get drawer_logout;
 
   /// No description provided for @report_no_collectors.
   ///
   /// In en, this message translates to:
-  /// **'No collectors available for this plant.'**
+  /// **'No collectors found'**
   String get report_no_collectors;
 
   /// No description provided for @report_collector_label.
@@ -343,24 +607,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Collector'**
   String get report_collector_label;
-
-  /// No description provided for @report_select_collector_hint.
-  ///
-  /// In en, this message translates to:
-  /// **'Select a collector (PN)'**
-  String get report_select_collector_hint;
-
-  /// No description provided for @action_cancel.
-  ///
-  /// In en, this message translates to:
-  /// **'Cancel'**
-  String get action_cancel;
-
-  /// No description provided for @action_download.
-  ///
-  /// In en, this message translates to:
-  /// **'Download'**
-  String get action_download;
 }
 
 class _AppLocalizationsDelegate

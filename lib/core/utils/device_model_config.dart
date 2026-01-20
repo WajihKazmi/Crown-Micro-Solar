@@ -142,11 +142,12 @@ class DeviceModelPopupConfig {
         ],
       ),
       PopupFieldConfig(
-        label: 'Battery Charging Current',
+        label: 'Battery Current',
         unit: 'A',
         apiCandidates: [
           'Battery Charging Current',
           'Battery Discharge Current',
+          'Battery Discharging Current',
         ],
       ),
       PopupFieldConfig(
@@ -242,7 +243,7 @@ class DeviceModelPopupConfig {
         ],
       ),
       PopupFieldConfig(
-        label: 'Battery Charging Current',
+        label: 'Battery Current',
         unit: 'A',
         apiCandidates: [
           'Battery Charging Current',
@@ -325,7 +326,7 @@ class DeviceModelPopupConfig {
         ],
       ),
       PopupFieldConfig(
-        label: 'Charging Current',
+        label: 'Battery Current',
         unit: 'A',
         apiCandidates: [
           'Battery Charging Current',
@@ -415,10 +416,11 @@ class DeviceModelPopupConfig {
         ],
       ),
       PopupFieldConfig(
-        label: 'Charging Current',
+        label: 'Battery Current',
         unit: 'A',
         apiCandidates: [
           'Charging current',
+          'Discharging current',
         ],
       ),
       // No Battery Type for Arceus

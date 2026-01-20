@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import 'dart:convert';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
-import 'package:crown_micro_solar/l10n/app_localizations.dart' as gen;
+import 'package:crown_micro_solar/l10n/app_localizations.dart';
 
 import 'package:crown_micro_solar/core/di/service_locator.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
@@ -27,7 +27,6 @@ import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
 import 'package:crown_micro_solar/core/utils/device_model_config.dart';
 import 'package:crown_micro_solar/view/home/home_screen.dart';
 import 'package:crown_micro_solar/view/home/widgets/overview_syncfusion_chart.dart';
-import 'package:crown_micro_solar/presentation/viewmodels/overview_graph_view_model.dart';
 
 class DeviceDetailScreen extends StatefulWidget {
   final Device device;
@@ -415,7 +414,25 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
           assumeKWForPower: false);
       final btTypeIdx = idxOf(['Battery Type']);
       if (btTypeIdx != -1 && btTypeIdx < field.length) {
-        res['Battery Type'] = (field[btTypeIdx]?.toString() ?? '--');
+        final rawBtType = field[btTypeIdx]?.toString() ?? '--';
+        // Map numeric battery type codes to human-readable labels
+        const batteryTypeMap = {
+          '48': 'AGM',
+          '49': 'Flooded',
+          '50': 'User',
+          '51': 'Pylon',
+          '52': 'Dyness',
+          '53': 'Weco',
+          '54': 'Soltaro',
+          '55': 'Lia',
+          '56': 'Lithium',
+          '57': 'Other',
+          '0': 'AGM',
+          '1': 'Flooded',
+          '2': 'User',
+          '3': 'Lithium',
+        };
+        res['Battery Type'] = batteryTypeMap[rawBtType] ?? rawBtType;
       }
       setBy(['Battery Capacity', 'Battery SOC', 'SOC'], 'Battery Capacity', '%',
           assumeKWForPower: false);
@@ -483,6 +500,244 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     return v;
   }
 
+  // Power Generation Report Dialog
+  void _showPowerGenerationDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        CollectorReportRange range = CollectorReportRange.daily;
+        DateTime anchorDate = DateTime.now();
+
+        String formatDate(CollectorReportRange r, DateTime d) {
+          switch (r) {
+            case CollectorReportRange.daily:
+              return DateFormat('yyyy/MM/dd').format(d);
+            case CollectorReportRange.monthly:
+              return DateFormat('yyyy/MM').format(d);
+            case CollectorReportRange.yearly:
+              return DateFormat('yyyy').format(d);
+          }
+        }
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            Widget rangeChip(CollectorReportRange r, String label) {
+              final selected = r == range;
+              return InkWell(
+                onTap: () => setState(() => range = r),
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: selected ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: selected
+                        ? [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.06),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: selected ? Colors.black : Colors.black54,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            Future<void> onDownload() async {
+              // Close selection dialog first
+              Navigator.of(context).pop();
+
+              // Capture dialog context for later dismissal
+              BuildContext? dialogContext;
+
+              try {
+                final service = ReportDownloadService();
+
+                // Show loading dialog (don't await - let it show while download happens)
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (BuildContext ctx) {
+                    dialogContext = ctx; // Capture the dialog's context
+                    return AlertDialog(
+                      content: Row(
+                        children: [
+                          const CircularProgressIndicator(),
+                          const SizedBox(width: 16),
+                          Text(AppLocalizations.of(context)
+                              .msg_generating_report),
+                        ],
+                      ),
+                    );
+                  },
+                );
+
+                print('Power Generation Report: Starting download...');
+                await service.downloadCollectorReport(
+                  collectorPn: widget.device.pn,
+                  range: range,
+                  anchorDate: anchorDate,
+                  filePrefix: 'crown_power_report',
+                );
+                print('Power Generation Report: Download completed');
+
+                // Dismiss dialog using the captured context
+                if (dialogContext != null && dialogContext!.mounted) {
+                  Navigator.of(dialogContext!).pop();
+                }
+
+                // Show success message
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content:
+                          Text(AppLocalizations.of(context).msg_report_saved),
+                    ),
+                  );
+                }
+              } catch (e, stackTrace) {
+                print('Power Generation Report: Download failed - $e');
+                print('Stack trace: $stackTrace');
+
+                // Dismiss dialog if it exists
+                if (dialogContext != null && dialogContext!.mounted) {
+                  Navigator.of(dialogContext!).pop();
+                }
+
+                // Show error message
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to download: $e')),
+                  );
+                }
+              }
+            }
+
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 24,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      AppLocalizations.of(context).tooltip_power_report,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        rangeChip(
+                          CollectorReportRange.daily,
+                          AppLocalizations.of(context).range_day,
+                        ),
+                        rangeChip(
+                          CollectorReportRange.monthly,
+                          AppLocalizations.of(context).range_month,
+                        ),
+                        rangeChip(
+                          CollectorReportRange.yearly,
+                          AppLocalizations.of(context).range_year,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    GestureDetector(
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: anchorDate,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime.now(),
+                        );
+                        if (picked != null) {
+                          setState(() => anchorDate = picked);
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 14,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFE0E0E0)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.calendar_today,
+                              size: 18,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                formatDate(range, anchorDate),
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: Text(
+                            AppLocalizations.of(context).action_cancel,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor:
+                                Theme.of(context).colorScheme.primary,
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: onDownload,
+                          child: Text(
+                            AppLocalizations.of(context).action_download,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _showReportDialog() {
     showDialog(
       context: context,
@@ -541,21 +796,68 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             }
 
             Future<void> onDownload() async {
+              // Close selection dialog first
+              Navigator.of(context).pop();
+
+              // Capture dialog context for later dismissal
+              BuildContext? dialogContext;
+
               try {
                 final service = ReportDownloadService();
-                await service.downloadFullReportByCollector(
-                  collectorPn: widget.device.pn,
-                  range: range,
-                  anchorDate: anchorDate,
+
+                // Show loading dialog (don't await - let it show while download happens)
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (BuildContext ctx) {
+                    dialogContext = ctx; // Capture the dialog's context
+                    return AlertDialog(
+                      content: Row(
+                        children: [
+                          const CircularProgressIndicator(),
+                          const SizedBox(width: 16),
+                          Text(AppLocalizations.of(context)
+                              .msg_generating_report),
+                        ],
+                      ),
+                    );
+                  },
                 );
-                if (mounted) {
-                  Navigator.of(context).pop();
+
+                print('Device Data Report: Starting download...');
+                await service.downloadDeviceDataReport(
+                  pn: widget.device.pn,
+                  sn: widget.device.sn,
+                  devcode: widget.device.devcode.toString(),
+                  devaddr: widget.device.devaddr.toString(),
+                  date: anchorDate,
+                );
+                print('Device Data Report: Download completed');
+
+                // Dismiss dialog using the captured context
+                if (dialogContext != null && dialogContext!.mounted) {
+                  Navigator.of(dialogContext!).pop();
+                }
+
+                // Show success message
+                if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Report download started')),
+                    SnackBar(
+                        content: Text(
+                            AppLocalizations.of(context).msg_report_saved)),
                   );
                 }
-              } catch (e) {
-                if (mounted) {
+              } catch (e, stackTrace) {
+                print('Device Data Report: Download failed - $e');
+                print('Stack trace: $stackTrace');
+
+                // Dismiss dialog if it exists
+                if (dialogContext != null && dialogContext!.mounted) {
+                  Navigator.of(dialogContext!).pop();
+                }
+
+                // Show error message
+                if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Failed to download: $e')),
                   );
@@ -578,7 +880,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      gen.AppLocalizations.of(
+                      AppLocalizations.of(
                         context,
                       ).report_download_full_title,
                       style: TextStyle(
@@ -591,15 +893,15 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                       children: [
                         rangeChip(
                           CollectorReportRange.daily,
-                          gen.AppLocalizations.of(context).range_day,
+                          AppLocalizations.of(context).range_day,
                         ),
                         rangeChip(
                           CollectorReportRange.monthly,
-                          gen.AppLocalizations.of(context).range_month,
+                          AppLocalizations.of(context).range_month,
                         ),
                         rangeChip(
                           CollectorReportRange.yearly,
-                          gen.AppLocalizations.of(context).range_year,
+                          AppLocalizations.of(context).range_year,
                         ),
                       ],
                     ),
@@ -650,7 +952,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                         TextButton(
                           onPressed: () => Navigator.of(context).pop(),
                           child: Text(
-                            gen.AppLocalizations.of(context).action_cancel,
+                            AppLocalizations.of(context).action_cancel,
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -663,7 +965,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                           ),
                           onPressed: onDownload,
                           child: Text(
-                            gen.AppLocalizations.of(context).action_download,
+                            AppLocalizations.of(context).action_download,
                           ),
                         ),
                       ],
@@ -932,12 +1234,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     } else if (gridVoltageVal != null) {
       // Primary: Grid Voltage (show even if 0)
       gridValueStr = _fmtVoltage(gridVoltageVal);
-      // Secondary: Power or Frequency
-      if (gridPowerVal != null) {
-        gridSubtitle = _fmtPowerW(gridPowerVal);
-      } else if (gridFreqVal != null) {
-        gridSubtitle = '${gridFreqVal.toStringAsFixed(1)} Hz';
-      }
+      // Subtitle removed per user request (was showing power/frequency)
     } else {
       // No voltage data available - check paging values for voltage using device config
       String? pagingVoltage;
@@ -974,7 +1271,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
 
     const double cardHeight = 113; // increased by 5px to avoid overflow
     const double titleAreaHeight = 26; // two line slot
-    const double subtitleHeight = 12; // reserved
+    // subtitleHeight removed - no longer used
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: List.generate(rawCards.length, (i) {
@@ -1053,22 +1350,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                     ),
                   ),
                   const SizedBox(height: 2),
-                  SizedBox(
-                    height: subtitleHeight,
-                    child: (c['subtitle'] != null)
-                        ? Text(
-                            c['subtitle'] as String,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.black54,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          )
-                        : const SizedBox.shrink(),
-                  ),
+                  // Subtitle removed per user request
                   if (c['extraInfo'] != null) ...[
                     const SizedBox(height: 2),
                     Text(
@@ -1614,7 +1896,16 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
   }
 
   String _formatValueWithUnit(double? value, String? unit) {
-    if (value == null) return '--';
+    // Special case: if value is null but unit has content, it might be a string value
+    // (e.g., Battery Type = "Lithium" stored in unit field)
+    if (value == null) {
+      String u = (unit ?? '').trim();
+      if (u.isNotEmpty) {
+        return u; // Return the string value directly
+      }
+      return '--';
+    }
+
     String u = (unit ?? '').trim();
     double v = value;
     // Keep original unit display; do not normalize here to avoid confusion
@@ -1804,7 +2095,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'SN Device Detail',
+                        AppLocalizations.of(context).sn_device_detail,
                         style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
@@ -1816,14 +2107,16 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                     // Power generation (collector) report - open prompt dialog
                     _SquareIconButton(
                       customSvg: 'assets/icons/download_report_svg.svg',
-                      tooltip: 'Power Generation Report',
+                      tooltip:
+                          AppLocalizations.of(context).tooltip_power_report,
                       onTap: _showPowerGenerationDialog,
                     ),
                     const SizedBox(width: 8),
                     // Full report dialog (user selects range)
                     _SquareIconButton(
                       customSvg: 'assets/icons/download_report_svg2.svg',
-                      tooltip: 'Full Report',
+                      tooltip:
+                          AppLocalizations.of(context).tooltip_device_report,
                       onTap: _showReportDialog,
                     ),
                     const SizedBox(width: 8),
@@ -1843,7 +2136,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                     // Settings icon - open Device Settings
                     _SquareIconButton(
                       icon: Icons.settings,
-                      tooltip: 'Settings',
+                      tooltip: AppLocalizations.of(context).tooltip_settings,
                       onTap: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
@@ -1950,12 +2243,19 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                                             .pvFields
                                             .where((field) => field.unit == 'W')
                                             .toList();
+
+                                        print(
+                                            'PV Power Debug: Found ${pvPowerFields.length} PV power fields');
                                         for (final powerField
                                             in pvPowerFields) {
+                                          print(
+                                              '  Checking field: ${powerField.label}, candidates: ${powerField.apiCandidates}');
                                           for (final candidate
                                               in powerField.apiCandidates) {
                                             final value =
                                                 _latestPagingValues[candidate];
+                                            print(
+                                                '    Candidate "$candidate" => value: $value');
                                             if (value != null) {
                                               final numMatch = RegExp(r'[\d.]+')
                                                   .firstMatch(value);
@@ -1968,11 +2268,64 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                                                   pvPowerFromPaging =
                                                       (pvPowerFromPaging ?? 0) +
                                                           powerValue;
+                                                  print(
+                                                      '      ✓ Added ${powerValue}W, total now: $pvPowerFromPaging');
                                                 }
                                               }
                                             }
                                           }
                                         }
+                                        print(
+                                            'PV Power Debug: Final pvPowerFromPaging = $pvPowerFromPaging');
+
+                                        // Compute PV voltage from paging values using device model config
+                                        // PV voltage is a better indicator of solar panel activity than power
+                                        // because panels can have voltage even when power is 0W
+                                        double? pvVoltageFromPaging;
+                                        // Get all PV fields with unit 'V' (volts)
+                                        final pvVoltageFields = modelConfig
+                                            .pvFields
+                                            .where((field) => field.unit == 'V')
+                                            .toList();
+
+                                        print(
+                                            'PV Voltage Debug: Found ${pvVoltageFields.length} PV voltage fields');
+                                        for (final voltageField
+                                            in pvVoltageFields) {
+                                          print(
+                                              '  Checking field: ${voltageField.label}, candidates: ${voltageField.apiCandidates}');
+                                          for (final candidate
+                                              in voltageField.apiCandidates) {
+                                            final value =
+                                                _latestPagingValues[candidate];
+                                            print(
+                                                '    Candidate "$candidate" => value: $value');
+                                            if (value != null) {
+                                              final numMatch = RegExp(r'[\d.]+')
+                                                  .firstMatch(value);
+                                              if (numMatch != null) {
+                                                final voltageValue =
+                                                    double.tryParse(
+                                                        numMatch.group(0)!);
+                                                if (voltageValue != null &&
+                                                    voltageValue > 0) {
+                                                  // Take the maximum voltage (for multi-PV systems, use highest)
+                                                  if (pvVoltageFromPaging ==
+                                                          null ||
+                                                      voltageValue >
+                                                          pvVoltageFromPaging) {
+                                                    pvVoltageFromPaging =
+                                                        voltageValue;
+                                                    print(
+                                                        '      ✓ Updated to ${voltageValue}V');
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                        print(
+                                            'PV Voltage Debug: Final pvVoltageFromPaging = $pvVoltageFromPaging');
 
                                         return _EnergyFlowDiagram(
                                           key:
@@ -1980,6 +2333,8 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                                           device: widget.device,
                                           gridVoltageFromPaging:
                                               gridVoltageFromPaging,
+                                          pvVoltageFromPaging:
+                                              pvVoltageFromPaging,
                                           // Use computed PV power from paging, fallback to energy flow, then to 0
                                           pvW: pvPowerFromPaging ??
                                               _energyFlow?.pvPower ??
@@ -2053,263 +2408,6 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         break;
     }
     return '$name - (${widget.device.devcode})';
-  }
-
-  void _showPowerGenerationDialog() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        CollectorReportRange range = CollectorReportRange.daily;
-        DateTime anchorDate = DateTime.now();
-
-        String formatDate(CollectorReportRange r, DateTime d) {
-          switch (r) {
-            case CollectorReportRange.daily:
-              return DateFormat('yyyy/MM/dd').format(d);
-            case CollectorReportRange.monthly:
-              return DateFormat('yyyy/MM').format(d);
-            case CollectorReportRange.yearly:
-              return DateFormat('yyyy').format(d);
-          }
-        }
-
-        return StatefulBuilder(
-          builder: (context, setState) {
-            Widget rangeChip(CollectorReportRange r, String label) {
-              final selected = r == range;
-              return InkWell(
-                onTap: () => setState(() => range = r),
-                borderRadius: BorderRadius.circular(10),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: selected ? Colors.white : Colors.transparent,
-                    borderRadius: BorderRadius.circular(10),
-                    boxShadow: selected
-                        ? [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.06),
-                              blurRadius: 6,
-                              offset: const Offset(0, 2),
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: selected ? Colors.black : Colors.black54,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              );
-            }
-
-            Future<void> onDownload() async {
-              try {
-                final service = ReportDownloadService();
-                Navigator.of(context).pop();
-
-                final progressVN = ValueNotifier<double>(0);
-                final safeContext =
-                    NavigationService.navigatorKey.currentContext;
-                if (safeContext == null) return;
-                showModalBottomSheet(
-                  context: safeContext,
-                  isDismissible: false,
-                  enableDrag: false,
-                  builder: (_) {
-                    return Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: ValueListenableBuilder<double>(
-                        valueListenable: progressVN,
-                        builder: (c, value, _) {
-                          final pctText = value > 0
-                              ? '${(value * 100).clamp(0, 100).toStringAsFixed(0)}%'
-                              : 'Starting...';
-                          return Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Power Generation Report',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              LinearProgressIndicator(
-                                value: value == 0 ? null : value,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(pctText),
-                              const SizedBox(height: 8),
-                              TextButton(
-                                onPressed: () {
-                                  Navigator.of(c).pop();
-                                },
-                                child: Text(
-                                  gen.AppLocalizations.of(c).action_cancel,
-                                ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                    );
-                  },
-                );
-
-                await service.downloadCollectorReport(
-                  collectorPn: widget.device.pn,
-                  range: range,
-                  anchorDate: anchorDate,
-                  filePrefix: 'power_generation',
-                  onProgress: (r, t) {
-                    if (t > 0) {
-                      progressVN.value = (r / t).clamp(0, 1);
-                    }
-                  },
-                );
-
-                if (NavigationService.canPop()) {
-                  NavigationService.pop();
-                }
-                final sc = NavigationService.navigatorKey.currentContext;
-                if (sc != null) {
-                  ScaffoldMessenger.of(sc).showSnackBar(
-                    const SnackBar(content: Text('Report saved to Downloads')),
-                  );
-                }
-              } catch (e) {
-                if (NavigationService.canPop()) {
-                  NavigationService.pop();
-                }
-                final sc = NavigationService.navigatorKey.currentContext;
-                if (sc != null) {
-                  ScaffoldMessenger.of(sc).showSnackBar(
-                    SnackBar(content: Text('Failed to download: $e')),
-                  );
-                }
-              }
-            }
-
-            return Dialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              insetPadding: const EdgeInsets.symmetric(
-                horizontal: 24,
-                vertical: 24,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Power Generation Report',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        rangeChip(
-                          CollectorReportRange.daily,
-                          gen.AppLocalizations.of(context).range_day,
-                        ),
-                        rangeChip(
-                          CollectorReportRange.monthly,
-                          gen.AppLocalizations.of(context).range_month,
-                        ),
-                        rangeChip(
-                          CollectorReportRange.yearly,
-                          gen.AppLocalizations.of(context).range_year,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    GestureDetector(
-                      onTap: () async {
-                        final picked = await showDatePicker(
-                          context: context,
-                          initialDate: anchorDate,
-                          firstDate: DateTime(2020),
-                          lastDate: DateTime.now(),
-                        );
-                        if (picked != null) {
-                          setState(() => anchorDate = picked);
-                        }
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 14,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFFE0E0E0)),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.calendar_today,
-                              size: 18,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                formatDate(range, anchorDate),
-                                style: const TextStyle(fontSize: 14),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          child: Text(
-                            gen.AppLocalizations.of(context).action_cancel,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                Theme.of(context).colorScheme.primary,
-                            foregroundColor: Colors.white,
-                          ),
-                          onPressed: onDownload,
-                          child: Text(
-                            gen.AppLocalizations.of(context).action_download,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
   }
 }
 
@@ -2512,7 +2610,7 @@ class _DeviceHeader extends StatelessWidget {
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        gen.AppLocalizations.of(context).live_data,
+                        AppLocalizations.of(context).live_data,
                         style: TextStyle(fontSize: 12, color: Colors.black54),
                       ),
                     ],
@@ -2537,262 +2635,458 @@ class _DeviceMetricGraph extends StatefulWidget {
 }
 
 class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
-  late OverviewGraphViewModel _vm;
+  final DeviceRepository _deviceRepo = getIt<DeviceRepository>();
+
+  // State for the simplified graph
+  List<String> _availableColumns = [];
+  String? _selectedColumn;
+  Map<String, dynamic>? _pagingData;
+  DateTime _selectedDate = DateTime.now();
+  bool _isLoading = true;
+  String? _error;
+
   @override
   void initState() {
     super.initState();
-    _vm = getIt<OverviewGraphViewModel>();
-    final plantId = widget.device.plantId.isNotEmpty
-        ? widget.device.plantId
-        : widget.device.pid.toString();
-    // Initialize for this specific device so allowed metrics filter correctly
-    final deviceRef = DeviceRef(
-      sn: widget.device.sn,
-      pn: widget.device.pn,
-      devcode: widget.device.devcode,
-      devaddr: widget.device.devaddr,
-      alias: widget.device.alias.isNotEmpty
-          ? widget.device.alias
-          : widget.device.pn,
-    );
-    // Fire async after build frame
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await _vm.initForDevice(device: deviceRef, plantId: plantId);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchData();
     });
+  }
+
+  Future<void> _fetchData() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final dateStr = _selectedDate.toIso8601String().substring(0, 10);
+      print(
+          'DeviceMetricGraph: Fetching paging data for ${widget.device.sn} on $dateStr');
+
+      final paging = await _deviceRepo.fetchDeviceDataOneDayPaging(
+        sn: widget.device.sn,
+        pn: widget.device.pn,
+        devcode: widget.device.devcode,
+        devaddr: widget.device.devaddr,
+        date: dateStr,
+        page: 0,
+        pageSize: 500, // Get more data points for better graph
+      );
+
+      if (!mounted) return;
+
+      if (paging != null && paging['dat'] != null) {
+        final dat = paging['dat'];
+        final titleList = dat['title'] as List? ?? [];
+
+        // Only include columns that have a unit (excludes firmware, IDs, timestamps, etc.)
+        final filteredTitles = <String>[];
+        for (final t in titleList) {
+          if (t is! Map) continue;
+          final title = t['title']?.toString() ?? '';
+          final unit = t['unit']?.toString() ?? '';
+
+          // Skip empty titles, timestamps, and fields without units
+          if (title.isEmpty) continue;
+          if (title.toLowerCase() == 'timestamp') continue;
+          if (unit.isEmpty) continue; // Only include fields WITH a unit
+
+          filteredTitles.add(title);
+        }
+
+        print(
+            'DeviceMetricGraph: Found ${filteredTitles.length} graphable columns (with units): ${filteredTitles.take(5).join(", ")}...');
+
+        setState(() {
+          _availableColumns = filteredTitles;
+          _pagingData = paging;
+          // Keep selected column if still available, otherwise select PV Input Current as default
+          if (_selectedColumn == null ||
+              !filteredTitles.contains(_selectedColumn)) {
+            // Prefer PV Current-related field as default (e.g., PV1 Current, PV Input Current, PV Charging Current)
+            String? defaultColumn;
+            // First try: look for PV + current (most specific)
+            for (final col in filteredTitles) {
+              final colLower = col.toLowerCase();
+              if (colLower.contains('pv') && colLower.contains('current')) {
+                defaultColumn = col;
+                print(
+                    'DeviceMetricGraph: Selected default column (PV current): $col');
+                break;
+              }
+            }
+            // Second try: look for any PV + power field
+            if (defaultColumn == null) {
+              for (final col in filteredTitles) {
+                final colLower = col.toLowerCase();
+                if (colLower.contains('pv') && colLower.contains('power')) {
+                  defaultColumn = col;
+                  print(
+                      'DeviceMetricGraph: Selected default column (PV power): $col');
+                  break;
+                }
+              }
+            }
+            // Third try: look for any charging current field
+            if (defaultColumn == null) {
+              for (final col in filteredTitles) {
+                final colLower = col.toLowerCase();
+                if (colLower.contains('charging') &&
+                    colLower.contains('current')) {
+                  defaultColumn = col;
+                  print(
+                      'DeviceMetricGraph: Selected default column (charging current): $col');
+                  break;
+                }
+              }
+            }
+            // Final fallback: first available column
+            _selectedColumn = defaultColumn ??
+                (filteredTitles.isNotEmpty ? filteredTitles.first : null);
+            if (defaultColumn == null && filteredTitles.isNotEmpty) {
+              print(
+                  'DeviceMetricGraph: No PV/current field found, using first column: ${filteredTitles.first}');
+            }
+          }
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _availableColumns = [];
+          _pagingData = null;
+          _error = 'No data available for this date';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('DeviceMetricGraph: Error fetching data: $e');
+      if (!mounted) return;
+      setState(() {
+        _error = 'Failed to load data: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  /// Extract chart data for the selected column from paging response
+  OverviewGraphState _buildChartState() {
+    if (_pagingData == null || _selectedColumn == null) {
+      return OverviewGraphState(
+        labels: const [],
+        series: const [],
+        unit: '',
+        min: 0,
+        max: 0,
+        avg: 0,
+        isLoading: _isLoading,
+        error: _error,
+      );
+    }
+
+    final dat = _pagingData!['dat'];
+    final titlesList = (dat['title'] as List?)
+            ?.map((t) => (t as Map)['title']?.toString() ?? '')
+            .toList() ??
+        [];
+    final rows = (dat['row'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+
+    // Find column index for selected parameter
+    final columnIndex = titlesList.indexOf(_selectedColumn!);
+    // Find timestamp column index
+    final tsIndex = titlesList.indexWhere(
+      (t) => t.toLowerCase() == 'timestamp' || t.toLowerCase() == 'time',
+    );
+
+    if (columnIndex == -1) {
+      return OverviewGraphState(
+        labels: const [],
+        series: const [],
+        unit: '',
+        min: 0,
+        max: 0,
+        avg: 0,
+        error: 'Column not found',
+      );
+    }
+
+    // Extract data points with timestamps
+    final timestampPoints = <OverviewGraphDataPoint>[];
+    final values = <double>[];
+
+    for (final row in rows) {
+      final fields = row['field'] as List?;
+      if (fields == null || columnIndex >= fields.length) continue;
+
+      // Parse timestamp
+      DateTime? timestamp;
+      if (tsIndex != -1 && tsIndex < fields.length) {
+        final tsStr = fields[tsIndex]?.toString();
+        if (tsStr != null) {
+          timestamp = DateTime.tryParse(tsStr.replaceAll(' ', 'T'));
+        }
+      }
+      // Fallback: use row 'time' field
+      timestamp ??= () {
+        final timeStr = row['time']?.toString();
+        if (timeStr == null) return null;
+        // Parse time like "06:15" and combine with selected date
+        final parts = timeStr.split(':');
+        if (parts.length >= 2) {
+          final hour = int.tryParse(parts[0]) ?? 0;
+          final min = int.tryParse(parts[1]) ?? 0;
+          return DateTime(_selectedDate.year, _selectedDate.month,
+              _selectedDate.day, hour, min);
+        }
+        return null;
+      }();
+
+      if (timestamp == null) continue;
+
+      // Parse value
+      final rawValue = fields[columnIndex];
+      double? value;
+      if (rawValue is num) {
+        value = rawValue.toDouble();
+      } else if (rawValue != null) {
+        value = double.tryParse(
+            rawValue.toString().replaceAll(RegExp(r'[^\d.-]'), ''));
+      }
+
+      if (value != null && !value.isNaN && !value.isInfinite) {
+        timestampPoints
+            .add(OverviewGraphDataPoint(timestamp: timestamp, value: value));
+        values.add(value);
+      }
+    }
+
+    // Sort by timestamp
+    timestampPoints.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+    // ADD ANCHOR POINTS at 00:00 and 23:59 to force full 24-hour x-axis display
+    // These points won't affect the visible data since they use the min value or 0
+    final anchorDate = _selectedDate;
+    final startOfDay =
+        DateTime(anchorDate.year, anchorDate.month, anchorDate.day, 0, 0);
+    final endOfDay =
+        DateTime(anchorDate.year, anchorDate.month, anchorDate.day, 23, 59);
+
+    // Only add anchor if no data point exists at that time
+    final hasStartAnchor = timestampPoints
+        .any((p) => p.timestamp.hour == 0 && p.timestamp.minute == 0);
+    final hasEndAnchor = timestampPoints
+        .any((p) => p.timestamp.hour == 23 && p.timestamp.minute >= 55);
+
+    // Use minValue for anchors so they don't skew the graph visually (or 0 if no data)
+    final anchorValue =
+        values.isNotEmpty ? values.reduce((a, b) => a < b ? a : b) : 0.0;
+
+    if (!hasStartAnchor) {
+      timestampPoints.insert(
+          0, OverviewGraphDataPoint(timestamp: startOfDay, value: anchorValue));
+    }
+    if (!hasEndAnchor) {
+      timestampPoints
+          .add(OverviewGraphDataPoint(timestamp: endOfDay, value: anchorValue));
+    }
+
+    print(
+        'DeviceMetricGraph: Extracted ${timestampPoints.length} points for $_selectedColumn (with anchors)');
+
+    // Calculate stats
+    double min = 0, max = 0, avg = 0;
+    if (values.isNotEmpty) {
+      min = values.reduce((a, b) => a < b ? a : b);
+      max = values.reduce((a, b) => a > b ? a : b);
+      avg = values.reduce((a, b) => a + b) / values.length;
+    }
+
+    // Determine unit from column name
+    String unit = '';
+    final col = _selectedColumn!.toLowerCase();
+    if (col.contains('voltage') || col.contains('volt')) {
+      unit = 'V';
+    } else if (col.contains('current') || col.contains('amp')) {
+      unit = 'A';
+    } else if (col.contains('power') || col.contains('watt')) {
+      unit = col.contains('kw') ? 'kW' : 'W';
+    } else if (col.contains('capacity') ||
+        col.contains('soc') ||
+        col.contains('%')) {
+      unit = '%';
+    } else if (col.contains('frequency') || col.contains('hz')) {
+      unit = 'Hz';
+    } else if (col.contains('temperature') || col.contains('temp')) {
+      unit = '°C';
+    } else if (col.contains('energy') || col.contains('kwh')) {
+      unit = 'kWh';
+    }
+
+    // Generate hour labels for backward compatibility
+    final labels =
+        List.generate(24, (i) => '${i.toString().padLeft(2, '0')}:00');
+
+    return OverviewGraphState(
+      labels: labels,
+      series: [
+        OverviewGraphSeries(
+          label: _selectedColumn!,
+          color: Theme.of(context).colorScheme.primary,
+          data: List<double>.filled(24, 0), // Backward compat
+          timestampData: timestampPoints,
+        ),
+      ],
+      unit: unit,
+      min: min,
+      max: max,
+      avg: avg,
+      isLoading: false,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider.value(
-      value: _vm,
-      child: Consumer<OverviewGraphViewModel>(
-        builder: (context, vm, _) {
-          final plantId = widget.device.plantId.isNotEmpty
-              ? widget.device.plantId
-              : widget.device.pid.toString();
-          String anchorLabel;
-          switch (vm.period) {
-            case GraphPeriod.day:
-              const months = [
-                'Jan',
-                'Feb',
-                'Mar',
-                'Apr',
-                'May',
-                'Jun',
-                'Jul',
-                'Aug',
-                'Sept',
-                'Oct',
-                'Nov',
-                'Dec',
-              ];
-              anchorLabel =
-                  '${vm.anchor.day.toString().padLeft(2, '0')} ${months[vm.anchor.month - 1]} ${vm.anchor.year}';
-              break;
-            case GraphPeriod.month:
-              const months = [
-                'Jan',
-                'Feb',
-                'Mar',
-                'Apr',
-                'May',
-                'Jun',
-                'Jul',
-                'Aug',
-                'Sept',
-                'Oct',
-                'Nov',
-                'Dec',
-              ];
-              anchorLabel = '${months[vm.anchor.month - 1]} ${vm.anchor.year}';
-              break;
-            case GraphPeriod.year:
-              anchorLabel = vm.anchor.year.toString();
-              break;
-            case GraphPeriod.total:
-              anchorLabel = 'Total';
-              break;
-          }
-          final state = vm.state;
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(.06),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: vm.metric.name,
-                          isExpanded: true,
-                          icon: const Icon(Icons.keyboard_arrow_down),
-                          items: vm.allowedMetricsForSelectedDevice
-                              .map(
-                                (m) => DropdownMenuItem(
-                                  value: m.name,
-                                  child: Text(_metricLabel(m)),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (val) async {
-                            if (val == null) return;
-                            final m =
-                                vm.allowedMetricsForSelectedDevice.firstWhere(
-                              (g) => g.name == val,
-                              orElse: () =>
-                                  vm.allowedMetricsForSelectedDevice.first,
-                            );
-                            await vm.setMetric(m, plantId: plantId);
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  _periodChip(
-                    'Day',
-                    vm.period == GraphPeriod.day,
-                    () => vm.setPeriod(GraphPeriod.day, plantId: plantId),
-                  ),
-                  const SizedBox(width: 8),
-                  _periodChip(
-                    'Month',
-                    vm.period == GraphPeriod.month,
-                    () => vm.setPeriod(GraphPeriod.month, plantId: plantId),
-                  ),
-                  const SizedBox(width: 8),
-                  _periodChip(
-                    'Year',
-                    vm.period == GraphPeriod.year,
-                    () => vm.setPeriod(GraphPeriod.year, plantId: plantId),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_left, color: Colors.black54),
-                    onPressed: () => vm.stepDate(-1, plantId: plantId),
-                  ),
-                  Text(
-                    anchorLabel,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                  Builder(
-                    builder: (_) {
-                      final now = DateTime.now();
-                      bool canForward;
-                      switch (vm.period) {
-                        case GraphPeriod.day:
-                          canForward = DateTime(
-                            vm.anchor.year,
-                            vm.anchor.month,
-                            vm.anchor.day,
-                          ).isBefore(DateTime(now.year, now.month, now.day));
-                          break;
-                        case GraphPeriod.month:
-                          canForward = DateTime(
-                            vm.anchor.year,
-                            vm.anchor.month,
-                          ).isBefore(DateTime(now.year, now.month));
-                          break;
-                        case GraphPeriod.year:
-                          canForward = vm.anchor.year < now.year;
-                          break;
-                        case GraphPeriod.total:
-                          canForward = false;
-                          break;
-                      }
-                      return IconButton(
-                        icon: Icon(
-                          Icons.arrow_right,
-                          color: canForward ? Colors.black54 : Colors.black26,
-                        ),
-                        onPressed: canForward
-                            ? () => vm.stepDate(1, plantId: plantId)
-                            : null,
-                      );
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              // Single unified graph card containing the chart
-              Container(
+    // Format date label
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sept',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
+    final anchorLabel =
+        '${_selectedDate.day.toString().padLeft(2, '0')} ${months[_selectedDate.month - 1]} ${_selectedDate.year}';
+
+    final chartState = _buildChartState();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Parameter dropdown
+        Row(
+          children: [
+            Expanded(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(12),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(.06),
-                      blurRadius: 10,
+                      blurRadius: 6,
                       offset: const Offset(0, 2),
                     ),
                   ],
                 ),
-                clipBehavior: Clip.antiAlias,
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: SizedBox(
-                      height: 240,
-                      child: OverviewSyncfusionChart(state: state)),
-                ),
+                child: _isLoading
+                    ? const Center(
+                        child: SizedBox(
+                            height: 48,
+                            child: Center(
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2))))
+                    : DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedColumn,
+                          isExpanded: true,
+                          icon: const Icon(Icons.keyboard_arrow_down),
+                          hint: const Text('Select Parameter'),
+                          items: _availableColumns
+                              .map((col) => DropdownMenuItem(
+                                    value: col,
+                                    child: Text(col,
+                                        overflow: TextOverflow.ellipsis),
+                                  ))
+                              .toList(),
+                          onChanged: (val) {
+                            if (val != null && val != _selectedColumn) {
+                              setState(() {
+                                _selectedColumn = val;
+                              });
+                            }
+                          },
+                        ),
+                      ),
               ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _periodChip(String label, bool selected, VoidCallback tap) {
-    return InkWell(
-      onTap: tap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? Colors.white : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(.06),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : null,
+            ),
+          ],
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? Colors.black : Colors.black54,
-            fontWeight: FontWeight.w600,
+        const SizedBox(height: 12),
+        // Date picker
+        Center(
+          child: OutlinedButton.icon(
+            icon: const Icon(Icons.calendar_today, size: 18),
+            label: Text(
+              anchorLabel,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            ),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              side: BorderSide(color: Colors.grey.shade300),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () async {
+              final DateTime? picked = await showDatePicker(
+                context: context,
+                initialDate: _selectedDate,
+                firstDate: DateTime(2015),
+                lastDate: DateTime.now(),
+                builder: (context, child) {
+                  return Theme(
+                    data: Theme.of(context).copyWith(
+                      colorScheme: ColorScheme.light(
+                        primary: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                    child: child!,
+                  );
+                },
+              );
+              if (picked != null && picked != _selectedDate) {
+                setState(() {
+                  _selectedDate = picked;
+                });
+                _fetchData();
+              }
+            },
           ),
         ),
-      ),
+        const SizedBox(height: 8),
+        // Chart
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(.06),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: SizedBox(
+              height: 240,
+              child: OverviewSyncfusionChart(
+                  state: chartState, use24HourRange: true),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2865,6 +3159,8 @@ class _EnergyFlowDiagram extends StatefulWidget {
   final Device device; // Device for model config access
   final double?
       gridVoltageFromPaging; // Grid voltage from paging data (computed in _summaryCards)
+  final double?
+      pvVoltageFromPaging; // PV voltage from paging data (for detecting solar panel activity)
   const _EnergyFlowDiagram({
     Key? key,
     required this.pvW,
@@ -2875,6 +3171,7 @@ class _EnergyFlowDiagram extends StatefulWidget {
     required this.lastUpdated,
     required this.device,
     this.gridVoltageFromPaging,
+    this.pvVoltageFromPaging,
     this.energyFlow,
   }) : super(key: key);
   @override
@@ -3048,14 +3345,21 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
     print(
         'EnergyFlowDiagram: pvStatus=$pvStatus, batteryStatus=$batteryStatus, gridStatus=$gridStatus');
     print(
-        'EnergyFlowDiagram: pvPower=$pvPower, batteryPower=$batteryPower, gridPower=$gridPower, gridVoltage=$gridVoltage, loadPower=$loadPower, batterySoc=$batterySoc');
+        'EnergyFlowDiagram: pvPower=$pvPower, pvVoltage=${widget.pvVoltageFromPaging ?? widget.pvW ?? 0}, batteryPower=$batteryPower, gridPower=$gridPower, gridVoltage=$gridVoltage, loadPower=$loadPower, batterySoc=$batterySoc');
 
     // Determine energy flow directions based on status and power values
 
-    // Solar is producing energy (status > 0 AND power > threshold)
-    // Status indicates direction, but we need actual power flow to show animation
-    // LOWERED threshold from 50W to 10W to detect even small solar generation (e.g., 35W)
-    final bool solarActive = (pvStatus ?? 0) > 0 && pvPower > 10;
+    // CRITICAL: Get PV voltage to determine if solar panels are ACTIVE/CONNECTED
+    // PV voltage is a much better indicator than power because:
+    // - Panels have voltage when exposed to light, even if power output is 0W
+    // - Power can be 0W when battery is full or load is minimal
+    // - Voltage presence indicates panels are functional and connected
+    final double pvVoltage = widget.pvVoltageFromPaging ?? widget.pvW ?? 0;
+
+    // Solar panels are active if voltage is present (typically >20V indicates panels are receiving light)
+    // Changed from power-based (pvPower > 10W) to voltage-based detection
+    // Threshold of 20V works for most solar panels (even small panels have >20V when active)
+    final bool solarActive = (pvStatus ?? 0) > 0 && pvVoltage > 20;
 
     // Battery is discharging to inverter (status > 0 AND positive power flow)
     final bool batteryDischarging =
@@ -3089,6 +3393,22 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
     // Battery has capacity and can potentially power the load
     final bool batteryAvailable = batterySoc > 0;
 
+    // DEBUG: Print all calculated booleans for video selection
+    print('\n=== VIDEO SELECTION DEBUG ===');
+    print('solarActive: $solarActive (pvStatus=${pvStatus}, pvPower=$pvPower)');
+    print(
+        'batteryDischarging: $batteryDischarging (batteryStatus=${batteryStatus}, batteryPower=$batteryPower)');
+    print(
+        'batteryCharging: $batteryCharging (batteryStatus=${batteryStatus}, batteryPower=$batteryPower)');
+    print('gridConnected: $gridConnected (gridVoltage=$gridVoltage)');
+    print(
+        'gridSupplying: $gridSupplying (gridStatus=${gridStatus}, gridPower=$gridPower)');
+    print(
+        'gridReceiving: $gridReceiving (gridStatus=${gridStatus}, gridPower=$gridPower)');
+    print('loadActive: $loadActive (loadPower=$loadPower)');
+    print('batteryAvailable: $batteryAvailable (batterySoc=$batterySoc)');
+    print('=============================\n');
+
     // Check if battery is effectively dead (low SOC and not discharging/charging)
     final bool batteryDead =
         batterySoc < 5 && !batteryDischarging && !batteryCharging;
@@ -3106,10 +3426,19 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
       return 'assets/energy_diagram/Case_6.mp4';
     }
 
-    // Case 1: All three sources active - Grid + Solar + Battery discharging → Home
-    // Energy coming from grid, solar producing, and battery discharging
-    if (solarActive && batteryDischarging && gridSupplying && loadActive) {
-      print('EnergyFlowDiagram: Selected Case_1.mp4 (All sources active)');
+    // Case 1: All three components working - Grid + Solar + Battery → Home
+    // This represents the ideal state where everything is operational:
+    // - Solar is producing energy
+    // - Grid is connected and available
+    // - Battery is available and healthy (may or may not be actively charging/discharging)
+    // - Load is being powered
+    // This is the "everything is working" state
+    if (solarActive &&
+        batteryAvailable &&
+        !batteryDead &&
+        gridSupplying &&
+        loadActive) {
+      print('EnergyFlowDiagram: Selected Case_1.mp4 (All components working)');
       return 'assets/energy_diagram/Case_1.mp4';
     }
 
@@ -3141,15 +3470,34 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
       return 'assets/energy_diagram/Case_3.mp4';
     }
 
+    // NEW CASE: Solar + Grid → Home (battery not actively charging/discharging)
+    // Solar is producing, grid is connected and supplying, load is active
+    // Battery has power but is not significantly charging or discharging
+    // This covers scenarios where solar + grid power the load together
+    if (solarActive &&
+        gridSupplying &&
+        loadActive &&
+        !batteryCharging &&
+        !batteryDischarging) {
+      print(
+          'EnergyFlowDiagram: Selected Case_3.mp4 (Solar+Grid+Load, battery idle)');
+      return 'assets/energy_diagram/Case_3.mp4';
+    }
+
     // Case 4: Battery capacity exists and load is on (or load voltage is not 0)
     // This covers:
     // 1. Battery only → Home (island mode) - no grid, no solar involvement
     // 2. Any scenario where battery has meaningful capacity (>5%) and load is active
+    // BUT NOT when solar or grid are actively involved
     // Battery can show low power when at 100% SOC and just maintaining
-    // Changed from batterySoc > 0 to batteryAvailable && !batteryDead to exclude near-zero capacity
-    if (batteryAvailable && !batteryDead && loadActive) {
+    // FIXED: Added check to ensure no solar/grid active to prevent wrong selection
+    if (batteryAvailable &&
+        !batteryDead &&
+        loadActive &&
+        !solarActive &&
+        !gridSupplying) {
       print(
-          'EnergyFlowDiagram: Selected Case_4.mp4 (Battery has meaningful capacity and load is active)');
+          'EnergyFlowDiagram: Selected Case_4.mp4 (Battery-only powering load)');
       return 'assets/energy_diagram/Case_4.mp4';
     }
 
@@ -3177,14 +3525,7 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
       return 'assets/energy_diagram/Case_3.mp4';
     }
 
-    // Ultimate fallback: if battery has meaningful capacity (>5%) and load exists, use Case 4
-    // Otherwise default to Case 3 (grid supplying)
-    if (batteryAvailable && !batteryDead && loadActive) {
-      print(
-          'EnergyFlowDiagram: Selected Case_4.mp4 (Ultimate fallback - battery+load)');
-      return 'assets/energy_diagram/Case_4.mp4';
-    }
-
+    // Ultimate fallback: Default to Case 3 (grid supplying)
     print('EnergyFlowDiagram: Selected Case_3.mp4 (Ultimate fallback - grid)');
     return 'assets/energy_diagram/Case_3.mp4';
   }
@@ -3494,7 +3835,7 @@ class _EnergyFlowDiagramState extends State<_EnergyFlowDiagram> {
                     const _LiveDataDot(),
                     const SizedBox(width: 6),
                     Text(
-                      gen.AppLocalizations.of(context).live_data,
+                      AppLocalizations.of(context).live_data,
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,

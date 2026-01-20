@@ -435,12 +435,9 @@ class DeviceViewModel extends ChangeNotifier {
     _isAddingDatalogger = true;
     notifyListeners();
     try {
-      // Basic validation
-      if (pn.isEmpty || pn.length != 14) {
-        throw Exception('PN must be 14 digits');
-      }
-      if (!RegExp(r'^\d{14}$').hasMatch(pn)) {
-        throw Exception('PN must be numeric (14 digits)');
+      // Basic validation - PN can be alphanumeric, minimum 10 characters
+      if (pn.isEmpty || pn.length < 10) {
+        throw Exception('PN must be at least 10 characters');
       }
       if (name.trim().isEmpty) {
         throw Exception('Datalogger name is required');

@@ -34,6 +34,37 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
   final _latCtrl = TextEditingController();
   final _lonCtrl = TextEditingController();
 
+  // Income formula controllers
+  final _unitProfitCtrl = TextEditingController();
+  final _coalSavedCtrl = TextEditingController();
+  final _co2EmissionCtrl = TextEditingController();
+  final _so2EmissionCtrl = TextEditingController();
+
+  // Currency dropdown options (matching old app)
+  String _selectedCurrency = 'USD';
+  final List<String> _currencyOptions = [
+    'RMB(¥)',
+    'USD(\$)',
+    'EURO(€)',
+    'AUD(A\$)',
+    'GBP(£)',
+    'HKB(HK)',
+    'SEK(kr)',
+    'RS(₹)',
+    'MXN(Mex)',
+    'CLP(\$)',
+    'ARS(\$)',
+    'THB(B)',
+    'PKR(Rs)',
+    'ZAR(R)',
+    'SAR(SR)',
+    'AED(AED)',
+    'VND',
+    'MYR',
+    'HUF',
+    'TWD',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -76,6 +107,12 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
             _addressCtrl.text = plant.address ?? '';
             _latCtrl.text = (plant.latitude ?? 0).toStringAsFixed(6);
             _lonCtrl.text = (plant.longitude ?? 0).toStringAsFixed(6);
+            // Income formula fields
+            _selectedCurrency = plant.currency ?? 'USD';
+            _unitProfitCtrl.text = (plant.unitProfit ?? 0).toStringAsFixed(2);
+            _coalSavedCtrl.text = (plant.coalSaved ?? 0).toStringAsFixed(3);
+            _co2EmissionCtrl.text = (plant.co2Emission ?? 0).toStringAsFixed(3);
+            _so2EmissionCtrl.text = (plant.so2Emission ?? 0).toStringAsFixed(3);
           }
 
           if (!_editing) syncControllers();
@@ -208,7 +245,8 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
                             ),
                             const SizedBox(height: 16),
                             _GlassMorphismCard(
-                              title: 'Energy Statistics',
+                              title: gen.AppLocalizations.of(context)
+                                  .energy_statistics,
                               children: [
                                 _infoRow(
                                   'Current Power',
@@ -216,21 +254,88 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
                                 ),
                                 _infoRow(
                                   'Daily Generation',
-                                  '${plant.dailyGeneration.toStringAsFixed(2)} KWH',
+                                  '${plant.dailyGeneration.toStringAsFixed(2)} KW',
                                 ),
                                 _infoRow(
                                   'Monthly Generation',
-                                  '${plant.monthlyGeneration.toStringAsFixed(2)} KWH',
+                                  '${plant.monthlyGeneration.toStringAsFixed(2)} KW',
                                 ),
                                 _infoRow(
                                   'Yearly Generation',
-                                  '${plant.yearlyGeneration.toStringAsFixed(2)} KWH',
+                                  '${plant.yearlyGeneration.toStringAsFixed(2)} KW',
                                 ),
                                 _infoRow(
                                   'Plant Status',
                                   _getStatusText(plant.status),
                                 ),
                               ],
+                            ),
+                            const SizedBox(height: 16),
+                            // Income Formula Section
+                            _GlassMorphismCard(
+                              title: gen.AppLocalizations.of(context)
+                                  .income_formula,
+                              children: _editing
+                                  ? [
+                                      // Currency dropdown
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 6.0),
+                                        child: DropdownButtonFormField<String>(
+                                          value: _currencyOptions
+                                                  .contains(_selectedCurrency)
+                                              ? _selectedCurrency
+                                              : 'USD(\$)',
+                                          decoration: InputDecoration(
+                                            labelText: 'Currency',
+                                            border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(12)),
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 10),
+                                          ),
+                                          items: _currencyOptions
+                                              .map((c) => DropdownMenuItem(
+                                                    value: c,
+                                                    child: Text(c),
+                                                  ))
+                                              .toList(),
+                                          onChanged: (val) {
+                                            if (val != null) {
+                                              setState(() =>
+                                                  _selectedCurrency = val);
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                      _input('Capital Gains', _unitProfitCtrl,
+                                          keyboard: TextInputType.number),
+                                      _input('Standard Coal Saved (kg)',
+                                          _coalSavedCtrl,
+                                          keyboard: TextInputType.number),
+                                      _input('CO2 Emission Reduction (kg)',
+                                          _co2EmissionCtrl,
+                                          keyboard: TextInputType.number),
+                                      _input('SO2 Emission Reduction (kg)',
+                                          _so2EmissionCtrl,
+                                          keyboard: TextInputType.number),
+                                    ]
+                                  : [
+                                      _infoRow(
+                                          'Currency', plant.currency ?? 'N/A'),
+                                      _infoRow(
+                                          'Capital Gains',
+                                          (plant.unitProfit ?? 0)
+                                              .toStringAsFixed(2)),
+                                      _infoRow('Standard Coal Saved',
+                                          '${(plant.coalSaved ?? 0).toStringAsFixed(3)} kg'),
+                                      _infoRow('CO2 Emission Reduction',
+                                          '${(plant.co2Emission ?? 0).toStringAsFixed(3)} kg'),
+                                      _infoRow('SO2 Emission Reduction',
+                                          '${(plant.so2Emission ?? 0).toStringAsFixed(3)} kg'),
+                                    ],
                             ),
                             const SizedBox(height: 100),
                           ],
@@ -281,6 +386,11 @@ class _PlantInfoScreenState extends State<PlantInfoScreen> {
                             address: _addressCtrl.text.trim(),
                             latitude: _latCtrl.text.trim(),
                             longitude: _lonCtrl.text.trim(),
+                            currency: _selectedCurrency,
+                            unitProfit: _unitProfitCtrl.text.trim(),
+                            coalSaved: _coalSavedCtrl.text.trim(),
+                            co2Emission: _co2EmissionCtrl.text.trim(),
+                            so2Emission: _so2EmissionCtrl.text.trim(),
                           );
                           if (!mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(

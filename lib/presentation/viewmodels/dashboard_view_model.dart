@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:crown_micro_solar/presentation/repositories/plant_repository.dart';
 import 'package:crown_micro_solar/presentation/repositories/device_repository.dart';
 import 'package:crown_micro_solar/presentation/repositories/alarm_repository.dart';
+import 'package:crown_micro_solar/presentation/models/alarm/alarm_model.dart';
 import 'package:crown_micro_solar/core/di/service_locator.dart';
 
 class DashboardViewModel extends ChangeNotifier {
@@ -46,12 +47,15 @@ class DashboardViewModel extends ChangeNotifier {
           // Fetch devices and alarms concurrently for this plant
           final res = await Future.wait([
             _deviceRepository.getDevices(plant.id),
-            _alarmRepository.getAlarms(plant.id),
+            _alarmRepository
+                .getWarnings(plant.id), // Use getWarnings to get total count
           ]);
           final devices = res[0] as List;
-          final alarms = res[1] as List;
+          // res[1] is now a record ({List<Warning> warnings, int total})
+          final alarmResult = res[1] as ({List<Warning> warnings, int total});
+
           deviceCount += devices.length;
-          alarmCount += alarms.length;
+          alarmCount += alarmResult.total; // Use total from API
         } catch (e) {
           print('Error loading data for plant ${plant.id}: $e');
         }

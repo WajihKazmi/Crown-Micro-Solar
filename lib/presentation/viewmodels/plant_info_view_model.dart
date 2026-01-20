@@ -93,6 +93,11 @@ class PlantInfoViewModel extends ChangeNotifier {
           address: _plant!.address,
           latitude: _plant!.latitude,
           longitude: _plant!.longitude,
+          currency: _plant!.currency,
+          unitProfit: _plant!.unitProfit,
+          coalSaved: _plant!.coalSaved,
+          co2Emission: _plant!.co2Emission,
+          so2Emission: _plant!.so2Emission,
         );
         notifyListeners();
       }
@@ -120,6 +125,11 @@ class PlantInfoViewModel extends ChangeNotifier {
     String? address,
     String? latitude,
     String? longitude,
+    String? currency,
+    String? unitProfit,
+    String? coalSaved,
+    String? co2Emission,
+    String? so2Emission,
   }) async {
     if (_plant == null) return false;
     try {
@@ -150,6 +160,11 @@ class PlantInfoViewModel extends ChangeNotifier {
         address: address?.isNotEmpty == true ? address : _plant!.address,
         latitude: double.tryParse(latitude ?? '') ?? _plant!.latitude,
         longitude: double.tryParse(longitude ?? '') ?? _plant!.longitude,
+        currency: currency?.isNotEmpty == true ? currency : _plant!.currency,
+        unitProfit: double.tryParse(unitProfit ?? '') ?? _plant!.unitProfit,
+        coalSaved: double.tryParse(coalSaved ?? '') ?? _plant!.coalSaved,
+        co2Emission: double.tryParse(co2Emission ?? '') ?? _plant!.co2Emission,
+        so2Emission: double.tryParse(so2Emission ?? '') ?? _plant!.so2Emission,
       );
 
       final ok = await _plantRepository.editPlant(

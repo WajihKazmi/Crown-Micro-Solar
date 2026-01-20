@@ -28,6 +28,7 @@
   "drawer_logout": "Log Out"
   ,
   "current_power_generation": "Current Power Generation",
+  "total_power_generation": "Total Power Generation",
   "total_installed_capacity": "Total Installed Capacity",
   "output_power": "Output Power",
   "live_data": "Live Data",

@@ -52,65 +52,162 @@ class AppLocalizationsAr extends AppLocalizations {
   String get company_name => 'كراون مايكرو (شركة ذات مسؤولية محدودة)';
 
   @override
-  String get change_password => 'تغيير كلمة المرور';
+  String get change_password => 'Change Password';
 
   @override
-  String get old_password => 'كلمة المرور القديمة';
+  String get old_password => 'Old Password';
 
   @override
-  String get new_password => 'كلمة المرور الجديدة';
+  String get new_password => 'New Password';
 
   @override
-  String get confirm_new_password => 'تأكيد كلمة المرور الجديدة';
+  String get confirm_new_password => 'Confirm New Password';
 
   @override
-  String get enter_old_password => 'أدخل كلمة المرور القديمة';
+  String get enter_old_password => 'Enter old password';
 
   @override
-  String get password_must_be_6 => 'يجب أن تكون كلمة المرور 6 أحرف على الأقل';
+  String get password_must_be_6 => 'Password must be at least 6 characters';
 
   @override
-  String get passwords_do_not_match => 'كلمتا المرور غير متطابقتين';
+  String get passwords_do_not_match => 'Passwords do not match';
 
   @override
-  String get password_changed_success => 'تم تغيير كلمة المرور بنجاح!';
+  String get password_changed_success => 'Password changed successfully!';
 
   @override
   String get password_change_failed =>
-      'فشل تغيير كلمة المرور. يرجى التحقق من كلمة المرور القديمة والمحاولة مرة أخرى.';
+      'Failed to change password. Please check your old password and try again.';
 
   @override
-  String get drawer_download_report => 'Download Report';
+  String get location_details => 'تفاصيل الموقع';
 
   @override
-  String get drawer_plant_info => 'Plant Info';
+  String get action_download => 'Download';
 
   @override
-  String get drawer_contact_support => 'Contact Support';
+  String get energy_statistics => 'إحصائيات الطاقة';
 
   @override
-  String get drawer_logout => 'Log Out';
+  String get income_formula => 'صيغة الدخل';
 
   @override
-  String get current_power_generation => 'Current Power Generation';
+  String get today_power_generation => 'توليد الطاقة اليوم';
 
   @override
-  String get total_installed_capacity => 'Total Installed Capacity';
+  String get total_plant => 'إجمالي المحطات';
 
   @override
-  String get output_power => 'Output Power';
+  String get total_device => 'إجمالي الأجهزة';
 
   @override
-  String get live_data => 'Live Data';
+  String get total_alarm => 'إجمالي التنبيهات';
 
   @override
-  String get online => 'Online';
+  String get profit_today => 'ربح اليوم';
 
   @override
-  String get offline => 'Offline';
+  String get total_profit => 'إجمالي الربح';
 
   @override
-  String get location_details => 'Location Details';
+  String get last_updated => 'آخر تحديث';
+
+  @override
+  String get all_power_stations => 'جميع محطات الطاقة';
+
+  @override
+  String get sn_device_detail => 'تفاصيل الجهاز';
+
+  @override
+  String get tooltip_power_report => 'تقرير توليد الطاقة';
+
+  @override
+  String get tooltip_device_report => 'تقرير بيانات الجهاز';
+
+  @override
+  String get tooltip_settings => 'الإعدادات';
+
+  @override
+  String get action_retry => 'أعد المحاولة';
+
+  @override
+  String get label_error => 'خطأ';
+
+  @override
+  String get msg_generating_report => 'جاري إنشاء تقرير بيانات الجهاز...';
+
+  @override
+  String get msg_report_saved => 'تم حفظ تقرير الجهاز في التنزيلات';
+
+  @override
+  String get msg_download_failed => 'فشل التنزيل';
+
+  @override
+  String get header_device_settings => 'إعدادات الجهاز';
+
+  @override
+  String get no_settings_available => 'لا توجد إعدادات متاحة';
+
+  @override
+  String get header_alarm_management => 'إدارة التنبيهات > المحطة';
+
+  @override
+  String get msg_no_alarms => 'لا توجد تنبيهات';
+
+  @override
+  String get status_processed => 'تمت المعالجة';
+
+  @override
+  String get status_untreated => 'لم تتم المعالجة';
+
+  @override
+  String get label_sn_colon => 'الرقم التسلسلي: ';
+
+  @override
+  String get label_code_colon => 'الرمز: ';
+
+  @override
+  String get label_occurrence_time => 'وقت الحدوث: ';
+
+  @override
+  String get label_device_pn => 'رقم الجهاز PN: ';
+
+  @override
+  String get label_device_type => 'نوع الجهاز: ';
+
+  @override
+  String get label_description => 'الوصف: ';
+
+  @override
+  String get tooltip_mark_processed => 'تحديد كـ معالج';
+
+  @override
+  String get tooltip_delete => 'حذف';
+
+  @override
+  String get msg_alarm_deleted => 'تم حذف التنبيه';
+
+  @override
+  String get msg_failed_delete => 'فشل حذف التنبيه';
+
+  @override
+  String get dialog_title_delete_alarm => 'حذف التنبيه';
+
+  @override
+  String get dialog_msg_delete_alarm =>
+      'هل أنت متأكد أنك تريد حذف هذا التنبيه؟';
+
+  @override
+  String get action_yes_delete => 'نعم، حذف';
+
+  @override
+  String get action_cancel => 'إلغاء';
+
+  @override
+  String get report_select_collector_hint => 'Select a collector (PN)';
+
+  @override
+  String get report_download_full_title => 'Download Full Report';
 
   @override
   String get range_day => 'Day';
@@ -122,20 +219,47 @@ class AppLocalizationsAr extends AppLocalizations {
   String get range_year => 'Year';
 
   @override
-  String get report_download_full_title => 'Download Full Report';
+  String get plant_create_time => 'Create Time';
 
   @override
-  String get report_no_collectors => 'No collectors available for this plant.';
+  String get plant_location => 'Location';
 
   @override
-  String get report_collector_label => 'Collector';
+  String get live_data => 'Live Data';
 
   @override
-  String get report_select_collector_hint => 'Select a collector (PN)';
+  String get status_normal => 'Normal';
 
   @override
-  String get action_cancel => 'Cancel';
+  String get status_offline => 'Offline';
 
   @override
-  String get action_download => 'Download';
+  String get status_alarm => 'إنذار';
+
+  @override
+  String get current_power_generation => 'توليد الطاقة الحالي';
+
+  @override
+  String get total_power_generation => 'Total Power Generation';
+
+  @override
+  String get total_installed_capacity => 'إجمالي السعة المثبتة';
+
+  @override
+  String get drawer_plant_info => 'معلومات المحطة';
+
+  @override
+  String get drawer_download_report => 'تحميل التقرير';
+
+  @override
+  String get drawer_contact_support => 'اتصل بالدعم';
+
+  @override
+  String get drawer_logout => 'تسجيل خروج';
+
+  @override
+  String get report_no_collectors => 'لم يتم العثور على مجمعات';
+
+  @override
+  String get report_collector_label => 'المجمع';
 }

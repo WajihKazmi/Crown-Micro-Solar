@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
 import 'package:crown_micro_solar/core/di/service_locator.dart';
+import 'package:crown_micro_solar/l10n/app_localizations.dart';
 
 class DeviceSettingsScreen extends StatefulWidget {
   final Device device;
@@ -62,9 +63,9 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          'Device Settings',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+        title: Text(
+          AppLocalizations.of(context).header_device_settings,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
         ),
       ),
       body: _loading
@@ -72,7 +73,9 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
           : _error != null
               ? _errorView()
               : _fields.isEmpty
-                  ? const Center(child: Text('No settings available'))
+                  ? Center(
+                      child: Text(
+                          AppLocalizations.of(context).no_settings_available))
                   : _buildCategoryList(),
     );
   }
@@ -84,10 +87,12 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('Error: $_error',
+                Text('${AppLocalizations.of(context).label_error}: $_error',
                     style: const TextStyle(color: Colors.red)),
                 const SizedBox(height: 8),
-                ElevatedButton(onPressed: _load, child: const Text('Retry')),
+                ElevatedButton(
+                    onPressed: _load,
+                    child: Text(AppLocalizations.of(context).action_retry)),
               ],
             ),
           ),
@@ -102,8 +107,17 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
     print(
         'DeviceSettings: Device details - PN: ${widget.device.pn}, devcode: ${widget.device.devcode}, name: ${widget.device.name}, alias: ${widget.device.alias}');
     final res = <Map<String, dynamic>>[];
+    final seenIds = <String>{};
     for (final raw in list) {
       final f = Map<String, dynamic>.from(raw);
+      // Deduplicate by field id to prevent repeating settings
+      final fieldId = (f['id']?.toString() ?? '');
+      if (fieldId.isNotEmpty && seenIds.contains(fieldId)) {
+        print('  Skipping duplicate field: id=$fieldId');
+        continue;
+      }
+      if (fieldId.isNotEmpty) seenIds.add(fieldId);
+
       f['__label'] = _fieldLabel(f);
       f['__displayVal'] = _currentDisplayValue(f);
       f['__category'] = _settingsCategory(f);
@@ -111,7 +125,8 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
           '  Field: id=${f['id']}, name=${f['name']}, label=${f['__label']}, category=${f['__category']}');
       res.add(f);
     }
-    print('DeviceSettings: Parsed ${res.length} total fields');
+    print(
+        'DeviceSettings: Parsed ${res.length} total fields (${list.length - res.length} duplicates removed)');
     return res;
   }
 
@@ -300,7 +315,22 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
       return 'Standard Settings';
     }
 
-    // Battery Settings
+    // Priority: Check specific logic/control settings (AC2 capacity/timing) BEFORE generic Battery check
+    // NOTE: Battery Voltage to Turn On/Off AC2 should go to Battery Settings per client spec
+    const controlLogicKeys = [
+      // AC2 capacity and timing settings go to Basic Settings
+      'battery capacity to turn on ac2', 'battery capacity to turn off ac2',
+      'discharge time to turn on ac2', 'discharge time to turn off ac2',
+      'charge time to turn on ac2', 'charge time to turn off ac2',
+      'time interval to turn on ac2', 'time interval to turn off ac2',
+      // Xavier specific - capacity/timing only
+      'charge time to turn', 'time interval to turn',
+      // Li-battery auto turn
+      'li-battery auto turn', 'li-battery turn',
+    ];
+    if (hasAny(controlLogicKeys)) return 'Basic Settings';
+
+    // Battery Settings - comprehensive keywords including Nova/Elego/Xavier specific fields
     const batteryKeys = [
       'battery',
       'batt',
@@ -317,6 +347,18 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
       'cell',
       'pack',
       'soh',
+      // Nova specific battery extras (missing fields per client)
+      'battery voltage to turn on ac2', 'battery voltage to turn off ac2',
+      'voltage to turn on ac2', 'voltage to turn off ac2',
+      'maximum battery discharge current', 'max battery discharge current',
+      'battery equalization time out', 'battery equalization timeout',
+      'discharge time to turn on ac2', 'discharge time to turn off ac2',
+      // Charging source priority variants
+      'charging source priority', 'charger source priority',
+      // Back to grid/discharge voltage (explicit)
+      'back to grid voltage', 'back to discharge voltage',
+      'battery cut off voltage', 'battery cutoff voltage',
+      'battery cut-off voltage',
       // Note: Arceus battery fields are in Other Settings (see otherKeys)
     ];
     if (hasAny(batteryKeys)) return 'Battery Settings';
@@ -348,23 +390,20 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
 
     // Basic Settings (time windows, simple schedules, AC charger settings, and priority settings)
     const basicKeys = [
-      'time', 'start', 'end', 'schedule', 'period', 'window', 'slot', 'tou',
-      // Often paired with charge/discharge context
-      'charge time', 'discharge time', 'grid charge time', 'pv charge time',
-      'min reserve', 'reserve capacity',
+      // Common scheduling keywords
+      'schedule', 'window', 'slot', 'tou',
       // AC charger and priority settings from Nova/Elego
       'ac charger', 'charger working', 'enable ac charger', 'ac supply',
       'ac output mode',
       'input voltage range', 'voltage range', 'ac input range',
-      // Additional settings that should be in Basic
+      // Additional settings that should be in Basic (output source priority)
+      'output source priority',
       'solar supply priority', 'pv supply priority',
-      'li-battery auto turn', 'li-battery turn', 'li battery',
-      // AC2 timing settings
-      'turn on ac2', 'turn off ac2', 'ac2 on', 'ac2 off',
-      'battery capacity to turn', 'discharge time to turn',
-      'battery voltage to turn',
-      // Xavier specific
-      'charge time to turn', 'time interval to turn',
+      // AC2 capacity and timing settings (NOT voltage - those go to Battery)
+      'battery capacity to turn on ac2', 'battery capacity to turn off ac2',
+      'time turn on ac2', 'time turn off ac2',
+      // Xavier specific (capacity/timing)
+      'time interval to turn on', 'time interval to turn off',
       // Note: Arceus output/priority fields are in Other Settings (see otherKeys)
     ];
     if (hasAny(basicKeys)) return 'Basic Settings';

@@ -809,18 +809,8 @@ class DeviceRepository {
     required int devaddr,
     required String yearMonth, // 'YYYY-MM'
   }) async {
-    // Capability quick check
-    if (!deviceSupportsParameter(devcode, logicalMetric)) {
-      return const MetricResolutionResult(
-        logicalMetric: '',
-        apiParameter: null,
-        source: 'unsupported',
-        latestValue: null,
-        pointCount: 0,
-        timestamp: null,
-        series: [],
-      );
-    }
+    // OLD APP APPROACH: Directly use the passed parameter without complex resolution
+    // Skip capability checks - the old app doesn't do them for graph data
     const salt = '12345678';
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
@@ -829,62 +819,68 @@ class DeviceRepository {
         '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
     final validSn = sn.isNotEmpty ? sn : 'DEFAULT_SN';
 
-    // Try energy-style parameters first (common on devices for aggregated charts),
-    // then fall back to standard power/voltage/current parameters.
-    final candidates = [
-      ..._aggregatedEnergyCandidates(logicalMetric, devcode, mode: 'perday'),
-      ..._parameterCandidates(logicalMetric, devcode),
-    ].toSet().toList();
-    for (final apiParameter in candidates) {
-      final action =
-          '&action=querySPDeviceKeyParameterMonthPerDay&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&i18n=en_US&parameter=$apiParameter&chartStatus=false&date=$yearMonth';
-      final data = salt + secret + token + action + postaction;
-      final sign = sha1.convert(utf8.encode(data)).toString();
-      final url =
-          'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
-      try {
-        final response = await _apiClient.signedPost(url);
-        final js = json.decode(response.body);
-        if (js['err'] == 0) {
-          final dat = js['dat'];
-          List list = const [];
-          if (dat is Map) {
-            list = dat['perday'] ??
-                dat['permonth'] ??
-                dat['parameter'] ??
-                dat['row'] ??
-                const [];
-          }
-          final series = <Map<String, dynamic>>[];
-          double? latest;
-          String? ts;
-          for (final e in list) {
-            if (e is Map) {
-              final v = e['val'];
-              final d = v is num ? v.toDouble() : double.tryParse('${v}');
-              final t = e['ts']?.toString();
-              if (d != null) {
-                latest = d;
-                ts = t;
-                series.add({'ts': t ?? '', 'val': d});
-              }
+    // Directly use the passed logicalMetric as the parameter (like old app)
+    final apiParameter = logicalMetric;
+    final action =
+        '&action=querySPDeviceKeyParameterMonthPerDay&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&i18n=en_US&parameter=$apiParameter&chartStatus=false&date=$yearMonth';
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url =
+        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
+    print(
+        'DeviceRepository: Month API URL param=$apiParameter date=$yearMonth sn=$validSn pn=$pn');
+
+    try {
+      final response = await _apiClient.signedPost(url);
+      final js = json.decode(response.body);
+      print(
+          'DeviceRepository: Month API response err=${js['err']} desc=${js['desc']}');
+
+      if (js['err'] == 0) {
+        final dat = js['dat'];
+        List list = const [];
+        if (dat is Map) {
+          // Old app API returns data in 'option' field with 'gts' and 'val'
+          list = dat['option'] ??
+              dat['perday'] ??
+              dat['permonth'] ??
+              dat['parameter'] ??
+              dat['row'] ??
+              const [];
+          print('DeviceRepository: Found ${list.length} items in response');
+        }
+        final series = <Map<String, dynamic>>[];
+        double? latest;
+        String? ts;
+        for (final e in list) {
+          if (e is Map) {
+            final v = e['val'];
+            final d = v is num ? v.toDouble() : double.tryParse('${v}');
+            // Old app uses 'gts', new API may use 'ts'
+            final t = e['ts']?.toString() ?? e['gts']?.toString();
+            if (d != null) {
+              latest = d;
+              ts = t;
+              series.add({'ts': t ?? '', 'val': d});
             }
           }
-          if (series.isNotEmpty) {
-            return MetricResolutionResult(
-              logicalMetric: logicalMetric,
-              apiParameter: apiParameter,
-              source: 'key_param_month_per_day',
-              latestValue: latest,
-              pointCount: series.length,
-              timestamp: ts,
-              series: series,
-            );
-          }
         }
-      } catch (_) {
-        // try next candidate
+        if (series.isNotEmpty) {
+          print('DeviceRepository: Parsed ${series.length} data points');
+          return MetricResolutionResult(
+            logicalMetric: logicalMetric,
+            apiParameter: apiParameter,
+            source: 'key_param_month_per_day',
+            latestValue: latest,
+            pointCount: series.length,
+            timestamp: ts,
+            series: series,
+          );
+        }
       }
+    } catch (e) {
+      print('DeviceRepository: Month API error: $e');
     }
     return const MetricResolutionResult(
       logicalMetric: '',
@@ -906,17 +902,7 @@ class DeviceRepository {
     required int devaddr,
     required String year, // 'YYYY'
   }) async {
-    if (!deviceSupportsParameter(devcode, logicalMetric)) {
-      return const MetricResolutionResult(
-        logicalMetric: '',
-        apiParameter: null,
-        source: 'unsupported',
-        latestValue: null,
-        pointCount: 0,
-        timestamp: null,
-        series: [],
-      );
-    }
+    // OLD APP APPROACH: Directly use the passed parameter
     const salt = '12345678';
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
@@ -925,60 +911,67 @@ class DeviceRepository {
         '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
     final validSn = sn.isNotEmpty ? sn : 'DEFAULT_SN';
 
-    final candidates = [
-      ..._aggregatedEnergyCandidates(logicalMetric, devcode, mode: 'permonth'),
-      ..._parameterCandidates(logicalMetric, devcode),
-    ].toSet().toList();
-    for (final apiParameter in candidates) {
-      final action =
-          '&action=querySPDeviceKeyParameterYearPerMonth&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&i18n=en_US&parameter=$apiParameter&chartStatus=false&date=$year';
-      final data = salt + secret + token + action + postaction;
-      final sign = sha1.convert(utf8.encode(data)).toString();
-      final url =
-          'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
-      try {
-        final response = await _apiClient.signedPost(url);
-        final js = json.decode(response.body);
-        if (js['err'] == 0) {
-          final dat = js['dat'];
-          List list = const [];
-          if (dat is Map) {
-            list = dat['permonth'] ??
-                dat['peryear'] ??
-                dat['parameter'] ??
-                dat['row'] ??
-                const [];
-          }
-          final series = <Map<String, dynamic>>[];
-          double? latest;
-          String? ts;
-          for (final e in list) {
-            if (e is Map) {
-              final v = e['val'];
-              final d = v is num ? v.toDouble() : double.tryParse('${v}');
-              final t = e['ts']?.toString();
-              if (d != null) {
-                latest = d;
-                ts = t;
-                series.add({'ts': t ?? '', 'val': d});
-              }
+    // Directly use the passed logicalMetric as the parameter (like old app)
+    final apiParameter = logicalMetric;
+    final action =
+        '&action=querySPDeviceKeyParameterYearPerMonth&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&i18n=en_US&parameter=$apiParameter&chartStatus=false&date=$year';
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url =
+        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
+    print(
+        'DeviceRepository: Year API URL param=$apiParameter date=$year sn=$validSn pn=$pn');
+
+    try {
+      final response = await _apiClient.signedPost(url);
+      final js = json.decode(response.body);
+      print(
+          'DeviceRepository: Year API response err=${js['err']} desc=${js['desc']}');
+
+      if (js['err'] == 0) {
+        final dat = js['dat'];
+        List list = const [];
+        if (dat is Map) {
+          // Old app uses 'option' field
+          list = dat['option'] ??
+              dat['permonth'] ??
+              dat['peryear'] ??
+              dat['parameter'] ??
+              dat['row'] ??
+              const [];
+          print('DeviceRepository: Found ${list.length} items in response');
+        }
+        final series = <Map<String, dynamic>>[];
+        double? latest;
+        String? ts;
+        for (final e in list) {
+          if (e is Map) {
+            final v = e['val'];
+            final d = v is num ? v.toDouble() : double.tryParse('${v}');
+            final t = e['ts']?.toString() ?? e['gts']?.toString();
+            if (d != null) {
+              latest = d;
+              ts = t;
+              series.add({'ts': t ?? '', 'val': d});
             }
           }
-          if (series.isNotEmpty) {
-            return MetricResolutionResult(
-              logicalMetric: logicalMetric,
-              apiParameter: apiParameter,
-              source: 'key_param_year_per_month',
-              latestValue: latest,
-              pointCount: series.length,
-              timestamp: ts,
-              series: series,
-            );
-          }
         }
-      } catch (_) {
-        // try next candidate
+        if (series.isNotEmpty) {
+          print('DeviceRepository: Parsed ${series.length} data points');
+          return MetricResolutionResult(
+            logicalMetric: logicalMetric,
+            apiParameter: apiParameter,
+            source: 'key_param_year_per_month',
+            latestValue: latest,
+            pointCount: series.length,
+            timestamp: ts,
+            series: series,
+          );
+        }
       }
+    } catch (e) {
+      print('DeviceRepository: Year API error: $e');
     }
     return const MetricResolutionResult(
       logicalMetric: '',
@@ -999,17 +992,7 @@ class DeviceRepository {
     required int devcode,
     required int devaddr,
   }) async {
-    if (!deviceSupportsParameter(devcode, logicalMetric)) {
-      return const MetricResolutionResult(
-        logicalMetric: '',
-        apiParameter: null,
-        source: 'unsupported',
-        latestValue: null,
-        pointCount: 0,
-        timestamp: null,
-        series: [],
-      );
-    }
+    // OLD APP APPROACH: Directly use the passed parameter
     const salt = '12345678';
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
@@ -1018,53 +1001,74 @@ class DeviceRepository {
         '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
     final validSn = sn.isNotEmpty ? sn : 'DEFAULT_SN';
 
-    final candidates = _parameterCandidates(logicalMetric, devcode);
-    for (final apiParameter in candidates) {
-      final action =
-          '&action=querySPDeviceKeyParameterTotalPerYear&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&i18n=en_US&parameter=$apiParameter&chartStatus=false';
-      final data = salt + secret + token + action + postaction;
-      final sign = sha1.convert(utf8.encode(data)).toString();
-      final url =
-          'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
-      try {
-        final response = await _apiClient.signedPost(url);
-        final js = json.decode(response.body);
-        if (js['err'] == 0) {
-          final dat = js['dat'];
-          List list = const [];
-          if (dat is Map) {
-            list = dat['peryear'] ?? dat['parameter'] ?? dat['row'] ?? const [];
-          }
-          final series = <Map<String, dynamic>>[];
-          double? latest;
-          String? ts;
-          for (final e in list) {
-            if (e is Map) {
-              final v = e['val'];
-              final d = v is num ? v.toDouble() : double.tryParse('${v}');
-              final t = e['ts']?.toString();
-              if (d != null) {
-                latest = d;
-                ts = t;
-                series.add({'ts': t ?? '', 'val': d});
-              }
-            }
-          }
-          if (series.isNotEmpty) {
-            return MetricResolutionResult(
-              logicalMetric: logicalMetric,
-              apiParameter: apiParameter,
-              source: 'key_param_total_per_year',
-              latestValue: latest,
-              pointCount: series.length,
-              timestamp: ts,
-              series: series,
-            );
+    // Directly use the passed logicalMetric as the parameter (like old app)
+    final apiParameter = logicalMetric;
+    final action =
+        '&action=querySPDeviceKeyParameterTotalPerYear&pn=$pn&sn=$validSn&devcode=$devcode&devaddr=$devaddr&i18n=en_US&parameter=$apiParameter&chartStatus=false';
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url =
+        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
+    print(
+        'DeviceRepository: Total API URL param=$apiParameter sn=$validSn pn=$pn');
+
+    try {
+      final response = await _apiClient.signedPost(url);
+      final js = json.decode(response.body);
+      print(
+          'DeviceRepository: Total API response err=${js['err']} desc=${js['desc']}');
+
+      if (js['err'] == 0) {
+        final dat = js['dat'];
+        print('DeviceRepository: Total dat type=${dat.runtimeType}');
+        if (dat is Map) {
+          print('DeviceRepository: Total dat keys=${dat.keys.toList()}');
+        }
+        List list = const [];
+        if (dat is Map) {
+          // Old app uses 'option' field
+          list = dat['option'] ??
+              dat['peryear'] ??
+              dat['parameter'] ??
+              dat['row'] ??
+              const [];
+          print(
+              'DeviceRepository: Found ${list.length} items in Total response');
+          if (list.isNotEmpty) {
+            print('DeviceRepository: First item: ${list.first}');
           }
         }
-      } catch (_) {
-        // try next candidate
+        final series = <Map<String, dynamic>>[];
+        double? latest;
+        String? ts;
+        for (final e in list) {
+          if (e is Map) {
+            final v = e['val'];
+            final d = v is num ? v.toDouble() : double.tryParse('${v}');
+            final t = e['ts']?.toString() ?? e['gts']?.toString();
+            if (d != null) {
+              latest = d;
+              ts = t;
+              series.add({'ts': t ?? '', 'val': d});
+            }
+          }
+        }
+        if (series.isNotEmpty) {
+          print('DeviceRepository: Parsed ${series.length} Total data points');
+          return MetricResolutionResult(
+            logicalMetric: logicalMetric,
+            apiParameter: apiParameter,
+            source: 'key_param_total_per_year',
+            latestValue: latest,
+            pointCount: series.length,
+            timestamp: ts,
+            series: series,
+          );
+        }
       }
+    } catch (e) {
+      print('DeviceRepository: Total API error: $e');
     }
     return const MetricResolutionResult(
       logicalMetric: '',
@@ -1499,6 +1503,112 @@ class DeviceRepository {
     final jsonData = json.decode(response.body);
     print('Add collector response: $jsonData');
     return Map<String, dynamic>.from(jsonData);
+  }
+
+  // Query available chart fields/parameters for a device - matches old app queryDeviceChartField action
+  // Returns list of available parameters: each has e0 (field ID), e1 (label), e3 (unit)
+  Future<List<Map<String, dynamic>>> queryDeviceChartFields(int devcode) async {
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+
+    // Build postaction metadata like the old app
+    String postaction = '';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final platform = Platform.isAndroid ? 'android' : 'ios';
+      const source = '1';
+      postaction =
+          '&source=$source&app_id=${info.packageName}&app_version=${info.version}&app_client=$platform';
+    } catch (e) {
+      postaction =
+          '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+    }
+
+    if (token.isEmpty || secret.isEmpty) {
+      throw Exception('Authentication required. Please log in again.');
+    }
+
+    final action = '&action=queryDeviceChartField&devcode=$devcode&lang=en_US';
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url =
+        'http://web.shinemonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
+    print('QueryDeviceChartFields URL: $url');
+    try {
+      final response = await _apiClient.signedPost(url);
+      final jsonData = json.decode(response.body);
+      print('QueryDeviceChartFields response: $jsonData');
+
+      if (jsonData['err'] == 0 && jsonData['dat'] != null) {
+        // Return list of field objects: [{e0: fieldId, e1: label, e3: unit}, ...]
+        return List<Map<String, dynamic>>.from(jsonData['dat']);
+      } else {
+        print(
+            'QueryDeviceChartFields error: ${jsonData['desc'] ?? 'Unknown error'}');
+        return [];
+      }
+    } catch (e) {
+      print('QueryDeviceChartFields exception: $e');
+      return [];
+    }
+  }
+
+  // Query chart data for a specific field - matches old app fetchChartFieldDetailData
+  // Returns time-series data: response['dat'] is array of {key: timestamp, val: value}
+  Future<Map<String, dynamic>> queryDeviceChartFieldDetailData({
+    required String pn,
+    required String sn,
+    required int devcode,
+    required int devaddr,
+    required String field,
+    required String date, // format: YYYY-MM-DD
+  }) async {
+    const salt = '12345678';
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final secret = prefs.getString('Secret') ?? '';
+
+    String postaction = '';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final platform = Platform.isAndroid ? 'android' : 'ios';
+      postaction =
+          '&source=1&app_id=${info.packageName}&app_version=${info.version}&app_client=$platform';
+    } catch (e) {
+      postaction =
+          '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
+    }
+
+    if (token.isEmpty || secret.isEmpty) {
+      return {'err': -1, 'desc': 'Not authenticated', 'dat': null};
+    }
+
+    final action =
+        '&action=queryDeviceChartFieldDetailData&pn=$pn&devcode=$devcode&sn=$sn&devaddr=$devaddr&field=$field&precision=5&sdate=$date+00:00:00&edate=$date+23:59:59&i18n=en_US';
+    final data = salt + secret + token + action + postaction;
+    final sign = sha1.convert(utf8.encode(data)).toString();
+    final url =
+        'http://web.shinemonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+
+    print('ChartFieldDetailData: field=$field, date=$date');
+    try {
+      final response = await _apiClient.signedPost(url);
+      final jsonData = json.decode(response.body);
+      if (jsonData['err'] == 0) {
+        print(
+            'ChartFieldDetailData: ${(jsonData['dat'] as List?)?.length ?? 0} points');
+        return jsonData;
+      } else {
+        print('ChartFieldDetailData error: ${jsonData['desc']}');
+        return jsonData;
+      }
+    } catch (e) {
+      print('ChartFieldDetailData exception: $e');
+      return {'err': -1, 'desc': '$e', 'dat': null};
+    }
   }
 
   // Delete a device from a plant - matches old app delDeviceFromPlant action
@@ -2713,7 +2823,11 @@ class DeviceRepository {
     final isInverter = devcode >= 500 && devcode < 1000;
 
     // For output power graphs, aggregated views usually expect energy counters
-    if (upper.contains('OUTPUT_POWER') || upper.contains('PV_OUTPUT_POWER')) {
+    // Also handle when ENERGY_TODAY or ENERGY_TOTAL is passed directly (per-device aggregation)
+    if (upper.contains('OUTPUT_POWER') ||
+        upper.contains('PV_OUTPUT_POWER') ||
+        upper.contains('ENERGY_TODAY') ||
+        upper.contains('ENERGY_TOTAL')) {
       if (isPerDay) {
         list.addAll([
           'E_DAY',

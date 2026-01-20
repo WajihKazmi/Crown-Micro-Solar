@@ -25,6 +25,13 @@ class Plant {
   final double? latitude;
   final double? longitude;
 
+  // Income formula fields
+  final String? currency;
+  final double? unitProfit;
+  final double? coalSaved;
+  final double? co2Emission;
+  final double? so2Emission;
+
   Plant({
     required this.id,
     required this.name,
@@ -49,6 +56,11 @@ class Plant {
     this.address,
     this.latitude,
     this.longitude,
+    this.currency,
+    this.unitProfit,
+    this.coalSaved,
+    this.co2Emission,
+    this.so2Emission,
   });
 
   factory Plant.fromJson(Map<String, dynamic> json) {
@@ -56,6 +68,9 @@ class Plant {
 
     // Handle nested address object
     final addressData = json['address'] as Map<String, dynamic>? ?? {};
+
+    // Handle nested profit object (Income Formula fields)
+    final profitData = json['profit'] as Map<String, dynamic>? ?? {};
 
     // Parse date strings safely
     DateTime parseDate(String? dateStr) {
@@ -131,6 +146,12 @@ class Plant {
         address: addressData['address']?.toString(),
         latitude: parseDouble(addressData['lat']),
         longitude: parseDouble(addressData['lon']),
+        currency:
+            profitData['currency']?.toString() ?? json['currency']?.toString(),
+        unitProfit: parseDouble(profitData['unitProfit'] ?? json['UnitProfit']),
+        coalSaved: parseDouble(profitData['coal'] ?? json['coal']),
+        co2Emission: parseDouble(profitData['co2'] ?? json['co2']),
+        so2Emission: parseDouble(profitData['so2'] ?? json['so2']),
       );
       print('Plant.fromJson: Successfully created plant: ${plant.name}');
       return plant;
@@ -165,6 +186,11 @@ class Plant {
       'address': address,
       'latitude': latitude,
       'longitude': longitude,
+      'currency': currency,
+      'unitProfit': unitProfit,
+      'coalSaved': coalSaved,
+      'co2Emission': co2Emission,
+      'so2Emission': so2Emission,
     };
   }
 }

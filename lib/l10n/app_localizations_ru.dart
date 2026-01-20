@@ -80,10 +80,176 @@ class AppLocalizationsRu extends AppLocalizations {
       'Не удалось изменить пароль. Проверьте старый пароль и повторите попытку.';
 
   @override
-  String get drawer_download_report => 'Скачать отчёт';
+  String get location_details => 'Детали местоположения';
 
   @override
-  String get drawer_plant_info => 'Информация о станции';
+  String get action_download => 'Скачать';
+
+  @override
+  String get energy_statistics => 'Статистика Энергии';
+
+  @override
+  String get income_formula => 'Формула Дохода';
+
+  @override
+  String get today_power_generation => 'Выработка Энергии Сегодня';
+
+  @override
+  String get total_plant => 'Всего Станций';
+
+  @override
+  String get total_device => 'Всего Устройств';
+
+  @override
+  String get total_alarm => 'Всего Тревог';
+
+  @override
+  String get profit_today => 'Прибыль Сегодня';
+
+  @override
+  String get total_profit => 'Общая Прибыль';
+
+  @override
+  String get last_updated => 'Последнее обновление';
+
+  @override
+  String get all_power_stations => 'Все Электростанции';
+
+  @override
+  String get sn_device_detail => 'Детали устройства';
+
+  @override
+  String get tooltip_power_report => 'Отчет о выработке энергии';
+
+  @override
+  String get tooltip_device_report => 'Отчет о данных устройства';
+
+  @override
+  String get tooltip_settings => 'Настройки';
+
+  @override
+  String get action_retry => 'Повторить';
+
+  @override
+  String get label_error => 'Ошибка';
+
+  @override
+  String get msg_generating_report => 'Создание отчета о данных устройства...';
+
+  @override
+  String get msg_report_saved => 'Отчет устройства сохранен в Загрузки';
+
+  @override
+  String get msg_download_failed => 'Ошибка загрузки';
+
+  @override
+  String get header_device_settings => 'Настройки устройства';
+
+  @override
+  String get no_settings_available => 'Нет доступных настроек';
+
+  @override
+  String get header_alarm_management => 'Управление тревогами > Станция';
+
+  @override
+  String get msg_no_alarms => 'Тревоги не найдены';
+
+  @override
+  String get status_processed => 'Обработано';
+
+  @override
+  String get status_untreated => 'Не обработано';
+
+  @override
+  String get label_sn_colon => 'SN: ';
+
+  @override
+  String get label_code_colon => 'Код: ';
+
+  @override
+  String get label_occurrence_time => 'Время возникновения: ';
+
+  @override
+  String get label_device_pn => 'PN устройства: ';
+
+  @override
+  String get label_device_type => 'Тип устройства: ';
+
+  @override
+  String get label_description => 'Описание: ';
+
+  @override
+  String get tooltip_mark_processed => 'Отметить как обработанное';
+
+  @override
+  String get tooltip_delete => 'Удалить';
+
+  @override
+  String get msg_alarm_deleted => 'Тревога удалена';
+
+  @override
+  String get msg_failed_delete => 'Не удалось удалить тревогу';
+
+  @override
+  String get dialog_title_delete_alarm => 'Удалить тревогу';
+
+  @override
+  String get dialog_msg_delete_alarm =>
+      'Вы уверены, что хотите удалить эту тревогу?';
+
+  @override
+  String get action_yes_delete => 'Да, удалить';
+
+  @override
+  String get action_cancel => 'Отмена';
+
+  @override
+  String get report_select_collector_hint => 'Select a collector (PN)';
+
+  @override
+  String get report_download_full_title => 'Download Full Report';
+
+  @override
+  String get range_day => 'Day';
+
+  @override
+  String get range_month => 'Month';
+
+  @override
+  String get range_year => 'Year';
+
+  @override
+  String get plant_create_time => 'Create Time';
+
+  @override
+  String get plant_location => 'Location';
+
+  @override
+  String get live_data => 'Live Data';
+
+  @override
+  String get status_normal => 'Normal';
+
+  @override
+  String get status_offline => 'Offline';
+
+  @override
+  String get status_alarm => 'Тревога';
+
+  @override
+  String get current_power_generation => 'Текущая выработка энергии';
+
+  @override
+  String get total_power_generation => 'Total Power Generation';
+
+  @override
+  String get total_installed_capacity => 'Общая установленная мощность';
+
+  @override
+  String get drawer_plant_info => 'Информация о заводе';
+
+  @override
+  String get drawer_download_report => 'Скачать отчет';
 
   @override
   String get drawer_contact_support => 'Связаться с поддержкой';
@@ -92,51 +258,8 @@ class AppLocalizationsRu extends AppLocalizations {
   String get drawer_logout => 'Выйти';
 
   @override
-  String get current_power_generation => 'Текущая генерация энергии';
-
-  @override
-  String get total_installed_capacity => 'Установленная мощность';
-
-  @override
-  String get output_power => 'Выходная мощность';
-
-  @override
-  String get live_data => 'Данные в реальном времени';
-
-  @override
-  String get online => 'Онлайн';
-
-  @override
-  String get offline => 'Офлайн';
-
-  @override
-  String get location_details => 'Детали расположения';
-
-  @override
-  String get range_day => 'День';
-
-  @override
-  String get range_month => 'Месяц';
-
-  @override
-  String get range_year => 'Год';
-
-  @override
-  String get report_download_full_title => 'Скачать полный отчёт';
-
-  @override
-  String get report_no_collectors =>
-      'Нет доступных коллекторов для этой станции.';
+  String get report_no_collectors => 'Коллекторы не найдены';
 
   @override
   String get report_collector_label => 'Коллектор';
-
-  @override
-  String get report_select_collector_hint => 'Выберите коллектор (PN)';
-
-  @override
-  String get action_cancel => 'Отмена';
-
-  @override
-  String get action_download => 'Скачать';
 }

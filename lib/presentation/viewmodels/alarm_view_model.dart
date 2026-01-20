@@ -12,6 +12,7 @@ class AlarmViewModel extends ChangeNotifier {
   String? _error;
   List<Alarm> _alarms = [];
   List<Warning> _warnings = [];
+  int _totalAlarmCount = 0; // Total from API (not capped by pagesize)
 
   // Filters
   String _selectedPeriod = 'Week';
@@ -24,6 +25,7 @@ class AlarmViewModel extends ChangeNotifier {
   String? get error => _error;
   List<Alarm> get alarms => _alarms;
   List<Warning> get warnings => _warnings;
+  int get totalAlarmCount => _totalAlarmCount; // Total from API (not capped)
   String get selectedPeriod => _selectedPeriod;
   String get selectedAlarmType => _selectedAlarmType;
   String get selectedDevice => _selectedDevice;
@@ -106,8 +108,8 @@ class AlarmViewModel extends ChangeNotifier {
         }
       }
 
-      // Load warnings using the new API
-      _warnings = await _alarmRepository.getWarnings(
+      // Load warnings using the new API (returns record with warnings and total)
+      final result = await _alarmRepository.getWarnings(
         plantId,
         startDate: startDate,
         endDate: endDate,
@@ -120,7 +122,11 @@ class AlarmViewModel extends ChangeNotifier {
             : null,
       );
 
-      print('AlarmViewModel: Loaded ${_warnings.length} warnings');
+      _warnings = result.warnings;
+      _totalAlarmCount = result.total;
+
+      print(
+          'AlarmViewModel: Loaded ${_warnings.length} warnings, total: $_totalAlarmCount');
 
       // If selected device is not present in the new warnings set, reset to All Devices
       if (_selectedDevice != 'All Devices') {

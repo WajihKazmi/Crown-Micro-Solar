@@ -7,10 +7,14 @@ class OverviewSyncfusionChart extends StatelessWidget {
   final OverviewGraphState state;
   final String
       period; // 'Day', 'Month', 'Year', 'Total' - inferred from labels/state usually, but can be passed helper or derived
+  final bool
+      use24HourRange; // When true, shows 00:00-23:59; when false, shows 4:00-19:00
 
   OverviewSyncfusionChart({
     Key? key,
     required this.state,
+    this.use24HourRange =
+        false, // Default to 4am-7pm for overview page compatibility
   })  : period = state.labels.length == 24 &&
                 (state.labels.first.contains(':') ||
                     state.labels.last.contains(':'))
@@ -53,20 +57,47 @@ class OverviewSyncfusionChart extends StatelessWidget {
     // IMPORTANT: Only use DateTime axis if we have actual timestampData
     final bool hasTimestampData =
         series.timestampData != null && series.timestampData!.isNotEmpty;
-    final bool isDay = period == 'Day' && hasTimestampData;
 
-    final List<dynamic> dataSource = hasTimestampData
-        ? series.timestampData!
-        : List.generate(state.labels.length, (index) {
-            return _ChartData(
-              state.labels[index],
-              series.data.length > index ? series.data[index] : 0.0,
-            );
-          });
+    // For device detail screen (use24HourRange=true), always use DateTimeAxis
+    // even if timestampData is missing - we'll generate synthetic timestamps from labels
+    final bool useTimeAxis = (period == 'Day' && hasTimestampData) ||
+        use24HourRange; // Allow 24hr range even without timestamp data
+
+    // Build data source:
+    // - If we have timestampData, use it directly
+    // - If use24HourRange is true but no timestampData, generate synthetic timestamps from labels
+    // - Otherwise use _ChartData with labels
+    late final List<dynamic> dataSource;
+
+    if (hasTimestampData) {
+      dataSource = series.timestampData!;
+    } else if (use24HourRange && state.labels.isNotEmpty) {
+      // Generate synthetic timestamp data for 24-hour display
+      // This ensures the chart shows the full 24-hour range even when API returns no timestampData
+      final today = DateTime.now();
+      dataSource = List.generate(state.labels.length, (index) {
+        // Parse hour from label like "00:00", "01:00", etc.
+        final label = state.labels[index];
+        final parts = label.split(':');
+        final hour = int.tryParse(parts.isNotEmpty ? parts[0] : '0') ?? index;
+        final timestamp = DateTime(today.year, today.month, today.day, hour, 0);
+        return OverviewGraphDataPoint(
+          timestamp: timestamp,
+          value: series.data.length > index ? series.data[index] : 0.0,
+        );
+      });
+    } else {
+      dataSource = List.generate(state.labels.length, (index) {
+        return _ChartData(
+          state.labels[index],
+          series.data.length > index ? series.data[index] : 0.0,
+        );
+      });
+    }
 
     // Debug: print data source info with full detail
     print(
-        'OverviewSyncfusionChart: period=$period, hasTimestampData=$hasTimestampData, isDay=$isDay, dataSource.length=${dataSource.length}');
+        'OverviewSyncfusionChart: period=$period, hasTimestampData=$hasTimestampData, useTimeAxis=$useTimeAxis, use24HourRange=$use24HourRange, dataSource.length=${dataSource.length}');
     if (dataSource.isNotEmpty) {
       final first = dataSource.first;
       final last = dataSource.last;
@@ -90,7 +121,7 @@ class OverviewSyncfusionChart extends StatelessWidget {
     // Capture data for trackball builder (builder closures can't access outer scope easily)
     final capturedDataSource = dataSource;
     final capturedUnit = state.unit;
-    final capturedIsDay = isDay;
+    final capturedUseTimeAxis = useTimeAxis;
 
     return SfCartesianChart(
       enableAxisAnimation: true,
@@ -222,7 +253,7 @@ class OverviewSyncfusionChart extends StatelessWidget {
             } else if (data is _ChartData) {
               return data.label;
             }
-            return isDay ? DateTime.now() : '';
+            return useTimeAxis ? DateTime.now() : '';
           },
           yValueMapper: (dynamic data, _) {
             if (data is OverviewGraphDataPoint) {
@@ -250,7 +281,7 @@ class OverviewSyncfusionChart extends StatelessWidget {
             } else if (data is _ChartData) {
               return data.label;
             }
-            return isDay ? DateTime.now() : '';
+            return useTimeAxis ? DateTime.now() : '';
           },
           yValueMapper: (dynamic data, _) {
             if (data is OverviewGraphDataPoint) {
@@ -272,8 +303,29 @@ class OverviewSyncfusionChart extends StatelessWidget {
           animationDuration: 1500,
         ),
       ],
-      primaryXAxis: isDay
+      primaryXAxis: useTimeAxis
           ? DateTimeAxis(
+              // Time range depends on use24HourRange:
+              // - true: Full 24-hour (00:00-23:59) for device detail screen
+              // - false: 4am-7pm (04:00-19:00) for overview page
+              minimum: () {
+                // Use the date from the first data point if available, otherwise today
+                final baseDate = (series.timestampData?.isNotEmpty ?? false)
+                    ? series.timestampData!.first.timestamp
+                    : DateTime.now();
+                final startHour = use24HourRange ? 0 : 4;
+                return DateTime(
+                    baseDate.year, baseDate.month, baseDate.day, startHour, 0);
+              }(),
+              maximum: () {
+                final baseDate = (series.timestampData?.isNotEmpty ?? false)
+                    ? series.timestampData!.first.timestamp
+                    : DateTime.now();
+                final endHour = use24HourRange ? 23 : 19;
+                final endMinute = use24HourRange ? 59 : 0;
+                return DateTime(baseDate.year, baseDate.month, baseDate.day,
+                    endHour, endMinute);
+              }(),
               majorGridLines: MajorGridLines(
                 width: 0.5,
                 color: theme.dividerColor.withOpacity(0.3),
@@ -282,7 +334,9 @@ class OverviewSyncfusionChart extends StatelessWidget {
               labelStyle: TextStyle(color: theme.textTheme.bodyMedium?.color),
               dateFormat: DateFormat.Hm(),
               intervalType: DateTimeIntervalType.hours,
-              desiredIntervals: 12, // Show ~12 time labels (every 2 hours)
+              interval: use24HourRange
+                  ? 3
+                  : 2, // 3hr interval for 24hr, 2hr for 4am-7pm
               edgeLabelPlacement: EdgeLabelPlacement.shift,
             )
           : CategoryAxis(

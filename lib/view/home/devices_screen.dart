@@ -378,10 +378,9 @@ class _DevicesScreenState extends State<DevicesScreen>
                 const SizedBox(height: 6),
                 TextField(
                   controller: pnController,
-                  keyboardType: TextInputType.number,
-                  maxLength: 14,
-                  decoration: const InputDecoration(
-                      hintText: 'Enter PN Number (14 digits)', counterText: ''),
+                  keyboardType: TextInputType.text,
+                  decoration:
+                      const InputDecoration(hintText: 'Enter PN Number'),
                 ),
                 if (error != null) ...[
                   const SizedBox(height: 6),
@@ -398,8 +397,11 @@ class _DevicesScreenState extends State<DevicesScreen>
                         String? localError;
                         if (name.isEmpty) {
                           localError = 'Datalogger name is required';
-                        } else if (!RegExp(r'^\d{14}$').hasMatch(pn)) {
-                          localError = 'PN must be 14 digits';
+                        } else if (pn.isEmpty) {
+                          localError = 'PN number is required';
+                        } else if (pn.length < 10) {
+                          localError =
+                              'PN number must be at least 10 characters';
                         }
                         if (localError != null) {
                           setState(() => error = localError);
@@ -414,21 +416,47 @@ class _DevicesScreenState extends State<DevicesScreen>
                         try {
                           final res = await _deviceVM.addDatalogger(
                               plantId: plantId, pn: pn, name: name);
-                          if (res['err'] == 0) {
+                          final errCode = res['err'];
+                          if (errCode == 0) {
                             if (mounted) {
                               Navigator.of(ctx).pop();
                               ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
+                                      backgroundColor: Colors.green,
                                       content: Text(
                                           'Datalogger added successfully')));
-                              _loadDevices();
+                              _loadDevices(force: true);
                             }
                           } else {
-                            setState(() => error = res['desc']?.toString() ??
-                                'Failed to add datalogger');
+                            // Handle specific error codes matching old app
+                            String errorMessage;
+                            switch (errCode) {
+                              case 6:
+                                errorMessage = 'Parameter Error';
+                                break;
+                              case 11:
+                                errorMessage =
+                                    'No permissions (only the plant owner can add)';
+                                break;
+                              case 259:
+                                errorMessage = 'Invalid PN number';
+                                break;
+                              case 260:
+                                errorMessage = 'Power station not found';
+                                break;
+                              case 257:
+                                errorMessage = 'PN number already exists';
+                                break;
+                              default:
+                                // Use API description if available, otherwise generic message
+                                errorMessage = res['desc']?.toString() ??
+                                    'Failed to add datalogger (Error code: $errCode)';
+                            }
+                            setState(() => error = errorMessage);
                           }
                         } catch (e) {
-                          setState(() => error = e.toString());
+                          setState(
+                              () => error = 'Network error: ${e.toString()}');
                         }
                       },
                       child: _deviceVM.isAddingDatalogger

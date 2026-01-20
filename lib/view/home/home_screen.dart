@@ -515,7 +515,8 @@ class _OverviewBody extends StatefulWidget {
 class _OverviewBodyState extends State<_OverviewBody> {
   GraphMetric _selectedMetric = GraphMetric.outputPower;
   GraphPeriod _selectedPeriod = GraphPeriod.day;
-  bool _showTotalGeneration = false; // toggle between Today and Total
+  bool _showTotalGeneration =
+      true; // toggle between Today and Total (default to Total)
   bool _initialized = false;
   // Profit tracking variables (matching old app)
   String _totalProfitAll = '0.00';
@@ -1077,7 +1078,7 @@ class _OverviewBodyState extends State<_OverviewBody> {
                                             context,
                                           ).live_data
                                         : (plants.isNotEmpty
-                                            ? 'Last updated: ${plants.first.lastUpdate.hour}:${plants.first.lastUpdate.minute.toString().padLeft(2, '0')}'
+                                            ? '${gen.AppLocalizations.of(context).last_updated}: ${plants.first.lastUpdate.hour}:${plants.first.lastUpdate.minute.toString().padLeft(2, '0')}'
                                             : ''),
                                     style: TextStyle(
                                       color: Colors
@@ -1110,8 +1111,12 @@ class _OverviewBodyState extends State<_OverviewBody> {
                                             icon:
                                                 'assets/icons/home/thunder.svg',
                                             label: _showTotalGeneration
-                                                ? 'Total Power Generation'
-                                                : "Today's Power Generation",
+                                                ? gen.AppLocalizations.of(
+                                                        context)
+                                                    .total_power_generation
+                                                : gen.AppLocalizations.of(
+                                                        context)
+                                                    .today_power_generation,
                                             value: _showTotalGeneration
                                                 ? _totalGenerationSum
                                                     .toStringAsFixed(1)
@@ -1169,17 +1174,12 @@ class _OverviewBodyState extends State<_OverviewBody> {
                                           mainAxisAlignment:
                                               MainAxisAlignment.center,
                                           children: [
-                                            // Smart unit selection: show W for small values, kW for large
+                                            // Always use kW for consistency
                                             Builder(
                                               builder: (context) {
-                                                final bool useKw =
-                                                    totalOutput >= 1000;
                                                 final double displayValue =
-                                                    useKw
-                                                        ? totalOutput / 1000
-                                                        : totalOutput;
-                                                final String unit =
-                                                    useKw ? 'kW' : 'W';
+                                                    totalOutput / 1000;
+                                                const String unit = 'kW';
 
                                                 return Column(
                                                   children: [
@@ -1215,7 +1215,8 @@ class _OverviewBodyState extends State<_OverviewBody> {
                                             ),
                                             const SizedBox(height: 4),
                                             Text(
-                                              'Current Power\n Generation',
+                                              gen.AppLocalizations.of(context)
+                                                  .current_power_generation,
                                               style: TextStyle(
                                                 fontSize: 10,
                                                 color: Theme.of(
@@ -1226,7 +1227,8 @@ class _OverviewBodyState extends State<_OverviewBody> {
                                               textAlign: TextAlign.center,
                                             ),
                                             Text(
-                                              'All Power Stations',
+                                              gen.AppLocalizations.of(context)
+                                                  .all_power_stations,
                                               style: TextStyle(
                                                 fontSize: 8,
                                                 color: Theme.of(context)
@@ -1259,14 +1261,14 @@ class _OverviewBodyState extends State<_OverviewBody> {
                     Expanded(
                       child: _SummaryCard(
                         icon: 'assets/icons/home/totalPlants.svg',
-                        label: 'Total Plant',
+                        label: gen.AppLocalizations.of(context).total_plant,
                         value: totalPlants.toString(),
                       ),
                     ),
                     Expanded(
                       child: _SummaryCard(
                         icon: 'assets/icons/home/totalDevices.svg',
-                        label: 'Total Device',
+                        label: gen.AppLocalizations.of(context).total_device,
                         value: (() {
                           final dv = deviceVM.totalDeviceCount;
                           final dd = dashboardViewModel.totalDevices;
@@ -1279,12 +1281,12 @@ class _OverviewBodyState extends State<_OverviewBody> {
                     Expanded(
                       child: _SummaryCard(
                         icon: 'assets/icons/home/totalAlarms.svg',
-                        label: 'Total Alarm',
+                        label: gen.AppLocalizations.of(context).total_alarm,
                         value: (() {
                           final av = Provider.of<AlarmViewModel>(
                             context,
                             listen: false,
-                          ).warnings.length;
+                          ).totalAlarmCount;
                           final da = dashboardViewModel.totalAlarms;
                           if (av > 0) return av.toString();
                           if (da > 0) return da.toString();
@@ -1313,7 +1315,7 @@ class _OverviewBodyState extends State<_OverviewBody> {
                     Expanded(
                       child: _SummaryCard(
                         icon: 'assets/icons/home/thunder.svg',
-                        label: 'Profit Today',
+                        label: gen.AppLocalizations.of(context).profit_today,
                         value: _dateProfitAll.isNotEmpty &&
                                 _dateProfitAll != '0.00'
                             ? (_dateProfitAll.contains('.')
@@ -1333,7 +1335,7 @@ class _OverviewBodyState extends State<_OverviewBody> {
                     Expanded(
                       child: _SummaryCard(
                         icon: 'assets/icons/home/thunder.svg',
-                        label: 'Total Profit',
+                        label: gen.AppLocalizations.of(context).total_profit,
                         value: _totalProfitAll.isNotEmpty &&
                                 _totalProfitAll != '0.00'
                             ? (_totalProfitAll.contains('.')
@@ -1382,10 +1384,7 @@ class _OverviewBodyState extends State<_OverviewBody> {
                           padding: const EdgeInsets.symmetric(
                             horizontal: 16,
                           ),
-                          value: graphVM.selectedDeviceKey ??
-                              (graphVM.deviceOptions.isNotEmpty
-                                  ? graphVM.deviceOptions.first.key
-                                  : '__ALL__'),
+                          value: graphVM.selectedDeviceKey ?? '__ALL__',
                           isExpanded: true,
                           icon: const Icon(Icons.keyboard_arrow_down),
                           items: [

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:crown_micro_solar/presentation/repositories/energy_repository.dart';
 import 'package:crown_micro_solar/presentation/repositories/device_repository.dart';
+import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_key_parameter_model.dart'
     as model;
 import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart'
@@ -103,6 +104,10 @@ class OverviewGraphViewModel extends ChangeNotifier {
   String? _error;
   bool _loading = false;
   OverviewGraphState _state = OverviewGraphState.loading();
+
+  // Request cancellation token - incremented on each new request
+  // If token changes during loading, the stale request aborts
+  int _requestToken = 0;
 
   // Device selection support
   List<DeviceRef> _devices = [];
@@ -230,7 +235,23 @@ class OverviewGraphViewModel extends ChangeNotifier {
     await refresh(plantId: plantId);
   }
 
+  /// Set the anchor date directly (e.g. from a date picker)
+  Future<void> setAnchor(DateTime newAnchor, {required String plantId}) async {
+    final prev = _anchor;
+    _anchor = newAnchor;
+    _clampAnchorToNow();
+    // If clamping kept us in the same bucket, skip refresh
+    if (_sameBucket(prev, _anchor)) {
+      return;
+    }
+    await refresh(plantId: plantId);
+  }
+
   Future<void> refresh({required String plantId}) async {
+    // Increment token to cancel any in-flight requests
+    _requestToken++;
+    final myToken = _requestToken;
+
     // Ensure anchor is not beyond current date for the active period
     _clampAnchorToNow();
     _loading = true;
@@ -239,27 +260,45 @@ class OverviewGraphViewModel extends ChangeNotifier {
     notifyListeners();
 
     print(
-        'OverviewGraphViewModel: Refreshing graph - Period: $_period, Metric: $_metric, PlantId: $plantId');
+        'OverviewGraphViewModel: [Token $myToken] Refreshing - Period: $_period, Anchor: ${_anchor.toIso8601String().substring(0, 10)}, PlantId: $plantId');
 
     try {
       if (_period == GraphPeriod.day) {
         print(
-            'OverviewGraphViewModel: Loading daily data for ${_anchor.toIso8601String().substring(0, 10)}');
+            'OverviewGraphViewModel: [Token $myToken] Loading daily for ${_anchor.toIso8601String().substring(0, 10)}');
         await _loadDaily(plantId);
       } else if (_period == GraphPeriod.month) {
-        print('OverviewGraphViewModel: Loading monthly data');
+        final yearMonth =
+            '${_anchor.year}-${_anchor.month.toString().padLeft(2, '0')}';
+        print(
+            'OverviewGraphViewModel: [Token $myToken] Loading monthly for $yearMonth');
         await _loadMonthly(plantId);
       } else if (_period == GraphPeriod.year) {
-        print('OverviewGraphViewModel: Loading yearly data');
+        print(
+            'OverviewGraphViewModel: [Token $myToken] Loading yearly for ${_anchor.year}');
         await _loadYearly(plantId);
       } else {
-        print('OverviewGraphViewModel: Loading total data');
+        print('OverviewGraphViewModel: [Token $myToken] Loading total');
         await _loadTotal(plantId);
       }
+
+      // Check if this request is still valid (not superseded by a newer request)
+      if (_requestToken != myToken) {
+        print(
+            'OverviewGraphViewModel: [Token $myToken] Request superseded by newer token $_requestToken, discarding result');
+        return; // Don't update state with stale data
+      }
+
       print(
-          'OverviewGraphViewModel: Data loaded successfully - ${_state.series.length} series, ${_state.labels.length} labels');
+          'OverviewGraphViewModel: [Token $myToken] Data loaded - ${_state.series.length} series, ${_state.labels.length} labels');
     } catch (e, stackTrace) {
-      print('OverviewGraphViewModel: Error loading graph data: $e');
+      // Check if still valid before showing error
+      if (_requestToken != myToken) {
+        print(
+            'OverviewGraphViewModel: [Token $myToken] Error occurred but request superseded, ignoring');
+        return;
+      }
+      print('OverviewGraphViewModel: [Token $myToken] Error: $e');
       print('StackTrace: $stackTrace');
       _error = e.toString();
       _state = OverviewGraphState(
@@ -273,8 +312,11 @@ class OverviewGraphViewModel extends ChangeNotifier {
         error: _error,
       );
     } finally {
-      _loading = false;
-      notifyListeners();
+      // Only update loading state if this is still the active request
+      if (_requestToken == myToken) {
+        _loading = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -300,6 +342,14 @@ class OverviewGraphViewModel extends ChangeNotifier {
         devaddr: _selectedDevice!.devaddr,
         date: dateStr,
       );
+
+      // DEBUG: Log metric resolution result
+      print(
+          'OverviewGraphViewModel: Metric $logical resolution: source=${metricResult.source}, points=${metricResult.pointCount}, series=${metricResult.series.length}');
+      if (metricResult.series.isEmpty) {
+        print(
+            'OverviewGraphViewModel: WARNING - No data returned for metric $logical (source: ${metricResult.source})');
+      }
 
       if (metricResult.series.isNotEmpty) {
         print(
@@ -670,197 +720,87 @@ class OverviewGraphViewModel extends ChangeNotifier {
   }
 
   Future<void> _loadMonthly(String plantId) async {
+    // MONTHLY: Uses querySPDeviceKeyParameterMonthPerDay with ENERGY_TODAY
+    // Matches old app's fetchDailyPGIMonth() exactly
     final daysInMonth = DateTime(_anchor.year, _anchor.month + 1, 0).day;
     final labels = List.generate(daysInMonth, (i) => '${i + 1}');
-    final data = <double>[];
-
-    // Prefer aggregated API for plant-level Output Power
-    bool usedAggregated = false;
-    if (_selectedDevice == null &&
-        (_metric == GraphMetric.outputPower ||
-            _metric == GraphMetric.todayGeneration)) {
-      try {
-        final summary = await _energyRepo.getMonthlyEnergy(
-          plantId,
-          _anchor.year.toString(),
-          _anchor.month.toString(),
-        );
-        final points = summary.hourlyData; // reused field as generic list
-        if (points.isNotEmpty) {
-          // Build per-day values: prefer energy for generation; otherwise fallback
-          for (int i = 0; i < points.length; i++) {
-            final p = points[i];
-            final v = (_metric == GraphMetric.todayGeneration)
-                ? (p.energy)
-                : ((p.energy != 0) ? p.energy : p.power);
-            data.add(v);
-          }
-          // Adjust labels if API returned fewer/more points
-          if (data.length != labels.length) {
-            labels
-              ..clear()
-              ..addAll(List.generate(data.length, (i) => '${i + 1}'));
-          }
-          usedAggregated = true;
-        }
-      } catch (_) {
-        usedAggregated = false;
-      }
+    final Map<int, double> dailyTotals = {};
+    for (int d = 1; d <= daysInMonth; d++) {
+      dailyTotals[d] = 0.0;
     }
 
-    if (!usedAggregated) {
-      if (_selectedDevice != null) {
-        // Device selected: try device-level aggregated month-per-day first
-        List<double> tmp = List<double>.filled(daysInMonth, 0);
-        bool gotFromMonthApi = false;
+    try {
+      // Get all devices (like old app loops through collectors)
+      final devicesBundle = await _deviceRepo.getDevicesAndCollectors(plantId);
+      // allDevices is List<Device>, use proper property access
+      final allDevices = devicesBundle['allDevices'] as List<dynamic>? ?? [];
+
+      final yearMonth =
+          '${_anchor.year.toString().padLeft(4, '0')}-${_anchor.month.toString().padLeft(2, '0')}';
+
+      print(
+          'OverviewGraph: Loading monthly data for $yearMonth with ${allDevices.length} devices');
+
+      // Loop through each device (old app: for (var collector in psInfo?.dat.collector ?? []))
+      for (final dev in allDevices) {
         try {
-          final logical = _metricToLogical[_metric]!;
+          // Device is typed object with properties, not a Map
+          final device = dev as Device;
+          final pn = device.pn;
+          final sn = device.sn;
+          final devcode = device.devcode;
+          final devaddr = device.devaddr;
+
+          if (sn.isEmpty || pn.isEmpty) continue;
+
+          // Old app uses: querySPDeviceKeyParameterMonthPerDay with ENERGY_TODAY
           final res = await _deviceRepo.resolveMetricMonthPerDay(
-            logicalMetric: logical,
-            sn: _selectedDevice!.sn,
-            pn: _selectedDevice!.pn,
-            devcode: _selectedDevice!.devcode,
-            devaddr: _selectedDevice!.devaddr,
-            yearMonth:
-                '${_anchor.year.toString().padLeft(4, '0')}-${_anchor.month.toString().padLeft(2, '0')}',
+            logicalMetric: 'ENERGY_TODAY',
+            sn: sn,
+            pn: pn,
+            devcode: devcode,
+            devaddr: devaddr,
+            yearMonth: yearMonth,
           );
-          if (res.series.isNotEmpty) {
-            int fallbackIdx = 0;
-            for (final p in res.series) {
-              final ts = p['ts']?.toString();
-              final val = p['val'];
-              if (val is! num) continue;
-              final v = val.toDouble();
-              int? idx;
-              if (ts != null) {
-                final dt = DateTime.tryParse(ts);
-                if (dt != null && dt.month == _anchor.month) {
-                  idx = dt.day - 1;
-                }
-              }
-              // If timestamp missing/unparseable, place sequentially
-              idx ??=
-                  (fallbackIdx < daysInMonth ? fallbackIdx : daysInMonth - 1);
-              if (idx >= 0 && idx < tmp.length) tmp[idx] = v;
-              fallbackIdx++;
-            }
-            gotFromMonthApi = tmp.any((v) => v != 0);
-          }
-        } catch (_) {
-          gotFromMonthApi = false;
-        }
 
-        if (!gotFromMonthApi) {
-          // Fallback: compute per-day values by aggregating each day's series
-          final logical = _metricToLogical[_metric]!;
-          final isSum = _aggregationForMetric(_metric) == _Agg.sum;
-          for (int day = 1; day <= daysInMonth; day++) {
-            final dateStr =
-                _fmtDate(DateTime(_anchor.year, _anchor.month, day));
-            double dayVal = 0.0;
-            try {
-              final r = await _deviceRepo.resolveMetricOneDay(
-                logicalMetric: logical,
-                sn: _selectedDevice!.sn,
-                pn: _selectedDevice!.pn,
-                devcode: _selectedDevice!.devcode,
-                devaddr: _selectedDevice!.devaddr,
-                date: dateStr,
-              );
-              if (r.series.isNotEmpty) {
-                if (isSum) {
-                  for (final pt in r.series) {
-                    final v = pt['val'];
-                    if (v is num) dayVal += v.toDouble();
-                  }
-                } else {
-                  double s = 0.0;
-                  int c = 0;
-                  for (final pt in r.series) {
-                    final v = pt['val'];
-                    if (v is num) {
-                      s += v.toDouble();
-                      c += 1;
-                    }
-                  }
-                  dayVal = c == 0 ? 0.0 : s / c;
-                }
-              } else {
-                // Fallback to ViewModel key-parameter day fetch
-                final deviceVm = getIt<vm.DeviceViewModel>();
-                final param = _mapMetricToDeviceParameter(_metric);
-                final data = await deviceVm.fetchDeviceKeyParameterOneDay(
-                  sn: _selectedDevice!.sn,
-                  pn: _selectedDevice!.pn,
-                  devcode: _selectedDevice!.devcode,
-                  devaddr: _selectedDevice!.devaddr,
-                  parameter: param,
-                  date: dateStr,
-                );
-                if (data != null && data.dat?.row != null) {
-                  if (isSum) {
-                    for (final row in data.dat!.row!) {
-                      if (row.field != null && row.field!.isNotEmpty) {
-                        final v =
-                            double.tryParse(row.field!.first.toString()) ?? 0.0;
-                        dayVal += v;
-                      }
-                    }
-                  } else {
-                    double s = 0.0;
-                    int c = 0;
-                    for (final row in data.dat!.row!) {
-                      if (row.field != null && row.field!.isNotEmpty) {
-                        final v =
-                            double.tryParse(row.field!.first.toString()) ?? 0.0;
-                        s += v;
-                        c += 1;
-                      }
-                    }
-                    dayVal = c == 0 ? 0.0 : s / c;
-                  }
-                }
-              }
-            } catch (_) {
-              dayVal = 0.0;
-            }
-            tmp[day - 1] = dayVal;
-          }
-        }
+          print(
+              'OverviewGraph: Device $sn returned ${res.series.length} points');
 
-        data.addAll(tmp);
-      } else {
-        // All devices: fast aggregate by day (one call per day only if non-output metrics)
-        if (_metric == GraphMetric.outputPower ||
-            _metric == GraphMetric.todayGeneration) {
-          // If we got here, aggregated monthly failed; fall back to per-day totals but avoid long waits
-          // Limit to existing days up to today in current month; for past months, still loop but this is rare
-          for (int day = 1; day <= daysInMonth; day++) {
-            final dateStr =
-                _fmtDate(DateTime(_anchor.year, _anchor.month, day));
-            final summary = await _energyRepo.getDailyEnergy(plantId, dateStr);
-            // For generation graph we want daily kWh; for output power monthly fallback also uses kWh
-            data.add(summary.totalEnergy);
+          // Parse response like old app: _DPGIM.dat.option[i].gts, _DPGIM.dat.option[i].val
+          for (final p in res.series) {
+            final ts = p['ts']?.toString() ?? p['gts']?.toString();
+            final valStr = p['val']?.toString();
+            if (ts == null || valStr == null) continue;
+
+            final v = double.tryParse(valStr) ?? 0.0;
+            if (v == 0.0) continue; // Old app skips "0.00" values
+
+            // Extract day from timestamp
+            int? day;
+            final dt = DateTime.tryParse(ts);
+            if (dt != null && dt.month == _anchor.month) {
+              day = dt.day;
+            }
+            if (day != null && day >= 1 && day <= daysInMonth) {
+              dailyTotals[day] = (dailyTotals[day] ?? 0.0) + v;
+            }
           }
-        } else {
-          for (int day = 1; day <= daysInMonth; day++) {
-            final dateStr =
-                _fmtDate(DateTime(_anchor.year, _anchor.month, day));
-            final hourly = await _aggregateDevicesDaily(
-              plantId: plantId,
-              metric: _metric,
-              date: dateStr,
-            );
-            final agg = _aggregationForMetric(_metric) == _Agg.sum
-                ? hourly.fold(0.0, (a, b) => a + b)
-                : (hourly.isEmpty
-                    ? 0.0
-                    : hourly.reduce((a, b) => a + b) / hourly.length);
-            data.add(agg);
-          }
+        } catch (e) {
+          print('OverviewGraph: Error fetching device month data: $e');
         }
       }
+    } catch (e) {
+      print('OverviewGraph: Error in monthly aggregation: $e');
     }
+
+    // Build data array
+    final data = <double>[];
+    for (int d = 1; d <= daysInMonth; d++) {
+      data.add(dailyTotals[d] ?? 0.0);
+    }
+
+    print(
+        'OverviewGraph: Monthly data complete: ${data.length} points, sum=${data.fold(0.0, (a, b) => a + b)}');
 
     final stats = _stats(data);
     _state = OverviewGraphState(
@@ -872,7 +812,7 @@ class OverviewGraphViewModel extends ChangeNotifier {
           data: data,
         )
       ],
-      unit: _unitForMetricForPeriod(_metric, GraphPeriod.month),
+      unit: 'kWh', // Energy per day
       min: stats.min,
       max: stats.max,
       avg: stats.avg,
@@ -881,6 +821,8 @@ class OverviewGraphViewModel extends ChangeNotifier {
   }
 
   Future<void> _loadYearly(String plantId) async {
+    // YEARLY: Uses querySPDeviceKeyParameterYearPerMonth with ENERGY_TOTAL
+    // Matches old app's fetchMonthlyPGinyear() exactly
     final labels = const [
       'Jan',
       'Feb',
@@ -895,169 +837,98 @@ class OverviewGraphViewModel extends ChangeNotifier {
       'Nov',
       'Dec'
     ];
-    final data = <double>[];
-    bool usedAggregated = false;
-    if (_selectedDevice == null && _metric == GraphMetric.outputPower) {
-      try {
-        final summary =
-            await _energyRepo.getYearlyEnergy(plantId, _anchor.year.toString());
-        final points = summary.hourlyData; // reused field as generic list
-        if (points.isNotEmpty) {
-          for (final p in points) {
-            final v = (_metric == GraphMetric.todayGeneration)
-                ? p.energy
-                : (p.energy != 0 ? p.energy : p.power);
-            data.add(v);
-          }
-          // Ensure exactly 12 points
-          if (data.length != 12) {
-            // pad or trim to 12
-            if (data.length < 12) {
-              data.addAll(List<double>.filled(12 - data.length, 0));
-            } else {
-              data.removeRange(12, data.length);
-            }
-          }
-          usedAggregated = true;
-        }
-      } catch (_) {
-        usedAggregated = false;
-      }
+    final Map<int, double> monthlyTotals = {};
+    for (int m = 1; m <= 12; m++) {
+      monthlyTotals[m] = 0.0;
     }
 
-    if (!usedAggregated) {
-      if (_selectedDevice != null) {
-        // Device selected: try device-level year-per-month first
-        List<double> tmp = List<double>.filled(12, 0);
-        bool gotFromYearApi = false;
+    try {
+      final devicesBundle = await _deviceRepo.getDevicesAndCollectors(plantId);
+      final allDevices = devicesBundle['allDevices'] as List<dynamic>? ?? [];
+      final yearStr = _anchor.year.toString();
+
+      print(
+          'OverviewGraph: Loading yearly for $yearStr with ${allDevices.length} devices');
+
+      for (final dev in allDevices) {
         try {
-          final logical = _metricToLogical[_metric]!;
-          var res = await _deviceRepo.resolveMetricYearPerMonth(
-            logicalMetric: logical,
-            sn: _selectedDevice!.sn,
-            pn: _selectedDevice!.pn,
-            devcode: _selectedDevice!.devcode,
-            devaddr: _selectedDevice!.devaddr,
-            year: _anchor.year.toString(),
+          // Device is typed object with properties, not a Map
+          final device = dev as Device;
+          final pn = device.pn;
+          final sn = device.sn;
+          final devcode = device.devcode;
+          final devaddr = device.devaddr;
+
+          if (sn.isEmpty || pn.isEmpty) continue;
+
+          // Old app uses ENERGY_TOTAL for yearly
+          final res = await _deviceRepo.resolveMetricYearPerMonth(
+            logicalMetric: 'ENERGY_TOTAL',
+            sn: sn,
+            pn: pn,
+            devcode: devcode,
+            devaddr: devaddr,
+            year: yearStr,
           );
-          if (res.series.isEmpty && logical == 'PV_OUTPUT_POWER') {
-            res = await _deviceRepo.resolveMetricYearPerMonth(
-              logicalMetric: 'ENERGY_TODAY',
-              sn: _selectedDevice!.sn,
-              pn: _selectedDevice!.pn,
-              devcode: _selectedDevice!.devcode,
-              devaddr: _selectedDevice!.devaddr,
-              year: _anchor.year.toString(),
-            );
-          }
-          if (res.series.isNotEmpty) {
-            int fallbackIdx = 0;
-            for (final p in res.series) {
-              final ts = p['ts']?.toString();
-              final val = p['val'];
-              if (val is! num) continue;
-              final v = val.toDouble();
-              int? idx;
-              if (ts != null) {
-                final dt = DateTime.tryParse(ts);
-                if (dt != null && dt.year == _anchor.year) {
-                  idx = dt.month - 1;
-                }
-              }
-              // If timestamp missing/unparseable, place sequentially
-              idx ??= (fallbackIdx < 12 ? fallbackIdx : 11);
-              if (idx >= 0 && idx < tmp.length) tmp[idx] = v;
-              fallbackIdx++;
-            }
-            gotFromYearApi = tmp.any((v) => v != 0);
-          }
-        } catch (_) {
-          gotFromYearApi = false;
-        }
 
-        if (!gotFromYearApi) {
-          // Fallback: compute each month from the month-per-day endpoint
-          final logical = _metricToLogical[_metric]!;
-          final isSum = _aggregationForMetric(_metric) == _Agg.sum;
-          for (int m = 1; m <= 12; m++) {
-            double monthVal = 0.0;
-            double acc = 0.0;
-            int count = 0;
-            try {
-              var res = await _deviceRepo.resolveMetricMonthPerDay(
-                logicalMetric: logical,
-                sn: _selectedDevice!.sn,
-                pn: _selectedDevice!.pn,
-                devcode: _selectedDevice!.devcode,
-                devaddr: _selectedDevice!.devaddr,
-                yearMonth:
-                    '${_anchor.year.toString().padLeft(4, '0')}-${m.toString().padLeft(2, '0')}',
-              );
-              if (res.series.isEmpty && logical == 'PV_OUTPUT_POWER') {
-                res = await _deviceRepo.resolveMetricMonthPerDay(
-                  logicalMetric: 'ENERGY_TODAY',
-                  sn: _selectedDevice!.sn,
-                  pn: _selectedDevice!.pn,
-                  devcode: _selectedDevice!.devcode,
-                  devaddr: _selectedDevice!.devaddr,
-                  yearMonth:
-                      '${_anchor.year.toString().padLeft(4, '0')}-${m.toString().padLeft(2, '0')}',
-                );
-              }
-              if (res.series.isNotEmpty) {
-                for (final p in res.series) {
-                  final v = p['val'];
-                  if (v is num) {
-                    final d = v.toDouble();
-                    if (isSum) {
-                      acc += d;
-                    } else {
-                      acc += d;
-                      count += 1;
-                    }
-                  }
-                }
-              }
-            } catch (_) {
-              acc = 0.0;
-              count = 0;
-            }
-            monthVal = isSum ? acc : (count == 0 ? 0.0 : acc / count);
-            tmp[m - 1] = monthVal;
-          }
-        }
+          print(
+              'OverviewGraph: Device $sn returned ${res.series.length} yearly points');
 
-        data.addAll(tmp);
-      } else {
-        // All devices: for output power, sum per month via yearly endpoint (one call)
-        if (_metric == GraphMetric.outputPower) {
-          try {
-            final yearly = await _energyRepo.getYearlyEnergy(
-                plantId, _anchor.year.toString());
-            final points = yearly.hourlyData;
-            if (points.isNotEmpty) {
-              for (final p in points) {
-                data.add(p.energy != 0 ? p.energy : p.power);
+          for (final p in res.series) {
+            final ts = p['ts']?.toString() ?? p['gts']?.toString();
+            final val = p['val'];
+
+            // Debug: Print raw values
+            print(
+                'OverviewGraph: Yearly point ts=$ts val=$val valType=${val.runtimeType}');
+
+            if (ts == null) continue;
+
+            // Handle both numeric and string val
+            double v = 0.0;
+            if (val is num) {
+              v = val.toDouble();
+            } else if (val is String) {
+              v = double.tryParse(val) ?? 0.0;
+            }
+
+            if (v == 0.0) continue;
+
+            // Extract month from timestamp
+            // Format is "2025-01" - DateTime.tryParse doesn't work on this!
+            int? month;
+            if (ts.contains('-')) {
+              // Handle "YYYY-MM" or "YYYY-MM-DD" formats
+              final parts = ts.split('-');
+              if (parts.length >= 2) {
+                month = int.tryParse(parts[1]);
+                print('OverviewGraph: Parsed month=$month from $ts, value=$v');
               }
             } else {
-              data.addAll(List<double>.filled(12, 0));
+              // Try as plain month number
+              month = int.tryParse(ts);
             }
-          } catch (_) {
-            data.addAll(List<double>.filled(12, 0));
+
+            if (month != null && month >= 1 && month <= 12) {
+              monthlyTotals[month] = (monthlyTotals[month] ?? 0.0) + v;
+            }
           }
-        } else {
-          // Non-output metrics: quick zeros to avoid long waits
-          data.addAll(List<double>.filled(12, 0));
+        } catch (e) {
+          print('OverviewGraph: Error fetching device year data: $e');
         }
       }
+    } catch (e) {
+      print('OverviewGraph: Error in yearly aggregation: $e');
     }
-    // Ensure we always have 12 points to avoid 'No data' rendering when API is empty
-    while (data.length < 12) {
-      data.add(0);
+
+    final data = <double>[];
+    for (int m = 1; m <= 12; m++) {
+      data.add(monthlyTotals[m] ?? 0.0);
     }
-    if (data.length > 12) {
-      data.removeRange(12, data.length);
-    }
+
+    print(
+        'OverviewGraph: Yearly complete: ${data.length} pts, sum=${data.fold(0.0, (a, b) => a + b)}');
+
     final stats = _stats(data);
     _state = OverviewGraphState(
       labels: labels,
@@ -1068,7 +939,7 @@ class OverviewGraphViewModel extends ChangeNotifier {
           data: data,
         )
       ],
-      unit: _unitForMetricForPeriod(_metric, GraphPeriod.year),
+      unit: 'kWh',
       min: stats.min,
       max: stats.max,
       avg: stats.avg,
@@ -1082,87 +953,138 @@ class OverviewGraphViewModel extends ChangeNotifier {
     final data = <double>[];
 
     if (_selectedDevice == null && _metric == GraphMetric.outputPower) {
+      // All devices: Use per-device total API like old app (fast - one call per device)
       try {
-        final summary = await _energyRepo.getPlantEnergyTotalPerYear(plantId);
-        final points = summary.hourlyData; // reused as generic list
-        if (points.isNotEmpty) {
-          for (final p in points) {
-            labels.add(p.timestamp.year.toString());
-            data.add(_metric == GraphMetric.todayGeneration
-                ? p.energy
-                : (p.energy != 0 ? p.energy : p.power));
-          }
-        } else {
-          // Fallback when API returns empty: query recent years individually
-          final currentYear = DateTime.now().year;
-          final startYear = currentYear - 4;
-          for (int y = startYear; y <= currentYear; y++) {
-            try {
-              final yearly = await _energyRepo.getYearlyEnergy(
-                plantId,
-                y.toString(),
-              );
-              double yearSum = 0.0;
-              for (final p in yearly.hourlyData) {
-                yearSum += p.energy != 0 ? p.energy : p.power;
+        // Get all devices for aggregation
+        final devicesBundle =
+            await _deviceRepo.getDevicesAndCollectors(plantId);
+        final allDevices = devicesBundle['allDevices'] as List<dynamic>? ?? [];
+
+        // Get data for last 5 years
+        final currentYear = DateTime.now().year;
+        final startYear = currentYear - 4;
+
+        // Initialize per-year totals
+        final Map<int, double> yearlyTotals = {};
+        for (int y = startYear; y <= currentYear; y++) {
+          yearlyTotals[y] = 0.0;
+        }
+
+        // Loop through each device and aggregate yearly data
+        for (final dev in allDevices) {
+          try {
+            // Device is typed object with properties, not a Map
+            final device = dev as Device;
+            final pn = device.pn;
+            final sn = device.sn;
+            final devcode = device.devcode;
+            final devaddr = device.devaddr;
+
+            if (sn.isEmpty || pn.isEmpty) continue;
+
+            // Use ENERGY_TOTAL like old app's fetchAnnualPg()
+            final res = await _deviceRepo.resolveMetricTotalPerYear(
+              logicalMetric: 'ENERGY_TOTAL',
+              sn: sn,
+              pn: pn,
+              devcode: devcode,
+              devaddr: devaddr,
+            );
+
+            // Add this device's data to yearly totals
+            for (final p in res.series) {
+              final ts = p['ts']?.toString() ?? p['gts']?.toString();
+              final val = p['val'];
+
+              // Handle both numeric and string val
+              double v = 0.0;
+              if (val is num) {
+                v = val.toDouble();
+              } else if (val is String) {
+                v = double.tryParse(val) ?? 0.0;
               }
-              labels.add(y.toString());
-              data.add(yearSum);
-            } catch (_) {
-              labels.add(y.toString());
-              data.add(0.0);
+              if (v == 0.0) continue;
+
+              // Extract year from timestamp (could be "2024" or "2024-01" or "2024-01-01")
+              int? year;
+              if (ts != null) {
+                if (ts.contains('-')) {
+                  // Format: "YYYY-MM" or "YYYY-MM-DD"
+                  final parts = ts.split('-');
+                  year = int.tryParse(parts[0]);
+                } else {
+                  // Format: "YYYY" or just year number
+                  year = int.tryParse(ts);
+                }
+                print('OverviewGraph: Total point ts=$ts year=$year val=$v');
+              }
+              if (year != null && year >= startYear && year <= currentYear) {
+                yearlyTotals[year] = (yearlyTotals[year] ?? 0.0) + v;
+              }
             }
+          } catch (e) {
+            print(
+                'OverviewGraphViewModel: Error fetching device total data: $e');
           }
         }
-      } catch (_) {
-        // fallback: use yearly aggregated endpoint per year (few calls)
+
+        // Build data array from yearly totals
+        for (int y = startYear; y <= currentYear; y++) {
+          labels.add(y.toString());
+          data.add(yearlyTotals[y] ?? 0.0);
+        }
+
+        print(
+            'OverviewGraphViewModel: Total data from per-device aggregation: ${data.length} points');
+      } catch (e) {
+        print(
+            'OverviewGraphViewModel: Error in per-device total aggregation: $e');
+        // Ultimate fallback: zeros for last 5 years
         final currentYear = DateTime.now().year;
         final startYear = currentYear - 4;
         for (int y = startYear; y <= currentYear; y++) {
-          try {
-            final yearly = await _energyRepo.getYearlyEnergy(
-              plantId,
-              y.toString(),
-            );
-            double yearSum = 0.0;
-            for (final p in yearly.hourlyData) {
-              yearSum += p.energy != 0 ? p.energy : p.power;
-            }
-            labels.add(y.toString());
-            data.add(yearSum);
-          } catch (_) {
-            labels.add(y.toString());
-            data.add(0.0);
-          }
+          labels.add(y.toString());
+          data.add(0.0);
         }
       }
     } else if (_selectedDevice != null && _metric == GraphMetric.outputPower) {
       try {
-        final logical = _metricToLogical[_metric]!;
-        var res = await _deviceRepo.resolveMetricTotalPerYear(
-          logicalMetric: logical,
+        // Use ENERGY_TOTAL like old app
+        final res = await _deviceRepo.resolveMetricTotalPerYear(
+          logicalMetric: 'ENERGY_TOTAL',
           sn: _selectedDevice!.sn,
           pn: _selectedDevice!.pn,
           devcode: _selectedDevice!.devcode,
           devaddr: _selectedDevice!.devaddr,
         );
-        if (res.series.isEmpty && logical == 'PV_OUTPUT_POWER') {
-          res = await _deviceRepo.resolveMetricTotalPerYear(
-            logicalMetric: 'ENERGY_TODAY',
-            sn: _selectedDevice!.sn,
-            pn: _selectedDevice!.pn,
-            devcode: _selectedDevice!.devcode,
-            devaddr: _selectedDevice!.devaddr,
-          );
-        }
+        print(
+            'OverviewGraph: Device-specific Total got ${res.series.length} points');
         for (final p in res.series) {
-          final ts = p['ts']?.toString();
+          final ts = p['ts']?.toString() ?? p['gts']?.toString();
           final val = p['val'];
-          if (ts != null && val is num) {
-            final dt = DateTime.tryParse(ts);
-            if (dt != null) {
-              labels.add(dt.year.toString());
-              data.add(val.toDouble());
+
+          // Handle both numeric and string val
+          double v = 0.0;
+          if (val is num) {
+            v = val.toDouble();
+          } else if (val is String) {
+            v = double.tryParse(val) ?? 0.0;
+          }
+
+          if (ts != null && v > 0) {
+            // Extract year from YYYY or YYYY-MM format
+            int? year;
+            if (ts.contains('-')) {
+              final parts = ts.split('-');
+              year = int.tryParse(parts[0]);
+            } else {
+              year = int.tryParse(ts);
+            }
+
+            if (year != null) {
+              print('OverviewGraph: Device Total point year=$year val=$v');
+              labels.add(year.toString());
+              data.add(v);
             }
           }
         }

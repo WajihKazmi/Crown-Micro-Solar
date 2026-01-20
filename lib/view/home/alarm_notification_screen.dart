@@ -6,6 +6,7 @@ import 'package:crown_micro_solar/core/di/service_locator.dart';
 import 'package:crown_micro_solar/core/services/realtime_data_service.dart';
 import 'package:crown_micro_solar/presentation/repositories/plant_repository.dart';
 import '../common/bordered_icon_button.dart';
+import 'package:crown_micro_solar/l10n/app_localizations.dart';
 
 class AlarmNotificationScreen extends StatefulWidget {
   const AlarmNotificationScreen({Key? key}) : super(key: key);
@@ -85,9 +86,9 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
           onTap: () => Navigator.of(context).pop(),
           margin: const EdgeInsets.only(left: 16.0),
         ),
-        title: const Text(
-          'Alarm Management > Plant',
-          style: TextStyle(
+        title: Text(
+          AppLocalizations.of(context).header_alarm_management,
+          style: const TextStyle(
             color: Colors.black,
             fontWeight: FontWeight.w600,
             fontSize: 16,
@@ -275,7 +276,7 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _loadAlarms,
-              child: const Text('Retry'),
+              child: Text(AppLocalizations.of(context).action_retry),
             ),
           ],
         ),
@@ -285,19 +286,19 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
     final alarmItems = viewModel.getFilteredAlarmItems();
 
     if (alarmItems.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
+            const Icon(
               Icons.notifications_off,
               size: 64,
               color: Colors.grey,
             ),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             Text(
-              'No alarms found',
-              style: TextStyle(
+              AppLocalizations.of(context).msg_no_alarms,
+              style: const TextStyle(
                 fontSize: 16,
                 color: Colors.grey,
               ),
@@ -319,7 +320,9 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
 
   Widget _buildAlarmCard(dynamic alarm, AlarmViewModel viewModel) {
     // alarm is now a Warning object
-    final statusText = alarm.handle ? 'Processed' : 'Untreated';
+    final statusText = alarm.handle
+        ? AppLocalizations.of(context).status_processed
+        : AppLocalizations.of(context).status_untreated;
     final statusColor = alarm.handle ? Colors.green : Colors.red;
 
     return Container(
@@ -345,7 +348,7 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'SN: ${alarm.sn}',
+                  '${AppLocalizations.of(context).label_sn_colon}${alarm.sn}',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
@@ -396,7 +399,7 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Code: ${alarm.code}',
+                  '${AppLocalizations.of(context).label_code_colon}${alarm.code}',
                   style: const TextStyle(
                     color: Color(0xFF2F80ED),
                     fontSize: 12,
@@ -410,9 +413,9 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
             // Occurrence time
             Row(
               children: [
-                const Text(
-                  'Occurrence time: ',
-                  style: TextStyle(
+                Text(
+                  AppLocalizations.of(context).label_occurrence_time,
+                  style: const TextStyle(
                     color: Colors.grey,
                     fontSize: 12,
                   ),
@@ -431,9 +434,9 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
             // Device PN
             Row(
               children: [
-                const Text(
-                  'Device PN: ',
-                  style: TextStyle(
+                Text(
+                  AppLocalizations.of(context).label_device_pn,
+                  style: const TextStyle(
                     color: Colors.grey,
                     fontSize: 12,
                   ),
@@ -452,9 +455,9 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
             // Device type (numeric code in green)
             Row(
               children: [
-                const Text(
-                  'Device Type: ',
-                  style: TextStyle(
+                Text(
+                  AppLocalizations.of(context).label_device_type,
+                  style: const TextStyle(
                     color: Colors.grey,
                     fontSize: 12,
                   ),
@@ -475,9 +478,9 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Description: ',
-                  style: TextStyle(
+                Text(
+                  AppLocalizations.of(context).label_description,
+                  style: const TextStyle(
                     color: Colors.grey,
                     fontSize: 12,
                   ),
@@ -502,7 +505,7 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 IconButton(
-                  tooltip: 'Mark as processed',
+                  tooltip: AppLocalizations.of(context).tooltip_mark_processed,
                   onPressed: alarm.handle
                       ? null
                       : () => viewModel.markAsProcessed(alarm.id, true),
@@ -513,7 +516,7 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
                 ),
                 const SizedBox(width: 4),
                 IconButton(
-                  tooltip: 'Delete',
+                  tooltip: AppLocalizations.of(context).tooltip_delete,
                   onPressed: () => _showDeleteConfirm(context, () async {
                     final nav = Navigator.of(context);
                     final messenger = ScaffoldMessenger.of(context);
@@ -521,8 +524,9 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
                     final ok = await viewModel.deleteAlarm(alarm.id, true);
                     if (ok) {
                       messenger.showSnackBar(
-                        const SnackBar(
-                          content: Text('Alarm deleted'),
+                        SnackBar(
+                          content: Text(
+                              AppLocalizations.of(context).msg_alarm_deleted),
                           backgroundColor: Colors.white,
                         ),
                       );
@@ -530,7 +534,8 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
                       messenger.showSnackBar(
                         SnackBar(
                           content: Text(
-                            viewModel.error ?? 'Failed to delete alarm',
+                            viewModel.error ??
+                                AppLocalizations.of(context).msg_failed_delete,
                             style: const TextStyle(color: Colors.black),
                           ),
                           backgroundColor: Colors.white,
@@ -578,15 +583,16 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
                   child: const Icon(Icons.delete, color: Colors.red, size: 36),
                 ),
                 const SizedBox(height: 12),
-                const Text(
-                  'Delete Alarm',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                Text(
+                  AppLocalizations.of(context).dialog_title_delete_alarm,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Are you sure you want to delete this alarm?',
+                Text(
+                  AppLocalizations.of(context).dialog_msg_delete_alarm,
                   textAlign: TextAlign.center,
-                  style: TextStyle(
+                  style: const TextStyle(
                       fontSize: 13, color: Colors.black54, height: 1.3),
                 ),
                 const SizedBox(height: 20),
@@ -602,8 +608,9 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
                           backgroundColor: Colors.white,
                         ),
                         onPressed: onConfirm,
-                        child: const Text('Yes, Delete',
-                            style: TextStyle(
+                        child: Text(
+                            AppLocalizations.of(context).action_yes_delete,
+                            style: const TextStyle(
                                 color: Colors.black87,
                                 fontWeight: FontWeight.w600)),
                       ),
@@ -619,8 +626,8 @@ class _AlarmNotificationScreenState extends State<AlarmNotificationScreen> {
                           elevation: 0,
                         ),
                         onPressed: () => Navigator.of(ctx).pop(),
-                        child: const Text('Cancel',
-                            style: TextStyle(
+                        child: Text(AppLocalizations.of(context).action_cancel,
+                            style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w600)),
                       ),
