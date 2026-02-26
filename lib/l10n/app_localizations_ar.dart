@@ -52,32 +52,33 @@ class AppLocalizationsAr extends AppLocalizations {
   String get company_name => 'كراون مايكرو (شركة ذات مسؤولية محدودة)';
 
   @override
-  String get change_password => 'Change Password';
+  String get change_password => 'تغيير كلمة المرور';
 
   @override
-  String get old_password => 'Old Password';
+  String get old_password => 'كلمة المرور القديمة';
 
   @override
-  String get new_password => 'New Password';
+  String get new_password => 'كلمة المرور الجديدة';
 
   @override
-  String get confirm_new_password => 'Confirm New Password';
+  String get confirm_new_password => 'تأكيد كلمة المرور الجديدة';
 
   @override
-  String get enter_old_password => 'Enter old password';
+  String get enter_old_password => 'أدخل كلمة المرور القديمة';
 
   @override
-  String get password_must_be_6 => 'Password must be at least 6 characters';
+  String get password_must_be_6 =>
+      'يجب أن تتكون كلمة المرور من 6 أحرف على الأقل';
 
   @override
-  String get passwords_do_not_match => 'Passwords do not match';
+  String get passwords_do_not_match => 'كلمات المرور غير متطابقة';
 
   @override
-  String get password_changed_success => 'Password changed successfully!';
+  String get password_changed_success => 'تم تغيير كلمة المرور بنجاح!';
 
   @override
   String get password_change_failed =>
-      'Failed to change password. Please check your old password and try again.';
+      'فشل تغيير كلمة المرور. يرجى التحقق من كلمة المرور القديمة والمحاولة مرة أخرى.';
 
   @override
   String get location_details => 'تفاصيل الموقع';

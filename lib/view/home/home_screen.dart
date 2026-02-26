@@ -531,7 +531,6 @@ class _OverviewBodyState extends State<_OverviewBody> {
   // Device energy data from webQueryDeviceEs (matching old app)
   double _todayGenerationSum = 0.0;
   double _totalGenerationSum = 0.0;
-  double _currentPowerSum = 0.0;
   bool _fetchingDeviceEnergy = false;
   // New API-based metrics from PlantRepository (matching old app's ALL power stations queries)
   double? _totalCurrentPowerFromAPI; // From queryPlantsActiveOuputPowerCurrent
@@ -667,7 +666,6 @@ class _OverviewBodyState extends State<_OverviewBody> {
 
       double todaySum = 0.0;
       double totalSum = 0.0;
-      double powerSum = 0.0;
 
       // Use the first collector/datalogger SN to get ALL devices at once
       String? collectorSN;
@@ -719,11 +717,6 @@ class _OverviewBodyState extends State<_OverviewBody> {
           }
 
           for (var device in devices) {
-            // Parse outpower (current power generation) - this is our primary field
-            final outpowerStr = device['outpower']?.toString() ?? '0';
-            final outpower = double.tryParse(outpowerStr) ?? 0.0;
-            powerSum += outpower;
-
             // Parse energyToday
             final energyTodayStr = device['energyToday']?.toString() ?? '0';
             final energyToday = double.tryParse(energyTodayStr) ?? 0.0;
@@ -735,7 +728,7 @@ class _OverviewBodyState extends State<_OverviewBody> {
             totalSum += energyTotal;
 
             print(
-              'Device SN: ${device['sn']}, outpower: $outpower W, energyToday: $energyToday kWh, energyTotal: $energyTotal kWh',
+              'Device SN: ${device['sn']}, energyToday: $energyToday kWh, energyTotal: $energyTotal kWh',
             );
           }
         } else {
@@ -751,11 +744,10 @@ class _OverviewBodyState extends State<_OverviewBody> {
         setState(() {
           _todayGenerationSum = todaySum;
           _totalGenerationSum = totalSum;
-          _currentPowerSum = powerSum;
         });
         print('=== FINAL SUMS ===');
         print(
-          'Today: $todaySum kWh, Total: $totalSum kWh, Current: $powerSum W',
+          'Today: $todaySum kWh, Total: $totalSum kWh',
         );
       }
     } catch (e) {
@@ -1002,34 +994,15 @@ class _OverviewBodyState extends State<_OverviewBody> {
           'Overview: Installed Capacity - API: $_totalInstalledCapacityFromAPI, Using: $installedCapacity',
         );
 
-        // FIXED: Current power generation from device data (outpower field)
-        // Prioritize device energy sum (outpower) as it's most reliable and responsive
-        double devicesSumLegacy = 0.0;
-        if (deviceVM.allDevices.isNotEmpty) {
-          for (final d in deviceVM.allDevices) {
-            devicesSumLegacy +=
-                (d.currentPower.isFinite ? d.currentPower : 0.0);
-          }
-        }
-
         print(
-          'Overview: Current Power Sources - Energy Sum: $_currentPowerSum, API: $_totalCurrentPowerFromAPI, Resolved: $_resolvedCurrentPowerKw, Realtime: ${realtimeService.totalCurrentPower}, Legacy: $devicesSumLegacy',
+          'Overview: Current Power from API: $_totalCurrentPowerFromAPI W',
         );
 
-        final totalOutput = (_currentPowerSum > 0)
-            ? _currentPowerSum
-            : (_totalCurrentPowerFromAPI != null &&
-                    _totalCurrentPowerFromAPI! > 0)
-                ? _totalCurrentPowerFromAPI!
-                : (_resolvedCurrentPowerKw != null
-                    ? _resolvedCurrentPowerKw! *
-                        1000 // convert kW back to W for consistency below then format
-                    : (realtimeService.totalCurrentPower > 0
-                        ? realtimeService.totalCurrentPower
-                        : (devicesSumLegacy > 0 ? devicesSumLegacy : 0.0)));
+        // Simplified: Just use the API value directly (queryPlantsActiveOuputPowerCurrent) - returns kW
+        final totalOutput = _totalCurrentPowerFromAPI ?? 0.0;
 
         print(
-          'Overview: Total Output Power Using: $totalOutput W (${totalOutput / 1000} kW)',
+          'Overview: Total Output Power Using: $totalOutput kW',
         );
         final totalCapacity = installedCapacity; // keep old name for UI below
         final totalPlants = plants.length;
@@ -1174,11 +1147,11 @@ class _OverviewBodyState extends State<_OverviewBody> {
                                           mainAxisAlignment:
                                               MainAxisAlignment.center,
                                           children: [
-                                            // Always use kW for consistency
+                                            // API returns kW directly - no conversion needed
                                             Builder(
                                               builder: (context) {
                                                 final double displayValue =
-                                                    totalOutput / 1000;
+                                                    totalOutput; // Already in kW from API
                                                 const String unit = 'kW';
 
                                                 return Column(

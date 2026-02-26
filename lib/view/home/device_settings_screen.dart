@@ -14,6 +14,9 @@ class DeviceSettingsScreen extends StatefulWidget {
 
 class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
   List<Map<String, dynamic>> _fields = [];
+  List<Map<String, dynamic>> _filteredFields = [];
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
   String? _error;
   bool _loading = true;
 
@@ -21,6 +24,28 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _filterSettings(String query) {
+    setState(() {
+      _searchQuery = query;
+      if (query.isEmpty) {
+        _filteredFields = _fields;
+      } else {
+        final lowerQuery = query.toLowerCase();
+        _filteredFields = _fields.where((f) {
+          final label = (f['__label']?.toString() ?? '').toLowerCase();
+          final name = (f['name']?.toString() ?? '').toLowerCase();
+          return label.contains(lowerQuery) || name.contains(lowerQuery);
+        }).toList();
+      }
+    });
   }
 
   Future<void> _load() async {
@@ -40,6 +65,7 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
       if (!mounted) return;
       setState(() {
         _fields = _parseFields(dat);
+        _filteredFields = _fields;
         _loading = false;
       });
       if (dat != null) {
@@ -76,7 +102,40 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
                   ? Center(
                       child: Text(
                           AppLocalizations.of(context).no_settings_available))
-                  : _buildCategoryList(),
+                  : Column(
+                      children: [
+                        // Search bar
+                        Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: TextField(
+                            controller: _searchController,
+                            decoration: InputDecoration(
+                              hintText: 'Search...',
+                              prefixIcon: const Icon(Icons.search),
+                              suffixIcon: _searchQuery.isNotEmpty
+                                  ? IconButton(
+                                      icon: const Icon(Icons.clear),
+                                      onPressed: () {
+                                        _searchController.clear();
+                                        _filterSettings('');
+                                      },
+                                    )
+                                  : null,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              filled: true,
+                              fillColor: Colors.grey.shade100,
+                            ),
+                            onChanged: _filterSettings,
+                          ),
+                        ),
+                        // Settings list (all tiles)
+                        Expanded(
+                          child: _buildAllSettingsList(),
+                        ),
+                      ],
+                    ),
     );
   }
 
@@ -439,6 +498,37 @@ class _DeviceSettingsScreenState extends State<DeviceSettingsScreen> {
     if (hasAny(standardKeys)) return 'Standard Settings';
 
     return 'Other Settings';
+  }
+
+  Widget _buildAllSettingsList() {
+    if (_filteredFields.isEmpty) {
+      return Center(
+        child: Text(
+          _searchQuery.isNotEmpty
+              ? 'No settings match "$_searchQuery"'
+              : AppLocalizations.of(context).no_settings_available,
+          style: TextStyle(color: Colors.grey.shade600),
+        ),
+      );
+    }
+
+    // Sort alphabetically by label
+    final sorted = List<Map<String, dynamic>>.from(_filteredFields)
+      ..sort((a, b) {
+        final aLabel = (a['__label']?.toString() ?? '').toLowerCase();
+        final bLabel = (b['__label']?.toString() ?? '').toLowerCase();
+        return aLabel.compareTo(bLabel);
+      });
+
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      itemBuilder: (_, i) => _SettingTile(
+        field: sorted[i],
+        onChanged: _load,
+      ),
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemCount: sorted.length,
+    );
   }
 
   Widget _buildCategoryList() {

@@ -85,6 +85,14 @@ dev_dependencies:
   json_serializable: ^6.7.1
   flutter_native_splash: ^2.4.1
 
+# App icon - uses assets/icons/crown_vector.png
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icons/crown_vector.png"
+  remove_alpha_ios: true
+  background_color_ios: "#FFFFFF"
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 

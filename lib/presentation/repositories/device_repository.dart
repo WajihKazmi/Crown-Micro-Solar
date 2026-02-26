@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:http/http.dart' as http;
 import 'package:crown_micro_solar/core/network/api_client.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:crypto/crypto.dart';
@@ -1505,49 +1506,57 @@ class DeviceRepository {
     return Map<String, dynamic>.from(jsonData);
   }
 
-  // Query available chart fields/parameters for a device - matches old app queryDeviceChartField action
-  // Returns list of available parameters: each has e0 (field ID), e1 (label), e3 (unit)
+  // Query available chart fields/parameters for a device - EXACT OLD APP PATTERN
   Future<List<Map<String, dynamic>>> queryDeviceChartFields(int devcode) async {
-    const salt = '12345678';
-    final prefs = await SharedPreferences.getInstance();
+    SharedPreferences prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
-    final secret = prefs.getString('Secret') ?? '';
+    final Secret = prefs.getString('Secret') ?? '';
+    String salt = "12345678";
 
-    // Build postaction metadata like the old app
-    String postaction = '';
-    try {
-      final info = await PackageInfo.fromPlatform();
-      final platform = Platform.isAndroid ? 'android' : 'ios';
-      const source = '1';
-      postaction =
-          '&source=$source&app_id=${info.packageName}&app_version=${info.version}&app_client=$platform';
-    } catch (e) {
-      postaction =
-          '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
-    }
-
-    if (token.isEmpty || secret.isEmpty) {
+    if (token.isEmpty || Secret.isEmpty) {
       throw Exception('Authentication required. Please log in again.');
     }
 
-    final action = '&action=queryDeviceChartField&devcode=$devcode&lang=en_US';
-    final data = salt + secret + token + action + postaction;
-    final sign = sha1.convert(utf8.encode(data)).toString();
-    final url =
-        'http://web.shinemonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+    String action = "&action=queryDeviceChartField&devcode=$devcode&lang=en_US";
+
+    // Package info EXACTLY like old app
+    PackageInfo packageInfo = await PackageInfo.fromPlatform();
+    String packageName = packageInfo.packageName;
+    String version = packageInfo.version;
+    String platform = Platform.isAndroid ? "android" : "ios";
+    String Source = "1";
+
+    String postaction =
+        "&source=$Source&app_id=$packageName&app_version=$version&app_client=$platform";
+
+    // Signature EXACTLY like old app
+    var data = salt + Secret + token + action + postaction;
+    var output = utf8.encode(data);
+    var sign = sha1.convert(output).toString();
+
+    // URL with web.shinemonitor.com EXACTLY like old app
+    String url =
+        'http://web.shinemonitor.com/public/?sign=$sign&salt=${salt}&token=${token}' +
+            action +
+            postaction;
 
     print('QueryDeviceChartFields URL: $url');
     try {
-      final response = await _apiClient.signedPost(url);
-      final jsonData = json.decode(response.body);
-      print('QueryDeviceChartFields response: $jsonData');
+      // Use direct http.post EXACTLY like old app
+      final response = await http.post(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final jsonData = json.decode(response.body);
+        print('QueryDeviceChartFields response err: ${jsonData['err']}');
 
-      if (jsonData['err'] == 0 && jsonData['dat'] != null) {
-        // Return list of field objects: [{e0: fieldId, e1: label, e3: unit}, ...]
-        return List<Map<String, dynamic>>.from(jsonData['dat']);
+        if (jsonData['err'] == 0 && jsonData['dat'] != null) {
+          return List<Map<String, dynamic>>.from(jsonData['dat']);
+        } else {
+          print(
+              'QueryDeviceChartFields error: ${jsonData['desc'] ?? 'Unknown error'}');
+          return [];
+        }
       } else {
-        print(
-            'QueryDeviceChartFields error: ${jsonData['desc'] ?? 'Unknown error'}');
+        print('QueryDeviceChartFields HTTP error: ${response.statusCode}');
         return [];
       }
     } catch (e) {
@@ -1556,8 +1565,7 @@ class DeviceRepository {
     }
   }
 
-  // Query chart data for a specific field - matches old app fetchChartFieldDetailData
-  // Returns time-series data: response['dat'] is array of {key: timestamp, val: value}
+  // Query chart data for a specific field - Using api.dessmonitor.com like rest of app
   Future<Map<String, dynamic>> queryDeviceChartFieldDetailData({
     required String pn,
     required String sn,
@@ -1566,44 +1574,48 @@ class DeviceRepository {
     required String field,
     required String date, // format: YYYY-MM-DD
   }) async {
-    const salt = '12345678';
-    final prefs = await SharedPreferences.getInstance();
+    SharedPreferences prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token') ?? '';
     final secret = prefs.getString('Secret') ?? '';
+    const salt = '12345678';
 
-    String postaction = '';
-    try {
-      final info = await PackageInfo.fromPlatform();
-      final platform = Platform.isAndroid ? 'android' : 'ios';
-      postaction =
-          '&source=1&app_id=${info.packageName}&app_version=${info.version}&app_client=$platform';
-    } catch (e) {
-      postaction =
-          '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
-    }
+    // Action string - same format as old app
+    String action =
+        "&action=queryDeviceChartFieldDetailData&pn=$pn&devcode=$devcode&sn=$sn&devaddr=$devaddr&field=$field&precision=5&sdate=$date+00:00:00&edate=$date+23:59:59&i18n=en_US";
 
-    if (token.isEmpty || secret.isEmpty) {
-      return {'err': -1, 'desc': 'Not authenticated', 'dat': null};
-    }
+    // Postaction like rest of app
+    const postaction =
+        '&source=1&app_id=test.app&app_version=1.0.0&app_client=android';
 
-    final action =
-        '&action=queryDeviceChartFieldDetailData&pn=$pn&devcode=$devcode&sn=$sn&devaddr=$devaddr&field=$field&precision=5&sdate=$date+00:00:00&edate=$date+23:59:59&i18n=en_US';
-    final data = salt + secret + token + action + postaction;
-    final sign = sha1.convert(utf8.encode(data)).toString();
-    final url =
-        'http://web.shinemonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
+    // Signature
+    var data = salt + secret + token + action + postaction;
+    var output = utf8.encode(data);
+    var sign = sha1.convert(output).toString();
+
+    // Use api.dessmonitor.com like the rest of the app
+    String url =
+        'http://api.dessmonitor.com/public/?sign=$sign&salt=$salt&token=$token$action$postaction';
 
     print('ChartFieldDetailData: field=$field, date=$date');
+    print('ChartFieldDetailData URL: $url');
+
     try {
       final response = await _apiClient.signedPost(url);
-      final jsonData = json.decode(response.body);
-      if (jsonData['err'] == 0) {
-        print(
-            'ChartFieldDetailData: ${(jsonData['dat'] as List?)?.length ?? 0} points');
-        return jsonData;
+      if (response.statusCode == 200) {
+        final jsonData = json.decode(response.body);
+        print('ChartFieldDetailData response err: ${jsonData['err']}');
+
+        if (jsonData['err'] == 0 && jsonData['dat'] != null) {
+          print(
+              'ChartFieldDetailData: ${(jsonData['dat'] as List?)?.length ?? 0} points');
+          return jsonData;
+        } else {
+          print('ChartFieldDetailData error: ${jsonData['desc']}');
+          return jsonData;
+        }
       } else {
-        print('ChartFieldDetailData error: ${jsonData['desc']}');
-        return jsonData;
+        print('ChartFieldDetailData HTTP error: ${response.statusCode}');
+        return {'err': response.statusCode, 'desc': 'HTTP Error', 'dat': null};
       }
     } catch (e) {
       print('ChartFieldDetailData exception: $e');

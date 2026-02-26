@@ -34,6 +34,11 @@ class DataControlOldScreen extends StatefulWidget {
 class _DataControlOldScreenState extends State<DataControlOldScreen> {
   bool _loading = true;
   Map<String, dynamic>? _resp;
+  List<Field> _allFields = [];
+  List<Field> _filteredFields = [];
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
   static const List<String> _tabsOrder = <String>[
     'Battery Settings',
     'Energy Storage Machine Settings',
@@ -47,6 +52,28 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _filterFields(String query) {
+    setState(() {
+      _searchQuery = query;
+      if (query.isEmpty) {
+        _filteredFields = List.from(_allFields);
+      } else {
+        final q = query.toLowerCase();
+        _filteredFields = _allFields.where((f) {
+          final name = (f.name ?? '').toLowerCase();
+          final hint = (f.hint ?? '').toLowerCase();
+          return name.contains(q) || hint.contains(q);
+        }).toList();
+      }
+    });
   }
 
   Future<void> _load() async {
@@ -128,42 +155,141 @@ class _DataControlOldScreenState extends State<DataControlOldScreen> {
     }
 
     final model = DeviceCtrlFieldseModel.fromJson(data);
-    final allFields = model.dat?.field ?? <Field>[];
+    final allFieldsFromModel = model.dat?.field ?? <Field>[];
 
-    // Build strict grouping per the exact spec: include ONLY the fields defined per category
-    final grouped = _strictGrouped(allFields);
-    final nonEmptyTabs =
-        _tabsOrder.where((t) => grouped[t]!.isNotEmpty).toList();
+    // Initialize all fields and filtered fields if not already done
+    if (_allFields.isEmpty && allFieldsFromModel.isNotEmpty) {
+      _allFields = List.from(allFieldsFromModel);
+      _filteredFields = List.from(allFieldsFromModel);
+    }
 
-    // Show category buttons as the main screen (as per provided design)
-    if (nonEmptyTabs.isEmpty) {
+    if (_allFields.isEmpty) {
       return _msg(width, 'No settings available');
     }
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+
+    // Sort alphabetically by name
+    final sortedFields = List<Field>.from(_filteredFields)
+      ..sort((a, b) =>
+          (a.name ?? '').toLowerCase().compareTo((b.name ?? '').toLowerCase()));
+
+    return Column(
       children: [
-        const SizedBox(height: 8),
-        for (final cat in nonEmptyTabs)
-          _CategoryCardButton(
-            title: cat,
-            count: grouped[cat]!.length,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => _CategoryScreen(
-                    category: cat,
-                    fields: _orderCategoryFields(cat, grouped[cat]!),
-                    pn: widget.pn,
-                    sn: widget.sn,
-                    devaddr: widget.devaddr,
-                    devcode: widget.devcode,
-                  ),
-                ),
-              );
-            },
+        // Search bar
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'Search...',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        _filterFields('');
+                      },
+                    )
+                  : null,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+            onChanged: _filterFields,
           ),
-        const SizedBox(height: 12),
+        ),
+        // Settings list
+        Expanded(
+          child: sortedFields.isEmpty
+              ? Center(
+                  child: Text(
+                    _searchQuery.isNotEmpty
+                        ? 'No settings match "$_searchQuery"'
+                        : 'No settings available',
+                    style: TextStyle(color: Colors.grey.shade600),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  itemCount: sortedFields.length,
+                  itemBuilder: (context, index) {
+                    final f = sortedFields[index];
+                    final items = f.item ?? const <Item>[];
+                    return Container(
+                      margin: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.06),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        leading: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).primaryColor,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.tune,
+                              color: Colors.white, size: 18),
+                        ),
+                        title: Text(
+                          f.name ?? '',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.black,
+                          ),
+                        ),
+                        subtitle: _buildSettingSub(f),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (context) => DataControlOldSubmenuScreen(
+                                pn: widget.pn,
+                                sn: widget.sn,
+                                devaddr: widget.devaddr,
+                                devcode: widget.devcode,
+                                id: f.id ?? '',
+                                fieldname: f.name ?? '',
+                                unit: f.unit,
+                                hint: f.hint,
+                                items: items,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+        ),
       ],
+    );
+  }
+
+  Widget? _buildSettingSub(Field f) {
+    final hasUnit = (f.unit != null && f.unit!.trim().isNotEmpty);
+    final hasHint = (f.hint != null && f.hint!.trim().isNotEmpty);
+    if (!hasUnit && !hasHint) return null;
+    final pieces = <String>[];
+    if (hasUnit) pieces.add('Unit: ${f.unit}');
+    if (hasHint) pieces.add('Hint: ${f.hint}');
+    return Text(
+      pieces.join(' · '),
+      style: const TextStyle(fontSize: 11, color: Colors.black54),
     );
   }
 

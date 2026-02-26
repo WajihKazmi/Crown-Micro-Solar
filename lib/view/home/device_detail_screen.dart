@@ -4,13 +4,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:provider/provider.dart';
 import 'package:crown_micro_solar/l10n/app_localizations.dart';
 
 import 'package:crown_micro_solar/core/di/service_locator.dart';
 import 'package:crown_micro_solar/presentation/models/device/device_model.dart';
 import 'package:crown_micro_solar/core/services/report_download_service.dart';
-import 'package:crown_micro_solar/core/utils/navigation_service.dart';
 
 import 'package:crown_micro_solar/presentation/models/device/device_live_signal_model.dart';
 import 'package:crown_micro_solar/presentation/viewmodels/device_view_model.dart';
@@ -2637,10 +2635,13 @@ class _DeviceMetricGraph extends StatefulWidget {
 class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
   final DeviceRepository _deviceRepo = getIt<DeviceRepository>();
 
-  // State for the simplified graph
-  List<String> _availableColumns = [];
-  String? _selectedColumn;
-  Map<String, dynamic>? _pagingData;
+  // State for the graph (Old App Pattern)
+  // Store full field objects: e0=field ID (for API), e1=label (for display), e3=unit
+  List<Map<String, dynamic>> _chartFields = [];
+  String? _selectedFieldId; // e0 - field ID used in API
+  String? _selectedFieldLabel; // e1 - display label
+  String? _selectedFieldUnit; // e3 - unit
+  List<Map<String, dynamic>> _chartDataPoints = []; // Extracted chart data
   DateTime _selectedDate = DateTime.now();
   bool _isLoading = true;
   String? _error;
@@ -2653,6 +2654,7 @@ class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
     });
   }
 
+  /// Fetch available chart fields using old API (queryDeviceChartField)
   Future<void> _fetchData() async {
     if (!mounted) return;
     setState(() {
@@ -2661,118 +2663,120 @@ class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
     });
 
     try {
+      // OLD APP PATTERN: Fetch chartable fields using queryDeviceChartField API
+      print(
+          'DeviceMetricGraph: Fetching chartable fields (Old App Pattern)...');
+      final chartFields =
+          await _deviceRepo.queryDeviceChartFields(widget.device.devcode);
+
+      print('DeviceMetricGraph: Found ${chartFields.length} chartable fields');
+      for (final f in chartFields) {
+        print('  - e0=${f['e0']}, e1=${f['e1']}, e3=${f['e3']}');
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _chartFields = chartFields;
+
+        if (_chartFields.isEmpty) {
+          _error = 'No chart fields available';
+          _isLoading = false;
+          return;
+        }
+
+        // Select default field if needed
+        if (_selectedFieldId == null ||
+            !_chartFields.any((f) => f['e0'] == _selectedFieldId)) {
+          // Just use the first field
+          _selectedFieldId = _chartFields[0]['e0']?.toString();
+          _selectedFieldLabel = _chartFields[0]['e1']?.toString();
+          _selectedFieldUnit = _chartFields[0]['e3']?.toString();
+        }
+
+        _isLoading = false;
+      });
+
+      // Fetch chart data for selected field using old API
+      if (_selectedFieldId != null) {
+        await _fetchChartFieldDetailData();
+      }
+    } catch (e) {
+      print('DeviceMetricGraph: Error in _fetchData: $e');
+      if (mounted) {
+        setState(() {
+          _error = 'Failed to load graph fields: $e';
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  /// Fetch chart data for selected field using old API (queryDeviceChartFieldDetailData)
+  Future<void> _fetchChartFieldDetailData() async {
+    if (_selectedFieldId == null || !mounted) return;
+
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
       final dateStr = _selectedDate.toIso8601String().substring(0, 10);
       print(
-          'DeviceMetricGraph: Fetching paging data for ${widget.device.sn} on $dateStr');
+          'DeviceMetricGraph: Fetching chart data for field ID=$_selectedFieldId (label=$_selectedFieldLabel), date=$dateStr');
 
-      final paging = await _deviceRepo.fetchDeviceDataOneDayPaging(
-        sn: widget.device.sn,
+      // OLD APP PATTERN: Use queryDeviceChartFieldDetailData API with field ID (e0)
+      final result = await _deviceRepo.queryDeviceChartFieldDetailData(
         pn: widget.device.pn,
+        sn: widget.device.sn,
         devcode: widget.device.devcode,
         devaddr: widget.device.devaddr,
+        field: _selectedFieldId!, // Use e0 (field ID), not e1 (label)
         date: dateStr,
-        page: 0,
-        pageSize: 500, // Get more data points for better graph
       );
 
       if (!mounted) return;
 
-      if (paging != null && paging['dat'] != null) {
-        final dat = paging['dat'];
-        final titleList = dat['title'] as List? ?? [];
-
-        // Only include columns that have a unit (excludes firmware, IDs, timestamps, etc.)
-        final filteredTitles = <String>[];
-        for (final t in titleList) {
-          if (t is! Map) continue;
-          final title = t['title']?.toString() ?? '';
-          final unit = t['unit']?.toString() ?? '';
-
-          // Skip empty titles, timestamps, and fields without units
-          if (title.isEmpty) continue;
-          if (title.toLowerCase() == 'timestamp') continue;
-          if (unit.isEmpty) continue; // Only include fields WITH a unit
-
-          filteredTitles.add(title);
+      if (result['err'] == 0 && result['dat'] != null) {
+        // Old app format: dat is a list of {key: timestamp, val: value}
+        final datList = result['dat'] as List?;
+        if (datList != null && datList.isNotEmpty) {
+          _chartDataPoints = datList.map((item) {
+            return Map<String, dynamic>.from(item);
+          }).toList();
+          print(
+              'DeviceMetricGraph: Fetched ${_chartDataPoints.length} data points for $_selectedFieldLabel');
+        } else {
+          _chartDataPoints = [];
+          print('DeviceMetricGraph: No data points returned');
         }
-
-        print(
-            'DeviceMetricGraph: Found ${filteredTitles.length} graphable columns (with units): ${filteredTitles.take(5).join(", ")}...');
-
-        setState(() {
-          _availableColumns = filteredTitles;
-          _pagingData = paging;
-          // Keep selected column if still available, otherwise select PV Input Current as default
-          if (_selectedColumn == null ||
-              !filteredTitles.contains(_selectedColumn)) {
-            // Prefer PV Current-related field as default (e.g., PV1 Current, PV Input Current, PV Charging Current)
-            String? defaultColumn;
-            // First try: look for PV + current (most specific)
-            for (final col in filteredTitles) {
-              final colLower = col.toLowerCase();
-              if (colLower.contains('pv') && colLower.contains('current')) {
-                defaultColumn = col;
-                print(
-                    'DeviceMetricGraph: Selected default column (PV current): $col');
-                break;
-              }
-            }
-            // Second try: look for any PV + power field
-            if (defaultColumn == null) {
-              for (final col in filteredTitles) {
-                final colLower = col.toLowerCase();
-                if (colLower.contains('pv') && colLower.contains('power')) {
-                  defaultColumn = col;
-                  print(
-                      'DeviceMetricGraph: Selected default column (PV power): $col');
-                  break;
-                }
-              }
-            }
-            // Third try: look for any charging current field
-            if (defaultColumn == null) {
-              for (final col in filteredTitles) {
-                final colLower = col.toLowerCase();
-                if (colLower.contains('charging') &&
-                    colLower.contains('current')) {
-                  defaultColumn = col;
-                  print(
-                      'DeviceMetricGraph: Selected default column (charging current): $col');
-                  break;
-                }
-              }
-            }
-            // Final fallback: first available column
-            _selectedColumn = defaultColumn ??
-                (filteredTitles.isNotEmpty ? filteredTitles.first : null);
-            if (defaultColumn == null && filteredTitles.isNotEmpty) {
-              print(
-                  'DeviceMetricGraph: No PV/current field found, using first column: ${filteredTitles.first}');
-            }
-          }
-          _isLoading = false;
-        });
       } else {
+        _chartDataPoints = [];
+        print(
+            'DeviceMetricGraph: API error: ${result['err']}, ${result['desc']}');
+        _error = result['desc']?.toString() ?? 'Failed to fetch chart data';
+      }
+
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('DeviceMetricGraph: Error fetching chart data: $e');
+      if (mounted) {
         setState(() {
-          _availableColumns = [];
-          _pagingData = null;
-          _error = 'No data available for this date';
+          _chartDataPoints = [];
+          _error = 'Failed to load chart data: $e';
           _isLoading = false;
         });
       }
-    } catch (e) {
-      print('DeviceMetricGraph: Error fetching data: $e');
-      if (!mounted) return;
-      setState(() {
-        _error = 'Failed to load data: $e';
-        _isLoading = false;
-      });
     }
   }
 
-  /// Extract chart data for the selected column from paging response
+  /// Build chart state from _chartDataPoints (fetched via ChartFieldDetailData API)
   OverviewGraphState _buildChartState() {
-    if (_pagingData == null || _selectedColumn == null) {
+    // If loading or error, return early
+    if (_isLoading || _selectedFieldId == null) {
       return OverviewGraphState(
         labels: const [],
         series: const [],
@@ -2785,21 +2789,7 @@ class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
       );
     }
 
-    final dat = _pagingData!['dat'];
-    final titlesList = (dat['title'] as List?)
-            ?.map((t) => (t as Map)['title']?.toString() ?? '')
-            .toList() ??
-        [];
-    final rows = (dat['row'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-
-    // Find column index for selected parameter
-    final columnIndex = titlesList.indexOf(_selectedColumn!);
-    // Find timestamp column index
-    final tsIndex = titlesList.indexWhere(
-      (t) => t.toLowerCase() == 'timestamp' || t.toLowerCase() == 'time',
-    );
-
-    if (columnIndex == -1) {
+    if (_chartDataPoints.isEmpty) {
       return OverviewGraphState(
         labels: const [],
         series: const [],
@@ -2807,56 +2797,34 @@ class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
         min: 0,
         max: 0,
         avg: 0,
-        error: 'Column not found',
+        isLoading: false,
+        error: _error ?? 'No data available',
       );
     }
 
-    // Extract data points with timestamps
+    // Parse chart data points from API response format: {key: timestamp, val: value}
     final timestampPoints = <OverviewGraphDataPoint>[];
     final values = <double>[];
 
-    for (final row in rows) {
-      final fields = row['field'] as List?;
-      if (fields == null || columnIndex >= fields.length) continue;
+    for (final point in _chartDataPoints) {
+      final keyStr = point['key']?.toString();
+      final valStr = point['val']?.toString();
 
-      // Parse timestamp
-      DateTime? timestamp;
-      if (tsIndex != -1 && tsIndex < fields.length) {
-        final tsStr = fields[tsIndex]?.toString();
-        if (tsStr != null) {
-          timestamp = DateTime.tryParse(tsStr.replaceAll(' ', 'T'));
-        }
-      }
-      // Fallback: use row 'time' field
-      timestamp ??= () {
-        final timeStr = row['time']?.toString();
-        if (timeStr == null) return null;
-        // Parse time like "06:15" and combine with selected date
-        final parts = timeStr.split(':');
-        if (parts.length >= 2) {
-          final hour = int.tryParse(parts[0]) ?? 0;
-          final min = int.tryParse(parts[1]) ?? 0;
-          return DateTime(_selectedDate.year, _selectedDate.month,
-              _selectedDate.day, hour, min);
-        }
-        return null;
-      }();
+      if (keyStr == null) continue;
 
+      // Parse timestamp (format: "2026-01-23 09:30:00")
+      final timestamp = DateTime.tryParse(keyStr.replaceAll(' ', 'T'));
       if (timestamp == null) continue;
 
-      // Parse value
-      final rawValue = fields[columnIndex];
-      double? value;
-      if (rawValue is num) {
-        value = rawValue.toDouble();
-      } else if (rawValue != null) {
-        value = double.tryParse(
-            rawValue.toString().replaceAll(RegExp(r'[^\d.-]'), ''));
+      // Parse value (skip "-" which means no data)
+      double value = 0.0;
+      if (valStr != null && valStr != '-') {
+        value = double.tryParse(valStr) ?? 0.0;
       }
 
-      if (value != null && !value.isNaN && !value.isInfinite) {
-        timestampPoints
-            .add(OverviewGraphDataPoint(timestamp: timestamp, value: value));
+      timestampPoints
+          .add(OverviewGraphDataPoint(timestamp: timestamp, value: value));
+      if (value > 0) {
         values.add(value);
       }
     }
@@ -2864,35 +2832,37 @@ class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
     // Sort by timestamp
     timestampPoints.sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
-    // ADD ANCHOR POINTS at 00:00 and 23:59 to force full 24-hour x-axis display
-    // These points won't affect the visible data since they use the min value or 0
+    // ADD ANCHOR POINTS at 00:00 for full 24-hour x-axis display
     final anchorDate = _selectedDate;
     final startOfDay =
         DateTime(anchorDate.year, anchorDate.month, anchorDate.day, 0, 0);
     final endOfDay =
         DateTime(anchorDate.year, anchorDate.month, anchorDate.day, 23, 59);
 
-    // Only add anchor if no data point exists at that time
+    // Check if selected date is TODAY
+    final now = DateTime.now();
+    final isToday = anchorDate.year == now.year &&
+        anchorDate.month == now.month &&
+        anchorDate.day == now.day;
+
     final hasStartAnchor = timestampPoints
         .any((p) => p.timestamp.hour == 0 && p.timestamp.minute == 0);
     final hasEndAnchor = timestampPoints
         .any((p) => p.timestamp.hour == 23 && p.timestamp.minute >= 55);
 
-    // Use minValue for anchors so they don't skew the graph visually (or 0 if no data)
-    final anchorValue =
-        values.isNotEmpty ? values.reduce((a, b) => a < b ? a : b) : 0.0;
+    final anchorValue = 0.0; // Use 0 for anchors
 
     if (!hasStartAnchor) {
       timestampPoints.insert(
           0, OverviewGraphDataPoint(timestamp: startOfDay, value: anchorValue));
     }
-    if (!hasEndAnchor) {
+    if (!hasEndAnchor && !isToday) {
       timestampPoints
           .add(OverviewGraphDataPoint(timestamp: endOfDay, value: anchorValue));
     }
 
     print(
-        'DeviceMetricGraph: Extracted ${timestampPoints.length} points for $_selectedColumn (with anchors)');
+        'DeviceMetricGraph: Built chart with ${timestampPoints.length} points from ChartFieldDetailData API');
 
     // Calculate stats
     double min = 0, max = 0, avg = 0;
@@ -2902,28 +2872,30 @@ class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
       avg = values.reduce((a, b) => a + b) / values.length;
     }
 
-    // Determine unit from column name
-    String unit = '';
-    final col = _selectedColumn!.toLowerCase();
-    if (col.contains('voltage') || col.contains('volt')) {
-      unit = 'V';
-    } else if (col.contains('current') || col.contains('amp')) {
-      unit = 'A';
-    } else if (col.contains('power') || col.contains('watt')) {
-      unit = col.contains('kw') ? 'kW' : 'W';
-    } else if (col.contains('capacity') ||
-        col.contains('soc') ||
-        col.contains('%')) {
-      unit = '%';
-    } else if (col.contains('frequency') || col.contains('hz')) {
-      unit = 'Hz';
-    } else if (col.contains('temperature') || col.contains('temp')) {
-      unit = '°C';
-    } else if (col.contains('energy') || col.contains('kwh')) {
-      unit = 'kWh';
+    // Use unit from API response (e3), or determine from column name
+    String unit = _selectedFieldUnit ?? '';
+    if (unit.isEmpty) {
+      final col = (_selectedFieldLabel ?? '').toLowerCase();
+      if (col.contains('voltage') || col.contains('volt')) {
+        unit = 'V';
+      } else if (col.contains('current') || col.contains('amp')) {
+        unit = 'A';
+      } else if (col.contains('power') || col.contains('watt')) {
+        unit = col.contains('kw') ? 'kW' : 'W';
+      } else if (col.contains('capacity') ||
+          col.contains('soc') ||
+          col.contains('%')) {
+        unit = '%';
+      } else if (col.contains('frequency') || col.contains('hz')) {
+        unit = 'Hz';
+      } else if (col.contains('temperature') || col.contains('temp')) {
+        unit = '°C';
+      } else if (col.contains('energy') || col.contains('kwh')) {
+        unit = 'kWh';
+      }
     }
 
-    // Generate hour labels for backward compatibility
+    // Generate hour labels
     final labels =
         List.generate(24, (i) => '${i.toString().padLeft(2, '0')}:00');
 
@@ -2931,9 +2903,9 @@ class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
       labels: labels,
       series: [
         OverviewGraphSeries(
-          label: _selectedColumn!,
+          label: _selectedFieldLabel ?? _selectedFieldId ?? '',
           color: Theme.of(context).colorScheme.primary,
-          data: List<double>.filled(24, 0), // Backward compat
+          data: List<double>.filled(24, 0),
           timestampData: timestampPoints,
         ),
       ],
@@ -2997,22 +2969,36 @@ class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
                                     CircularProgressIndicator(strokeWidth: 2))))
                     : DropdownButtonHideUnderline(
                         child: DropdownButton<String>(
-                          value: _selectedColumn,
+                          value: _selectedFieldId, // Use e0 (field ID)
                           isExpanded: true,
                           icon: const Icon(Icons.keyboard_arrow_down),
                           hint: const Text('Select Parameter'),
-                          items: _availableColumns
-                              .map((col) => DropdownMenuItem(
-                                    value: col,
-                                    child: Text(col,
+                          items: _chartFields
+                              .map((field) => DropdownMenuItem<String>(
+                                    value: field['e0']
+                                        ?.toString(), // e0 = field ID
+                                    child: Text(
+                                        field['e1']?.toString() ??
+                                            field['e0']?.toString() ??
+                                            '', // e1 = display label
                                         overflow: TextOverflow.ellipsis),
                                   ))
                               .toList(),
                           onChanged: (val) {
-                            if (val != null && val != _selectedColumn) {
+                            if (val != null && val != _selectedFieldId) {
+                              // Find the selected field and update all related values
+                              final selectedField = _chartFields.firstWhere(
+                                (f) => f['e0'] == val,
+                                orElse: () => {},
+                              );
                               setState(() {
-                                _selectedColumn = val;
+                                _selectedFieldId = val;
+                                _selectedFieldLabel =
+                                    selectedField['e1']?.toString();
+                                _selectedFieldUnit =
+                                    selectedField['e3']?.toString();
                               });
+                              _fetchChartFieldDetailData(); // Fetch data for new selection
                             }
                           },
                         ),
@@ -3088,63 +3074,6 @@ class _DeviceMetricGraphState extends State<_DeviceMetricGraph> {
         ),
       ],
     );
-  }
-}
-
-String _metricLabel(GraphMetric m) {
-  switch (m) {
-    case GraphMetric.outputPower:
-      return 'Output Power';
-    case GraphMetric.loadPower:
-      return 'Load Power';
-    case GraphMetric.gridPower:
-      return 'Grid Power';
-    case GraphMetric.gridVoltage:
-      return 'Grid Voltage';
-    case GraphMetric.gridFrequency:
-      return 'Grid Frequency';
-    case GraphMetric.pvInputVoltage:
-      return 'PV Input Voltage';
-    case GraphMetric.pvInputCurrent:
-      return 'PV Input Current';
-    case GraphMetric.acOutputVoltage:
-      return 'AC Output Voltage';
-    case GraphMetric.acOutputCurrent:
-      return 'AC Output Current';
-    case GraphMetric.batterySoc:
-      return 'Battery SOC';
-    case GraphMetric.batteryCapacity:
-      return 'Battery Capacity';
-    case GraphMetric.batteryVoltage:
-      return 'Battery Voltage';
-    case GraphMetric.batteryChargingCurrent:
-      return 'Battery Charging Current';
-    case GraphMetric.batteryDischargeCurrent:
-      return 'Battery Discharge Current';
-    case GraphMetric.generatorAcVoltage:
-      return 'Generator AC Voltage';
-    case GraphMetric.utilityAcVoltage:
-      return 'Utility AC Voltage';
-    case GraphMetric.pv1ChargingPower:
-      return 'PV1 Charging Power';
-    case GraphMetric.pv2ChargingPower:
-      return 'PV2 Charging Power';
-    case GraphMetric.acOutputActivePower:
-      return 'AC Output Active Power';
-    case GraphMetric.pv1InputVoltage:
-      return 'PV1 Input Voltage';
-    case GraphMetric.pv2InputVoltage:
-      return 'PV2 Input Voltage';
-    case GraphMetric.pv1InputCurrent:
-      return 'PV1 Input Current';
-    case GraphMetric.pv2InputCurrent:
-      return 'PV2 Input Current';
-    case GraphMetric.todayGeneration:
-      return 'Today Generation';
-    case GraphMetric.totalGeneration:
-      return 'Total Generation';
-    case GraphMetric.inputPower:
-      return 'Input Power';
   }
 }
 

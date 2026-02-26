@@ -32,7 +32,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
 
   // State variables
-  String _selectedRole = 'User'; // Default role
   bool _isAgreed = false; // Terms and conditions agreement
 
   @override
@@ -256,41 +255,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                             }
                             return null;
                           },
-                        ),
-                        const SizedBox(height: 15.0),
-                        Text('Role',
-                            style: theme.textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 5.0),
-                        DropdownButtonFormField<String>(
-                          value: _selectedRole,
-                          decoration: InputDecoration(
-                            hintText: 'Select your role',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                          ),
-                          items: [
-                            DropdownMenuItem(
-                                value: 'User', child: Text('User')),
-                            DropdownMenuItem(
-                                value: 'Installer', child: Text('Installer')),
-                          ],
-                          onChanged: (value) {
-                            setState(() {
-                              _selectedRole = value!;
-                            });
-                          },
-                          // validator: (value) {
-                          //   if (value == null || value.isEmpty) {
-                          //     return 'Please select your role';
-                          //   }
-                          //   return null;
-                          // },
                         ),
                         const SizedBox(height: 15.0),
                         Text('WiFi Module PN',
