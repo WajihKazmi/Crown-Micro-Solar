@@ -1,0 +1,72 @@
+API ENDPOINTS LIST - Crown Micro Solar App
+============================================
+
+CROWN MICRO API (https://apis.crown-micro.net)
+----------------------------------------------
+- api/MonitoringApp/Login
+- api/MonitoringApp/Register
+- api/MonitoringApp/PushShortCode
+- api/MonitoringApp/VerifyShortCode
+- api/MonitoringApp/GetUserID
+- api/MonitoringApp/UpdatePassword
+- api/MonitoringApp/UpdateAgentCode
+- api/MonitoringApp/DeactivateAccount
+
+
+DESS MONITOR API (http://api.dessmonitor.com/public/)
+-----------------------------------------------------
+Account:
+- action=queryAccountInfo
+
+Plant Management:
+- action=webQueryPlants
+- action=delPlant
+- action=queryPlantsActiveOuputPowerCurrent
+- action=queryPlantsNominalPower
+
+Energy Data - All Plants:
+- action=queryPlantsEnergyMonthPerDay
+- action=queryPlantsEnergyYearPerMonth
+- action=queryPlantsEnergyTotalPerYear
+- action=queryPlantsActiveOuputPowerOneDay
+- action=queryPlantsProfitStatistic
+- action=queryPlantsProfitStatisticOneDay
+
+Energy Data - Single Plant:
+- action=queryPlantEnergyByDay
+- action=queryPlantEnergyMonthPerDay
+- action=queryPlantEnergyYearPerMonth
+- action=queryPlantEnergyTotalPerYear
+- action=queryPlantActiveOuputPowerOneDay
+
+Device Management:
+- action=webQueryDeviceEs
+- action=webQueryCollectorsEs
+- action=addCollectorEs
+- action=delCollectorFromPlant
+- action=delDeviceFromPlant
+- action=editCollector
+- action=editDeviceInfo
+
+Device Data & Parameters:
+- action=queryDeviceDataOneDayPaging
+- action=queryDeviceCtrlField
+- action=queryDeviceCtrlValue
+- action=queryDeviceChartField
+- action=queryDeviceChartFieldDetailData
+- action=queryDeviceKeyParameterOneDay
+- action=querySPDeviceKeyParameterMonthPerDay
+- action=querySPDeviceKeyParameterYearPerMonth
+- action=querySPDeviceKeyParameterTotalPerYear
+- action=queryDeviceParsEs
+
+Device Control:
+- action=operateDeviceCtrlField
+- action=setDeviceCtrlField
+- action=ctrlDevice
+- action=ctrlBackFlow
+
+Alarms/Warnings:
+- action=webQueryPlantsWarning
+- action=delPlantWarning
+- action=ignorePlantWarning

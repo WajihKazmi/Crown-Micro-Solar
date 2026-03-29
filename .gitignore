@@ -81,6 +81,9 @@ build/
 **/android/gradlew.bat
 **/android/local.properties
 **/android/**/GeneratedPluginRegistrant.java
+**/android/key.properties
+**/*.keystore
+**/*.jks
 
 # iOS specific
 **/ios/**/*.mode1v3

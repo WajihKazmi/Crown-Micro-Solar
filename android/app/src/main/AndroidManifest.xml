@@ -3,8 +3,7 @@
     <!-- Storage permissions for report downloads (handle legacy and modern Android) -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>
-    <!-- For Android 11+ broad file access (will be ignored if not applicable) -->
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+    <!-- No MANAGE_EXTERNAL_STORAGE needed: downloads use app-scoped external storage -->
     <application
         android:label="crown_micro_solar"
         android:name="${applicationName}"

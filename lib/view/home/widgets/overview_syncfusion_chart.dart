@@ -268,9 +268,8 @@ class OverviewSyncfusionChart extends StatelessWidget {
               false, // Hide from trackball to prevent duplicate tooltips
         ),
 
-        // Smooth curved line overlay
-        SplineSeries<dynamic, dynamic>(
-          splineType: SplineType.natural,
+        // Straight line overlay (no spline interpolation to avoid weird curves)
+        LineSeries<dynamic, dynamic>(
           name: 'Power Line',
           color: primaryColor,
           width: 2.5,
@@ -292,7 +291,7 @@ class OverviewSyncfusionChart extends StatelessWidget {
             return 0.0;
           },
           markerSettings: MarkerSettings(
-            isVisible: false, // Hide markers for smooth line appearance
+            isVisible: false, // Hide markers for clean line appearance
             height: 6,
             width: 6,
             color: primaryColor,

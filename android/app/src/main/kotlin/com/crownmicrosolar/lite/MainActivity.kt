@@ -1,4 +1,4 @@
-package com.example.crown_micro_solar
+package com.crownmicrosolar.lite
 
 import io.flutter.embedding.android.FlutterActivity
 

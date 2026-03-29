@@ -38,27 +38,14 @@ class ReportDownloadService {
         'ReportDownloadService: Starting download - collectorPn: $collectorPn, range: $range, date: $anchorDate');
 
     // Permissions (Android only)
-    // Note: On Android 11+, MANAGE_EXTERNAL_STORAGE requires Play Store approval
-    // We try to request it but continue with fallback paths if not granted
+    // On Android < 10, we need WRITE_EXTERNAL_STORAGE (scoped via maxSdkVersion in manifest).
+    // On Android 10+, app-scoped external storage needs no special permissions.
     if (Platform.isAndroid) {
       print('ReportDownloadService: Checking storage permissions...');
-
-      // First try the regular storage permission (needed for Android < 10)
       var storageStatus = await Permission.storage.status;
       if (!storageStatus.isGranted) {
         storageStatus = await Permission.storage.request();
         print('ReportDownloadService: Storage permission: $storageStatus');
-      }
-
-      // For Android 11+, try MANAGE_EXTERNAL_STORAGE but don't block if denied
-      // Our _getDownloadsDirectory has fallback strategies that work without it
-      final manageStatus = await Permission.manageExternalStorage.status;
-      if (!manageStatus.isGranted) {
-        print(
-            'ReportDownloadService: MANAGE_EXTERNAL_STORAGE not granted, using fallback paths');
-        // Don't throw - we have fallback strategies in _getDownloadsDirectory
-      } else {
-        print('ReportDownloadService: Full storage access granted');
       }
     }
 
@@ -166,41 +153,14 @@ class ReportDownloadService {
   /// On Android 10+, we try multiple strategies to find a working path.
   Future<Directory> _getDownloadsDirectory() async {
     if (Platform.isAndroid) {
-      // Strategy 1: Try standard public Downloads path (works on most devices)
-      final publicDownloads = Directory('/storage/emulated/0/Download');
-      if (await publicDownloads.exists()) {
-        // Test if we can actually write to this directory
-        try {
-          final testFile = File('${publicDownloads.path}/.crown_test_write');
-          await testFile.writeAsString('test');
-          await testFile.delete();
-          print('ReportDownloadService: Using public Downloads folder');
-          return publicDownloads;
-        } catch (e) {
-          print('ReportDownloadService: Cannot write to public Downloads: $e');
-        }
-      }
+      // App-scoped external storage — no MANAGE_EXTERNAL_STORAGE needed.
+      // Files are accessible via the device's file manager.
 
-      // Strategy 2: Try alternative public Download path (some devices use this)
-      final altDownloads = Directory('/storage/emulated/0/Downloads');
-      if (await altDownloads.exists()) {
-        try {
-          final testFile = File('${altDownloads.path}/.crown_test_write');
-          await testFile.writeAsString('test');
-          await testFile.delete();
-          print('ReportDownloadService: Using alternative Downloads folder');
-          return altDownloads;
-        } catch (e) {
-          print('ReportDownloadService: Cannot write to alt Downloads: $e');
-        }
-      }
-
-      // Strategy 3: Use external storage directories (app-specific but accessible via file manager)
+      // Strategy 1: Use app-scoped external Downloads directory
       final candidates =
           await getExternalStorageDirectories(type: StorageDirectory.downloads);
       if (candidates != null && candidates.isNotEmpty) {
         final dir = candidates.first;
-        // Create directory if needed
         if (!await dir.exists()) {
           await dir.create(recursive: true);
         }
@@ -209,7 +169,7 @@ class ReportDownloadService {
         return dir;
       }
 
-      // Strategy 4: Use general external storage directory
+      // Strategy 2: Use general external storage directory
       final externalStorageDirs = await getExternalStorageDirectories();
       if (externalStorageDirs != null && externalStorageDirs.isNotEmpty) {
         final downloadDir =
@@ -222,7 +182,7 @@ class ReportDownloadService {
         return downloadDir;
       }
 
-      // Strategy 5: Last resort - use app documents directory
+      // Strategy 3: Last resort - use app documents directory
       final appDir = await getApplicationDocumentsDirectory();
       final downloadDir = Directory('${appDir.path}/Downloads');
       if (!await downloadDir.exists()) {
@@ -250,7 +210,7 @@ class ReportDownloadService {
   }) async {
     print('ReportDownloadService: Starting device data report download');
 
-    // Permissions (Android only) - use fallback-friendly approach
+    // Permissions (Android only) — storage permission for Android < 10 only
     if (Platform.isAndroid) {
       print(
           'ReportDownloadService: Checking storage permissions for device report...');
@@ -258,7 +218,6 @@ class ReportDownloadService {
       if (!storageStatus.isGranted) {
         storageStatus = await Permission.storage.request();
       }
-      // Don't block on MANAGE_EXTERNAL_STORAGE - _getDownloadsDirectory has fallbacks
     }
 
     // Auth and app info

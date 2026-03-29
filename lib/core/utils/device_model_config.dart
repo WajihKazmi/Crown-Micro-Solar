@@ -146,6 +146,12 @@ class DeviceModelPopupConfig {
         unit: 'A',
         apiCandidates: [
           'Battery Charging Current',
+        ],
+      ),
+      PopupFieldConfig(
+        label: 'Battery Discharging Current',
+        unit: 'A',
+        apiCandidates: [
           'Battery Discharge Current',
           'Battery Discharging Current',
         ],
@@ -247,6 +253,12 @@ class DeviceModelPopupConfig {
         unit: 'A',
         apiCandidates: [
           'Battery Charging Current',
+        ],
+      ),
+      PopupFieldConfig(
+        label: 'Battery Discharging Current',
+        unit: 'A',
+        apiCandidates: [
           'Battery Discharging Current',
         ],
       ),
@@ -330,6 +342,12 @@ class DeviceModelPopupConfig {
         unit: 'A',
         apiCandidates: [
           'Battery Charging Current',
+        ],
+      ),
+      PopupFieldConfig(
+        label: 'Battery Discharging Current',
+        unit: 'A',
+        apiCandidates: [
           'Battery Discharging Current',
         ],
       ),
@@ -420,6 +438,12 @@ class DeviceModelPopupConfig {
         unit: 'A',
         apiCandidates: [
           'Charging current',
+        ],
+      ),
+      PopupFieldConfig(
+        label: 'Battery Discharging Current',
+        unit: 'A',
+        apiCandidates: [
           'Discharging current',
         ],
       ),
